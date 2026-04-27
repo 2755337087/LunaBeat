@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -43,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -89,7 +91,11 @@ fun CustomDropdownMenu(
     items: List<MenuItem>,
     modifier: Modifier = Modifier,
     anchorPosition: MenuAnchorPosition = MenuAnchorPosition(0f, 0f),
-    menuWidth: Float = 200f
+    menuWidth: Float = 200f,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    pressColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+    borderColor: Color = Color.Transparent
 ) {
     val expandedState = remember { MutableTransitionState(false) }
     expandedState.targetState = expanded
@@ -151,6 +157,10 @@ fun CustomDropdownMenu(
                     pendingCallback = callback
                     onDismissRequest()
                 },
+                containerColor = containerColor,
+                contentColor = contentColor,
+                pressColor = pressColor,
+                borderColor = borderColor,
                 modifier = modifier
             )
         }
@@ -165,6 +175,10 @@ private fun DropdownMenuContent(
     items: List<MenuItem>,
     onDismissRequest: () -> Unit,
     onItemClick: ((() -> Unit) -> Unit)? = null,
+    containerColor: Color,
+    contentColor: Color,
+    pressColor: Color,
+    borderColor: Color,
     modifier: Modifier = Modifier
 ) {
     var currentItems by remember { mutableStateOf(items) }
@@ -209,7 +223,8 @@ private fun DropdownMenuContent(
         Surface(
             modifier = Modifier,
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = containerColor,
+            border = BorderStroke(1.dp, borderColor),
             tonalElevation = 2.dp,
             shadowElevation = 1.dp,
         ) {
@@ -263,6 +278,8 @@ private fun DropdownMenuContent(
                     titleState?.let { title ->
                         MenuHeader(
                             title = title,
+                            contentColor = contentColor,
+                            pressColor = pressColor,
                             onBack = {
                                 previousItems?.let { prev ->
                                     isNavigatingBack = true
@@ -278,6 +295,8 @@ private fun DropdownMenuContent(
                         MenuItemRow(
                             item = item,
                             hasParent = titleState != null,
+                            contentColor = contentColor,
+                            pressColor = pressColor,
                             onClick = {
                                 if (item.subItems != null) {
                                     isNavigatingBack = false
@@ -299,6 +318,8 @@ private fun DropdownMenuContent(
 @Composable
 private fun MenuHeader(
     title: String,
+    contentColor: Color,
+    pressColor: Color,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -306,9 +327,9 @@ private fun MenuHeader(
     val isPressed by interactionSource.collectIsPressedAsState()
     
     val backgroundColor = if (isPressed) {
-        MaterialTheme.colorScheme.surfaceVariant
+        pressColor
     } else {
-        androidx.compose.ui.graphics.Color.Transparent
+        Color.Transparent
     }
     
     Row(
@@ -326,6 +347,7 @@ private fun MenuHeader(
         Icon(
             painter = painterResource(id = R.drawable.back),
             contentDescription = "返回",
+            tint = contentColor,
             modifier = Modifier
                 .size(14.dp)
         )
@@ -333,7 +355,7 @@ private fun MenuHeader(
         Text(
             text = title,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = contentColor.copy(alpha = 0.88f),
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             softWrap = false
@@ -345,6 +367,8 @@ private fun MenuHeader(
 private fun MenuItemRow(
     item: MenuItem,
     hasParent: Boolean,
+    contentColor: Color,
+    pressColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -352,9 +376,9 @@ private fun MenuItemRow(
     val isPressed by interactionSource.collectIsPressedAsState()
     
     val backgroundColor = if (isPressed) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        pressColor
     } else {
-        androidx.compose.ui.graphics.Color.Transparent
+        Color.Transparent
     }
     
     Row(
@@ -372,8 +396,8 @@ private fun MenuItemRow(
         Text(
             text = item.title,
             fontSize = 15.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Normal,
+            color = contentColor,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             softWrap = false,
             modifier = Modifier.weight(1f, fill = false)
@@ -384,6 +408,7 @@ private fun MenuItemRow(
             Icon(
                 painter = painterResource(id = R.drawable.next),
                 contentDescription = "展开",
+                tint = contentColor.copy(alpha = 0.82f),
                 modifier = Modifier
                     .size(14.dp)
             )

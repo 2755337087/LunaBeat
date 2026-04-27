@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import com.lonx.audiotag.rw.AudioTagReader
 import androidx.activity.ComponentActivity
@@ -76,6 +77,7 @@ import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.modifier.springPlacement
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -83,6 +85,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+
+private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 
 // ==================== 数据模型 ====================
 
@@ -312,6 +316,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
+        private const val STATE_PLAYBACK_POSITION = "state_playback_position"
+        private const val STATE_IS_PLAYING = "state_is_playing"
         
         fun start(context: Context, audioPath: String, lyricLines: List<NewPreviewLyricLine>, title: String = "歌词预览", initialPosition: Long = 0L, creators: List<String> = emptyList(), sourceAudioPath: String = "") {
             val intent = Intent(context, LyricPreviewActivity::class.java).apply {
@@ -358,7 +364,10 @@ class LyricPreviewActivity : ComponentActivity() {
         val audioPath = intent.getStringExtra(EXTRA_AUDIO_PATH) ?: ""
         val sourceAudioPath = intent.getStringExtra(EXTRA_SOURCE_AUDIO_PATH) ?: audioPath
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "歌词预览"
-        val initialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
+        val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
+        val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
+        val restorePlaying = savedInstanceState?.getBoolean(STATE_IS_PLAYING, false) ?: false
+        currentPlaybackPosition = restoredPosition
         val creators = intent.getStringArrayExtra(EXTRA_CREATORS)?.toList() ?: emptyList()
         
         // 恢复歌词数据
@@ -424,7 +433,7 @@ class LyricPreviewActivity : ComponentActivity() {
         val reorganizedLines = reorganizeLyricsWithBackground(lines)
         
         if (audioPath.isNotEmpty()) {
-            loadAudio(audioPath, initialPosition)
+            loadAudio(audioPath, restoredPosition, restorePlaying)
         }
         
         setContent {
@@ -436,7 +445,8 @@ class LyricPreviewActivity : ComponentActivity() {
                     lyricLines = reorganizedLines,
                     creators = creators,
                     audioDuration = mediaPlayer?.duration?.toLong() ?: 0L,
-                    initialPosition = initialPosition,
+                    initialPosition = restoredPosition,
+                    initialIsPlaying = restorePlaying,
                     onBack = { 
                         // 返回时传递当前播放进度
                         returnWithPosition()
@@ -474,7 +484,7 @@ class LyricPreviewActivity : ComponentActivity() {
         finish()
     }
     
-    private fun loadAudio(path: String, initialPosition: Long = 0L) {
+    private fun loadAudio(path: String, initialPosition: Long = 0L, autoPlay: Boolean = false) {
         try {
             mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
@@ -483,6 +493,9 @@ class LyricPreviewActivity : ComponentActivity() {
                 if (initialPosition > 0) {
                     seekTo(initialPosition.toInt())
                 }
+                if (autoPlay) {
+                    start()
+                }
                 setOnCompletionListener {
                     playbackCompleted = true
                 }
@@ -490,6 +503,14 @@ class LyricPreviewActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to load audio: $path", e)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val currentPos = mediaPlayer?.currentPosition?.toLong() ?: currentPlaybackPosition
+        outState.putLong(STATE_PLAYBACK_POSITION, currentPos)
+        outState.putBoolean(STATE_IS_PLAYING, mediaPlayer?.isPlaying == true)
+        currentPlaybackPosition = currentPos
     }
     
     override fun onDestroy() {
@@ -597,6 +618,96 @@ fun getNextLineIsDuet(lyricLines: List<NewPreviewLyricLine>, currentIndex: Int):
     return false // 默认返回false
 }
 
+private fun pickBestPaletteSwatch(
+    swatches: List<androidx.palette.graphics.Palette.Swatch>,
+    score: (swatch: androidx.palette.graphics.Palette.Swatch, maxPopulation: Int) -> Float
+): androidx.palette.graphics.Palette.Swatch? {
+    if (swatches.isEmpty()) return null
+    val maxPopulation = (swatches.maxOfOrNull { it.population } ?: 1).coerceAtLeast(1)
+    return swatches.maxByOrNull { swatch -> score(swatch, maxPopulation) }
+}
+
+private fun blendColors(start: Color, end: Color, fraction: Float): Color {
+    return lerp(start, end, fraction.coerceIn(0f, 1f))
+}
+
+private fun contrastRatio(foreground: Color, background: Color): Float {
+    val lighter = max(foreground.luminance(), background.luminance())
+    val darker = min(foreground.luminance(), background.luminance())
+    return (lighter + 0.05f) / (darker + 0.05f)
+}
+
+private fun ensureReadableColor(
+    candidate: Color,
+    background: Color,
+    fallback: Color,
+    minContrast: Float
+): Color {
+    if (contrastRatio(candidate, background) >= minContrast) return candidate
+    for (step in 1..8) {
+        val mixed = blendColors(candidate, fallback, step / 8f)
+        if (contrastRatio(mixed, background) >= minContrast) {
+            return mixed
+        }
+    }
+    return fallback
+}
+
+private fun getHighContrastBlackOrWhite(background: Color): Color {
+    val blackContrast = contrastRatio(Color.Black, background)
+    val whiteContrast = contrastRatio(Color.White, background)
+    return if (blackContrast >= whiteContrast) Color.Black else Color.White
+}
+
+private fun mapComposeFontWeight(weight: Int): FontWeight {
+    return when (weight) {
+        300 -> FontWeight.Light
+        400 -> FontWeight.Normal
+        500 -> FontWeight.Medium
+        600 -> FontWeight.SemiBold
+        700 -> FontWeight.Bold
+        else -> FontWeight.Normal
+    }
+}
+
+private fun applyAndroidFontWeight(
+    paint: android.graphics.Paint,
+    fontWeight: Int
+) {
+    when (fontWeight) {
+        300 -> {
+            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+            paint.isFakeBoldText = false
+            paint.style = android.graphics.Paint.Style.FILL
+        }
+        400 -> {
+            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+            paint.isFakeBoldText = false
+            paint.style = android.graphics.Paint.Style.FILL
+        }
+        500 -> {
+            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+            paint.isFakeBoldText = true
+            paint.style = android.graphics.Paint.Style.FILL
+        }
+        600 -> {
+            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            paint.isFakeBoldText = true
+            paint.style = android.graphics.Paint.Style.FILL
+        }
+        700 -> {
+            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            paint.isFakeBoldText = true
+            paint.style = android.graphics.Paint.Style.FILL
+        }
+        else -> {
+            paint.typeface = android.graphics.Typeface.DEFAULT
+            paint.isFakeBoldText = false
+            paint.style = android.graphics.Paint.Style.FILL
+        }
+    }
+}
+
 // ==================== 预览界面 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -609,6 +720,7 @@ fun LyricPreviewScreen(
     creators: List<String> = emptyList(),
     audioDuration: Long,
     initialPosition: Long = 0L,
+    initialIsPlaying: Boolean = false,
     onBack: () -> Unit,
     onPlayPause: (Boolean) -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -625,7 +737,7 @@ fun LyricPreviewScreen(
     val prefs = remember { context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE) }
     val appPrefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
     
-    var isPlaying by remember { mutableStateOf(false) }
+    var isPlaying by remember(initialIsPlaying) { mutableStateOf(initialIsPlaying) }
     var currentTime by remember { mutableStateOf(initialPosition) }
     var showTranslation by remember { 
         mutableStateOf(prefs.getBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLATION, LyricPreviewActivity.DEFAULT_SHOW_TRANSLATION)) 
@@ -638,6 +750,7 @@ fun LyricPreviewScreen(
     }
     var showFontSizeDialog by remember { mutableStateOf(false) }
     var showFontWeightDialog by remember { mutableStateOf(false) }
+    var showAnimationTypeDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf(PreviewAudioMetadata(title, "未知艺术家", null)) }
     var lightVibrantColor by remember { mutableStateOf<Color?>(null) }
@@ -657,32 +770,85 @@ fun LyricPreviewScreen(
     // 提取封面颜色
     LaunchedEffect(metadata.coverBitmap) {
         val cover = metadata.coverBitmap
-        if (cover != null) {
-            scope.launch(Dispatchers.IO) {
-                // 1. 裁剪图片中间区域（中间才是主体）
-                val cropped = Bitmap.createBitmap(
+        if (cover == null) {
+            lightVibrantColor = null
+            darkVibrantColor = null
+            lightMutedColor = null
+            darkMutedColor = null
+            mutedColor = null
+            return@LaunchedEffect
+        }
+
+        scope.launch(Dispatchers.IO) {
+            // 1. 优先提取中心区域主体；尺寸过小时回退原图，避免裁剪越界
+            val source = if (cover.width >= 4 && cover.height >= 4) {
+                Bitmap.createBitmap(
                     cover,
                     cover.width / 4,
                     cover.height / 4,
-                    cover.width / 2,
-                    cover.height / 2
+                    (cover.width / 2).coerceAtLeast(1),
+                    (cover.height / 2).coerceAtLeast(1)
                 )
-                // 2. 降低分辨率（提升性能）
-                val small = Bitmap.createScaledBitmap(cropped, 100, 100, true)
-                
-                val palette = androidx.palette.graphics.Palette.from(small).generate()
-                val lightVibrantSwatch = palette.lightVibrantSwatch
-                val darkVibrantSwatch = palette.darkVibrantSwatch
-                val lightMutedSwatch = palette.lightMutedSwatch
-                val darkMutedSwatch = palette.darkMutedSwatch
-                val mutedSwatch = palette.mutedSwatch
-                
-                lightVibrantColor = lightVibrantSwatch?.rgb?.let { Color(it) }
-                darkVibrantColor = darkVibrantSwatch?.rgb?.let { Color(it) }
-                lightMutedColor = lightMutedSwatch?.rgb?.let { Color(it) }
-                darkMutedColor = darkMutedSwatch?.rgb?.let { Color(it) }
-                mutedColor = mutedSwatch?.rgb?.let { Color(it) }
+            } else {
+                cover
             }
+
+            // 2. 降采样保证性能
+            val small = Bitmap.createScaledBitmap(source, 120, 120, true)
+            val palette = androidx.palette.graphics.Palette.from(small)
+                .maximumColorCount(24)
+                .clearFilters()
+                .generate()
+            val swatches = palette.swatches
+
+            // 鲜艳色优先饱和度 + 中等明度 + 像素占比
+            val vibrantFallback = pickBestPaletteSwatch(swatches) { swatch, maxPopulation ->
+                val hsl = swatch.hsl
+                val saturation = hsl[1]
+                val lightness = hsl[2]
+                val populationScore = swatch.population.toFloat() / maxPopulation
+                val satScore = saturation
+                val lightnessScore = 1f - kotlin.math.abs(lightness - 0.52f)
+                satScore * 1.45f + lightnessScore * 0.45f + populationScore * 0.25f
+            }
+
+            // 柔和色优先中低饱和 + 中等明度 + 像素占比
+            val mutedFallback = pickBestPaletteSwatch(swatches) { swatch, maxPopulation ->
+                val hsl = swatch.hsl
+                val saturation = hsl[1]
+                val lightness = hsl[2]
+                val populationScore = swatch.population.toFloat() / maxPopulation
+                val satTargetScore = 1f - kotlin.math.abs(saturation - 0.28f)
+                val lightnessScore = 1f - kotlin.math.abs(lightness - 0.52f)
+                satTargetScore * 1.2f + lightnessScore * 0.45f + populationScore * 0.35f
+            }
+
+            val finalLightVibrant = palette.lightVibrantSwatch
+                ?: palette.vibrantSwatch
+                ?: vibrantFallback
+                ?: palette.dominantSwatch
+            val finalDarkVibrant = palette.darkVibrantSwatch
+                ?: palette.vibrantSwatch
+                ?: vibrantFallback
+                ?: palette.dominantSwatch
+            val finalLightMuted = palette.lightMutedSwatch
+                ?: palette.mutedSwatch
+                ?: mutedFallback
+                ?: palette.dominantSwatch
+            val finalDarkMuted = palette.darkMutedSwatch
+                ?: palette.mutedSwatch
+                ?: mutedFallback
+                ?: palette.dominantSwatch
+            val finalMuted = palette.mutedSwatch
+                ?: mutedFallback
+                ?: palette.dominantSwatch
+                ?: vibrantFallback
+
+            lightVibrantColor = finalLightVibrant?.rgb?.let { Color(it) }
+            darkVibrantColor = finalDarkVibrant?.rgb?.let { Color(it) }
+            lightMutedColor = finalLightMuted?.rgb?.let { Color(it) }
+            darkMutedColor = finalDarkMuted?.rgb?.let { Color(it) }
+            mutedColor = finalMuted?.rgb?.let { Color(it) }
         }
     }
     
@@ -719,12 +885,81 @@ fun LyricPreviewScreen(
     // 用户滑动检测
     var isUserScrolling by remember { mutableStateOf(false) }
     var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var autoScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var pendingAutoScrollIndex by remember { mutableIntStateOf(-1) }
+    var autoScrollRunningTarget by remember { mutableIntStateOf(-1) }
+    var lastAutoScrollWallTime by remember { mutableLongStateOf(0L) }
     var lastAutoScrolledIndex by remember { mutableIntStateOf(-1) }
     var currentLineIndex by remember { mutableIntStateOf(-1) }
     // seek 重置触发器 - 使用计数器确保每次 seek 都能被唯一识别
     var seekResetCounter by remember { mutableStateOf(0L) }
     // 记录最后一次尝试滚动但被跳过的行索引
     var lastSkippedScrollIndex by remember { mutableIntStateOf(-1) }
+    val autoScrollMinIntervalMs = 700L
+    fun logAutoScroll(message: String) {
+        Log.d(AUTO_SCROLL_LOG_TAG, message)
+    }
+
+    fun requestAutoScroll(targetIndex: Int) {
+        if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
+        logAutoScroll(
+            "request target=$targetIndex currentVisible=${lazyListState.firstVisibleItemIndex}" +
+                " running=$autoScrollRunningTarget pending=$pendingAutoScrollIndex activeJob=${autoScrollJob?.isActive == true}"
+        )
+
+        if (targetIndex == autoScrollRunningTarget || targetIndex == pendingAutoScrollIndex) {
+            logAutoScroll("ignore duplicated target=$targetIndex")
+            return
+        }
+        if (autoScrollJob?.isActive == true) {
+            pendingAutoScrollIndex = targetIndex
+            logAutoScroll("queue target=$targetIndex (job is active)")
+            return
+        }
+
+        autoScrollRunningTarget = targetIndex
+        autoScrollJob = coroutineScope.launch {
+            try {
+                var nextTarget = targetIndex
+                while (nextTarget >= 0) {
+                    val now = SystemClock.elapsedRealtime()
+                    val isRapidAutoScroll = (now - lastAutoScrollWallTime) < autoScrollMinIntervalMs
+                    logAutoScroll(
+                        "execute target=$nextTarget mode=${if (isRapidAutoScroll) "instant" else "animate"} " +
+                            "deltaSinceLast=${now - lastAutoScrollWallTime}ms"
+                    )
+                    if (isRapidAutoScroll) {
+                        lazyListState.scrollToItem(
+                            index = nextTarget,
+                            scrollOffset = -100
+                        )
+                    } else {
+                        lazyListState.animateScrollToItem(
+                            index = nextTarget,
+                            scrollOffset = -100
+                        )
+                    }
+                    lastAutoScrollWallTime = now
+                    logAutoScroll("complete target=$nextTarget visible=${lazyListState.firstVisibleItemIndex}")
+
+                    val pending = pendingAutoScrollIndex
+                    if (pending >= 0 && pending != nextTarget) {
+                        pendingAutoScrollIndex = -1
+                        autoScrollRunningTarget = pending
+                        nextTarget = pending
+                        logAutoScroll("drain pending target=$pending")
+                    } else {
+                        pendingAutoScrollIndex = -1
+                        autoScrollRunningTarget = -1
+                        nextTarget = -1
+                    }
+                }
+            } catch (e: CancellationException) {
+                logAutoScroll("cancelled running=$autoScrollRunningTarget pending=$pendingAutoScrollIndex")
+                throw e
+            }
+        }
+    }
 
     // 初始化时跳转到初始位置
     LaunchedEffect(Unit) {
@@ -740,6 +975,10 @@ fun LyricPreviewScreen(
                 is PressInteraction.Press, is DragInteraction.Start -> {
                     isUserScrolling = true
                     scrollJob?.cancel()
+                    autoScrollJob?.cancel()
+                    pendingAutoScrollIndex = -1
+                    autoScrollRunningTarget = -1
+                    logAutoScroll("user scroll started; cancel auto-scroll queue")
                 }
                 is PressInteraction.Release, is DragInteraction.Stop, is DragInteraction.Cancel -> {
                     scrollJob = coroutineScope.launch {
@@ -790,11 +1029,35 @@ fun LyricPreviewScreen(
         }
     }
     
+    val autoScrollLeadMs = 400L
+    val autoScrollConflictWindowMs = 1000L
+
+    fun shouldSkipAutoScrollDueToCloseNextTrigger(currentMainIndex: Int, referenceTimeMs: Long): Boolean {
+        var nextMainLineIndex = currentMainIndex + 1
+        while (nextMainLineIndex < processedLyricLines.size &&
+            (processedLyricLines[nextMainLineIndex].isBackground || processedLyricLines[nextMainLineIndex].isInterlude)
+        ) {
+            nextMainLineIndex++
+        }
+        if (nextMainLineIndex >= processedLyricLines.size) return false
+
+        val nextMainLine = processedLyricLines[nextMainLineIndex]
+        val nextTriggerTime = nextMainLine.begin - autoScrollLeadMs
+        val triggerInterval = nextTriggerTime - referenceTimeMs
+        if (triggerInterval < autoScrollConflictWindowMs) {
+            logAutoScroll(
+                "skip due close next: current=$currentMainIndex next=$nextMainLineIndex " +
+                    "interval=${triggerInterval}ms ref=$referenceTimeMs nextTrigger=$nextTriggerTime"
+            )
+        }
+        return triggerInterval < autoScrollConflictWindowMs
+    }
+
     // 自动滚动到当前播放行（屏幕1/4位置）
     LaunchedEffect(currentTime, isUserScrolling) {
         if (!isUserScrolling && processedLyricLines.isNotEmpty()) {
             // 提前400ms计算目标行，这样可以更早地切换到下一行歌词行
-            val adjustedTime = currentTime + 400L
+            val adjustedTime = currentTime + autoScrollLeadMs
             val currentLineIndex = lineNavigator.findTargetIndex(adjustedTime)
             
             if (currentLineIndex >= 0 && currentLineIndex != lastAutoScrolledIndex) {
@@ -802,6 +1065,7 @@ fun LyricPreviewScreen(
                 
                 // 检查是否应该触发自动滚动（只有两种情况不触发）
                 var shouldScroll = true
+                var skipBecauseCloseNextTrigger = false
                 
                 // 情况一：歌词行是背景歌词 → 不触发
                 if (targetLine.isBackground || targetLine.isInterlude) {
@@ -826,24 +1090,37 @@ fun LyricPreviewScreen(
                         if (timeDiff > 1550L) { // 1.55秒 = 1550毫秒
                             shouldScroll = false
                             hasLargeTimeDiff = true
+                            logAutoScroll(
+                                "skip auto-scroll current=$currentLineIndex reason=largeTimeDiff " +
+                                    "prevEnd=$prevEndTime currentBegin=$currentStartTime diff=${timeDiff}ms"
+                            )
                         }
                     }
+                }
+
+                // 情况三：如果下一次自动滚动触发间隔 < 1000ms，跳过当前行，仅让下一次触发生效
+                if (shouldScroll && shouldSkipAutoScrollDueToCloseNextTrigger(currentLineIndex, currentTime)) {
+                    shouldScroll = false
+                    skipBecauseCloseNextTrigger = true
                 }
                 
                 // 如果应该滚动，直接滚动
                 if (shouldScroll) {
                     lastAutoScrolledIndex = currentLineIndex
                     lastSkippedScrollIndex = -1
-                    // 使用弹簧动画滚动
-                    coroutineScope.launch {
-                        lazyListState.animateScrollToItem(
-                            index = currentLineIndex,
-                            scrollOffset = -100 // 负值让当前行显示在屏幕上方（约1/4位置）
-                        )
-                    }
+                    requestAutoScroll(currentLineIndex)
                 } else {
-                    // 如果不应该滚动，记录跳过的索引
-                    lastSkippedScrollIndex = currentLineIndex
+                    if (skipBecauseCloseNextTrigger) {
+                        // 间隔过短时，明确丢弃当前次触发，避免补滚动把它拉回来
+                        lastSkippedScrollIndex = -1
+                        logAutoScroll("drop current=$currentLineIndex due close-next window")
+                    } else {
+                        // 其余情况保留补滚动机制
+                        lastSkippedScrollIndex = currentLineIndex
+                        if (hasLargeTimeDiff) {
+                            logAutoScroll("mark skipped for补滚动 index=$currentLineIndex")
+                        }
+                    }
                 }
             }
             
@@ -864,15 +1141,17 @@ fun LyricPreviewScreen(
                         
                         // 检查上一句是否播放结束了
                         if (currentTime >= prevEndTime) {
+                            // 若距离下一次自动滚动触发太近，补滚动失效（避免短时间内二次滚动）
+                            if (shouldSkipAutoScrollDueToCloseNextTrigger(skippedLineIndex, currentTime)) {
+                                lastSkippedScrollIndex = -1
+                                logAutoScroll("drop 补滚动 index=$skippedLineIndex due close-next window")
+                                return@LaunchedEffect
+                            }
                             // 上一句播放结束了，强制滚动到当前跳过的行
                             lastAutoScrolledIndex = skippedLineIndex
                             lastSkippedScrollIndex = -1
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(
-                                    index = skippedLineIndex,
-                                    scrollOffset = -100
-                                )
-                            }
+                            logAutoScroll("trigger 补滚动 index=$skippedLineIndex at=$currentTime")
+                            requestAutoScroll(skippedLineIndex)
                         }
                     }
                 }
@@ -890,6 +1169,55 @@ fun LyricPreviewScreen(
     } else {
         darkMutedColor ?: mutedColor ?: MaterialTheme.colorScheme.primary
     }
+    val baseForegroundColor = getHighContrastBlackOrWhite(backgroundColor)
+    val menuSurfaceColor = ensureReadableColor(
+        candidate = blendColors(backgroundColor, accentColor, 0.20f),
+        background = backgroundColor,
+        fallback = blendColors(backgroundColor, baseForegroundColor, 0.18f),
+        minContrast = 1.25f
+    )
+    val menuContentColor = ensureReadableColor(
+        candidate = blendColors(accentColor, baseForegroundColor, 0.72f),
+        background = menuSurfaceColor,
+        fallback = baseForegroundColor,
+        minContrast = 4.0f
+    )
+    val menuPressedColor = ensureReadableColor(
+        candidate = blendColors(accentColor, menuSurfaceColor, 0.40f),
+        background = menuSurfaceColor,
+        fallback = menuContentColor.copy(alpha = 0.18f),
+        minContrast = 1.35f
+    )
+    val menuBorderColor = ensureReadableColor(
+        candidate = blendColors(menuContentColor, menuSurfaceColor, 0.35f),
+        background = menuSurfaceColor,
+        fallback = menuContentColor.copy(alpha = 0.22f),
+        minContrast = 1.1f
+    )
+    val dialogContainerColor = ensureReadableColor(
+        candidate = blendColors(backgroundColor, accentColor, 0.24f),
+        background = backgroundColor,
+        fallback = blendColors(backgroundColor, baseForegroundColor, 0.20f),
+        minContrast = 1.2f
+    )
+    val dialogContentColor = ensureReadableColor(
+        candidate = blendColors(accentColor, baseForegroundColor, 0.78f),
+        background = dialogContainerColor,
+        fallback = baseForegroundColor,
+        minContrast = 4.4f
+    )
+    val dialogAccentColor = ensureReadableColor(
+        candidate = accentColor,
+        background = dialogContainerColor,
+        fallback = dialogContentColor,
+        minContrast = 3.0f
+    )
+    val creatorLyricColor = ensureReadableColor(
+        candidate = blendColors(accentColor, backgroundColor, 0.42f),
+        background = backgroundColor,
+        fallback = blendColors(baseForegroundColor, backgroundColor, 0.45f),
+        minContrast = 2.8f
+    )
     
     Box(
         modifier = Modifier
@@ -999,6 +1327,7 @@ fun LyricPreviewScreen(
                                 shouldShowBackgroundLine = shouldShowBackground,
                                 isAboveMain = isAboveMain,
                                 backgroundColor = backgroundColor,
+                                themeAccentColor = accentColor,
                                 effectiveIsDuet = effectiveIsDuet,
                                 nextLineIsDuet = getNextLineIsDuet(processedLyricLines, index), // 新增
                                 isPlaying = isPlaying, // 新增
@@ -1058,7 +1387,7 @@ fun LyricPreviewScreen(
                                                 append(creators.joinToString("、"))
                                             },
                                             fontSize = creatorFontSize,
-                                            color = if (isDarkTheme) Color(0xFF999999) else Color(0xFF666666),
+                                            color = creatorLyricColor,
                                             modifier = Modifier.alpha(0.8f),
                                             textAlign = TextAlign.Start
                                         )
@@ -1102,17 +1431,14 @@ fun LyricPreviewScreen(
                             ),
                             MenuItem(
                                 title = if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) "间奏动画：恐龙" else "间奏动画：默认",
-                                onClick = { 
-                                    val newType = if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) 
-                                        LyricPreviewActivity.ANIMATION_TYPE_DEFAULT 
-                                    else 
-                                        LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR
-                                    animationType = newType
-                                    prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, newType).apply()
-                                }
+                                onClick = { showAnimationTypeDialog = true }
                             )
                         ),
-                        anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f)
+                        anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
+                        containerColor = menuSurfaceColor,
+                        contentColor = menuContentColor,
+                        pressColor = menuPressedColor,
+                        borderColor = menuBorderColor
                     )
                 },
                 mutedColor = accentColor,
@@ -1195,31 +1521,42 @@ fun LyricPreviewScreen(
             var tempFontSize by remember { mutableFloatStateOf(fontSize) }
             AlertDialog(
                 onDismissRequest = { showFontSizeDialog = false },
+                containerColor = dialogContainerColor,
+                titleContentColor = dialogContentColor,
+                textContentColor = dialogContentColor,
                 title = { Text("字体大小设置") },
                 text = {
                     Column {
                         Text(
                             text = "当前大小: ${tempFontSize.toInt()}sp",
+                            color = dialogContentColor,
                             modifier = Modifier.padding(bottom = 16.dp)
                         )
                         Slider(
                             value = tempFontSize,
                             onValueChange = { tempFontSize = it },
                             valueRange = 18f..40f,
-                            steps = 21
+                            steps = 21,
+                            colors = SliderDefaults.colors(
+                                thumbColor = dialogAccentColor,
+                                activeTrackColor = dialogAccentColor,
+                                inactiveTrackColor = dialogContentColor.copy(alpha = 0.25f)
+                            )
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("18sp", fontSize = 12.sp)
-                            Text("29sp", fontSize = 12.sp)
-                            Text("40sp", fontSize = 12.sp)
+                            Text("18sp", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
+                            Text("29sp", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
+                            Text("40sp", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
                         }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = dialogAccentColor),
+                        onClick = {
                         saveFontSize(tempFontSize)
                         showFontSizeDialog = false
                     }) {
@@ -1227,7 +1564,10 @@ fun LyricPreviewScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showFontSizeDialog = false }) {
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = dialogContentColor.copy(alpha = 0.88f)),
+                        onClick = { showFontSizeDialog = false }
+                    ) {
                         Text("取消")
                     }
                 }
@@ -1239,11 +1579,15 @@ fun LyricPreviewScreen(
             var tempFontWeight by remember { mutableFloatStateOf(fontWeight.toFloat()) }
             AlertDialog(
                 onDismissRequest = { showFontWeightDialog = false },
+                containerColor = dialogContainerColor,
+                titleContentColor = dialogContentColor,
+                textContentColor = dialogContentColor,
                 title = { Text("字体粗细设置") },
                 text = {
                     Column {
                         Text(
                             text = "当前粗细: ${getFontWeightLabel(tempFontWeight.toInt())}",
+                            color = dialogContentColor,
                             modifier = Modifier.padding(bottom = 16.dp)
                         )
                         Slider(
@@ -1251,6 +1595,11 @@ fun LyricPreviewScreen(
                             onValueChange = { tempFontWeight = it },
                             valueRange = 300f..700f,
                             steps = 3,
+                            colors = SliderDefaults.colors(
+                                thumbColor = dialogAccentColor,
+                                activeTrackColor = dialogAccentColor,
+                                inactiveTrackColor = dialogContentColor.copy(alpha = 0.25f)
+                            ),
                             onValueChangeFinished = {
                                 // 将值调整为100的倍数
                                 tempFontWeight = (tempFontWeight.toInt() / 100 * 100).toFloat()
@@ -1260,16 +1609,18 @@ fun LyricPreviewScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("细", fontSize = 12.sp)
-                            Text("正常", fontSize = 12.sp)
-                            Text("中", fontSize = 12.sp)
-                            Text("半粗", fontSize = 12.sp)
-                            Text("粗", fontSize = 12.sp)
+                            Text("细", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
+                            Text("正常", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
+                            Text("中", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
+                            Text("半粗", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
+                            Text("粗", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
                         }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = dialogAccentColor),
+                        onClick = {
                         saveFontWeight(tempFontWeight.toInt() / 100 * 100)
                         showFontWeightDialog = false
                     }) {
@@ -1277,7 +1628,91 @@ fun LyricPreviewScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showFontWeightDialog = false }) {
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = dialogContentColor.copy(alpha = 0.88f)),
+                        onClick = { showFontWeightDialog = false }
+                    ) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+        
+        if (showAnimationTypeDialog) {
+            var tempAnimationType by remember { mutableIntStateOf(animationType) }
+            AlertDialog(
+                onDismissRequest = { showAnimationTypeDialog = false },
+                containerColor = dialogContainerColor,
+                titleContentColor = dialogContentColor,
+                textContentColor = dialogContentColor,
+                title = { Text("间奏动画设置") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DEFAULT) {
+                                        dialogAccentColor.copy(alpha = 0.16f)
+                                    } else Color.Transparent
+                                )
+                                .clickable { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DEFAULT,
+                                onClick = { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = dialogAccentColor,
+                                    unselectedColor = dialogContentColor.copy(alpha = 0.65f)
+                                )
+                            )
+                            Text("默认（圆点）", color = dialogContentColor)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) {
+                                        dialogAccentColor.copy(alpha = 0.16f)
+                                    } else Color.Transparent
+                                )
+                                .clickable { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR,
+                                onClick = { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = dialogAccentColor,
+                                    unselectedColor = dialogContentColor.copy(alpha = 0.65f)
+                                )
+                            )
+                            Text("恐龙", color = dialogContentColor)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = dialogAccentColor),
+                        onClick = {
+                            animationType = tempAnimationType
+                            prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, tempAnimationType).apply()
+                            showAnimationTypeDialog = false
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = dialogContentColor.copy(alpha = 0.88f)),
+                        onClick = { showAnimationTypeDialog = false }
+                    ) {
                         Text("取消")
                     }
                 }
@@ -1471,6 +1906,7 @@ fun InterludeLineView(
     fontSize: TextUnit = 32.sp, // 新增：字号大小
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
+    lyricColor: Color = if (isDarkTheme) Color.White else Color.Black,
     onClick: () -> Unit = {}
 ) {
     // 判断是否是开头间奏行（begin == 0）
@@ -1484,6 +1920,7 @@ fun InterludeLineView(
     val alignment = remember(nextLineIsDuet) {
         if (nextLineIsDuet) Alignment.CenterEnd else Alignment.CenterStart
     }
+    val useLightAnimation = lyricColor.luminance() >= 0.5f
     
     // 计算高度为字号的5倍
     val fontSizeDp = with(LocalDensity.current) { fontSize.toDp() }
@@ -1511,7 +1948,7 @@ fun InterludeLineView(
                 ) {
                     DinosaurAnimation(
                         isPlaying = isVisible && isPlaying,
-                        isDarkTheme = isDarkTheme,
+                        useLightAnimation = useLightAnimation,
                         alignment = alignment
                     )
                 }
@@ -1563,7 +2000,7 @@ fun InterludeLineView(
                                     .wrapContentWidth()
                                     .alpha(thirdAlpha)
                             ) {
-                                CircleAnimation(isVisible && isPlaying, isDarkTheme)
+                                CircleAnimation(isVisible && isPlaying, useLightAnimation)
                             }
                             // 第二张：1500毫秒前100%，之后30%
                             Box(
@@ -1572,7 +2009,7 @@ fun InterludeLineView(
                                     .wrapContentWidth()
                                     .alpha(secondAlpha)
                             ) {
-                                CircleAnimation(isVisible && isPlaying, isDarkTheme)
+                                CircleAnimation(isVisible && isPlaying, useLightAnimation)
                             }
                             // 第一张：500毫秒前100%，之后30%
                             Box(
@@ -1581,7 +2018,7 @@ fun InterludeLineView(
                                     .wrapContentWidth()
                                     .alpha(firstAlpha)
                             ) {
-                                CircleAnimation(isVisible && isPlaying, isDarkTheme)
+                                CircleAnimation(isVisible && isPlaying, useLightAnimation)
                             }
                         } else {
                             // 主句模式，从左向右
@@ -1592,7 +2029,7 @@ fun InterludeLineView(
                                     .wrapContentWidth()
                                     .alpha(firstAlpha)
                             ) {
-                                CircleAnimation(isVisible && isPlaying, isDarkTheme)
+                                CircleAnimation(isVisible && isPlaying, useLightAnimation)
                             }
                             // 第二张：1500毫秒前100%，之后30%
                             Box(
@@ -1601,7 +2038,7 @@ fun InterludeLineView(
                                     .wrapContentWidth()
                                     .alpha(secondAlpha)
                             ) {
-                                CircleAnimation(isVisible && isPlaying, isDarkTheme)
+                                CircleAnimation(isVisible && isPlaying, useLightAnimation)
                             }
                             // 第三张：2500毫秒前100%，之后30%
                             Box(
@@ -1610,7 +2047,7 @@ fun InterludeLineView(
                                     .wrapContentWidth()
                                     .alpha(thirdAlpha)
                             ) {
-                                CircleAnimation(isVisible && isPlaying, isDarkTheme)
+                                CircleAnimation(isVisible && isPlaying, useLightAnimation)
                             }
                         }
                     }
@@ -1621,8 +2058,8 @@ fun InterludeLineView(
 }
 
 @Composable
-fun CircleAnimation(isPlaying: Boolean, isDarkTheme: Boolean) {
-    val animationRes = if (isDarkTheme) R.raw.anim_circle else R.raw.anim_circle_blank
+fun CircleAnimation(isPlaying: Boolean, useLightAnimation: Boolean) {
+    val animationRes = if (useLightAnimation) R.raw.anim_circle else R.raw.anim_circle_blank
     val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(animationRes))
     
     // 记录上一次的播放状态和进度
@@ -1675,10 +2112,10 @@ fun CircleAnimation(isPlaying: Boolean, isDarkTheme: Boolean) {
 @Composable
 fun DinosaurAnimation(
     isPlaying: Boolean,
-    isDarkTheme: Boolean,
+    useLightAnimation: Boolean,
     alignment: Alignment
 ) {
-    val animationRes = if (isDarkTheme) R.raw.anim_dinosaur_white else R.raw.anim_dinosaur_black
+    val animationRes = if (useLightAnimation) R.raw.anim_dinosaur_white else R.raw.anim_dinosaur_black
     val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(animationRes))
     
     // 记录上一次的播放状态和进度
@@ -1748,12 +2185,17 @@ fun LyricLineView(
     shouldShowBackgroundLine: Boolean = false,
     isAboveMain: Boolean? = null, // 是否在主句上方
     backgroundColor: Color? = null,
+    themeAccentColor: Color? = null,
     effectiveIsDuet: Boolean = false,
     nextLineIsDuet: Boolean = false, // 新增：下一句是否是对唱歌词（用于间奏行）
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     onClick: () -> Unit = {}
 ) {
+    val interludeLyricColor = backgroundColor?.let { bg ->
+        getHighContrastBlackOrWhite(bg)
+    } ?: if (isDarkTheme) Color.White else Color.Black
+
     // 如果是间奏行，使用特殊视图
     if (line.isInterlude) {
         InterludeLineView(
@@ -1769,6 +2211,7 @@ fun LyricLineView(
             fontSize = fontSize,
             isPlaying = isPlaying,
             animationType = animationType,
+            lyricColor = interludeLyricColor,
             onClick = onClick
         )
         return
@@ -1780,9 +2223,60 @@ fun LyricLineView(
         luminance < 0.5f
     } ?: isDarkTheme
     
-    val textColor = if (effectiveIsDarkTheme) Color.White else Color.Black
-    // 增强对比 - 未激活状态与激活状态的对比更明显
-    val inactiveColor = if (effectiveIsDarkTheme) Color(0xFF888888) else Color(0xFF666666)
+    val resolvedBackground = backgroundColor ?: if (effectiveIsDarkTheme) Color(0xFF101214) else Color(0xFFF6F7F8)
+    val baseForeground = getHighContrastBlackOrWhite(resolvedBackground)
+    val accent = themeAccentColor ?: MaterialTheme.colorScheme.primary
+    val fontWeightValue = mapComposeFontWeight(fontWeight)
+
+    // 通过颜色区分状态：未播放更浅，正在播放更强调，已播放介于两者之间
+    val activeColor = ensureReadableColor(
+        candidate = blendColors(accent, baseForeground, 0.52f),
+        background = resolvedBackground,
+        fallback = baseForeground,
+        minContrast = 4.8f
+    )
+    val playedColor = ensureReadableColor(
+        candidate = blendColors(activeColor, resolvedBackground, 0.18f),
+        background = resolvedBackground,
+        fallback = baseForeground,
+        minContrast = 4.1f
+    )
+    val inactiveColor = ensureReadableColor(
+        candidate = blendColors(activeColor, resolvedBackground, 0.42f),
+        background = resolvedBackground,
+        fallback = blendColors(baseForeground, resolvedBackground, 0.45f),
+        minContrast = 2.9f
+    )
+    val translationActiveColor = ensureReadableColor(
+        candidate = blendColors(accent, baseForeground, 0.78f),
+        background = resolvedBackground,
+        fallback = baseForeground.copy(alpha = 0.90f),
+        minContrast = 3.6f
+    )
+    val translationInactiveColor = ensureReadableColor(
+        candidate = blendColors(translationActiveColor, resolvedBackground, 0.44f),
+        background = resolvedBackground,
+        fallback = blendColors(baseForeground, resolvedBackground, 0.52f),
+        minContrast = 2.5f
+    )
+    val transliterationInactiveColor = ensureReadableColor(
+        candidate = blendColors(inactiveColor, translationInactiveColor, 0.45f),
+        background = resolvedBackground,
+        fallback = inactiveColor,
+        minContrast = 2.6f
+    )
+    val transliterationActiveColor = ensureReadableColor(
+        candidate = blendColors(activeColor, translationActiveColor, 0.32f),
+        background = resolvedBackground,
+        fallback = activeColor,
+        minContrast = 4.0f
+    )
+    val transliterationPlayedColor = ensureReadableColor(
+        candidate = blendColors(transliterationActiveColor, resolvedBackground, 0.16f),
+        background = resolvedBackground,
+        fallback = playedColor,
+        minContrast = 3.4f
+    )
     
     val isLineByLine = line.isLineByLineLyric()
     val effectiveEnd = if (isLineByLine) getEffectiveEndTime(line, nextLine) else line.end
@@ -1801,13 +2295,15 @@ fun LyricLineView(
     }
     
     val lineAlpha by animateFloatAsState(
-        targetValue = when {
-            isLineActive -> 1f
-            isLinePassed -> 0.8f // 提高已播放状态的可视度
-            else -> 0.75f // 大幅提高未播放状态的可视度
-        },
+        targetValue = 1f,
         animationSpec = tween(300),
         label = "lineAlpha"
+    )
+    val translationTargetColor = if (isLineActive) translationActiveColor else translationInactiveColor
+    val translationColor by androidx.compose.animation.animateColorAsState(
+        targetValue = translationTargetColor,
+        animationSpec = tween(260),
+        label = "translationColor"
     )
     
     // 把 springPlacement 放在外面，确保占位始终存在
@@ -1863,8 +2359,12 @@ fun LyricLineView(
                             line = line,
                             nextLine = nextLine,
                             currentTime = currentTime,
-                            activeColor = textColor,
+                            activeColor = activeColor,
+                            playedColor = playedColor,
                             inactiveColor = inactiveColor,
+                            transliterationActiveColor = transliterationActiveColor,
+                            transliterationPlayedColor = transliterationPlayedColor,
+                            transliterationInactiveColor = transliterationInactiveColor,
                             fontSize = lineFontSize,
                             isDuet = effectiveIsDuet,
                             fontWeight = fontWeight, // 新增
@@ -1875,7 +2375,7 @@ fun LyricLineView(
                         LyricWordsCanvasWithWrap(
                             words = line.words,
                             currentTime = currentTime,
-                            activeColor = textColor,
+                            activeColor = activeColor,
                             inactiveColor = inactiveColor,
                             fontSize = lineFontSize,
                             isDuet = effectiveIsDuet,
@@ -1888,8 +2388,9 @@ fun LyricLineView(
                     if (showTranslation && line.translation.isNotEmpty()) {
                         Text(
                             text = line.translation,
-                            color = if (effectiveIsDarkTheme) Color(0xFFCCCCCC) else Color(0xFF333333),
+                            color = translationColor,
                             fontSize = (lineFontSize.value * 0.6).sp,
+                            fontWeight = fontWeightValue,
                             modifier = Modifier.padding(top = 4.dp),
                             textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
                         )
@@ -1914,8 +2415,12 @@ fun LyricLineView(
                         line = line,
                         nextLine = nextLine,
                         currentTime = currentTime,
-                        activeColor = textColor,
+                        activeColor = activeColor,
+                        playedColor = playedColor,
                         inactiveColor = inactiveColor,
+                        transliterationActiveColor = transliterationActiveColor,
+                        transliterationPlayedColor = transliterationPlayedColor,
+                        transliterationInactiveColor = transliterationInactiveColor,
                         fontSize = lineFontSize,
                         isDuet = effectiveIsDuet,
                         fontWeight = fontWeight, // 新增
@@ -1926,7 +2431,7 @@ fun LyricLineView(
                     LyricWordsCanvasWithWrap(
                         words = line.words,
                         currentTime = currentTime,
-                        activeColor = textColor,
+                        activeColor = activeColor,
                         inactiveColor = inactiveColor,
                         fontSize = lineFontSize,
                         isDuet = effectiveIsDuet,
@@ -1939,8 +2444,9 @@ fun LyricLineView(
                 if (showTranslation && line.translation.isNotEmpty()) {
                     Text(
                         text = line.translation,
-                        color = if (effectiveIsDarkTheme) Color(0xFFCCCCCC) else Color(0xFF333333),
+                        color = translationColor,
                         fontSize = (lineFontSize.value * 0.6).sp,
+                        fontWeight = fontWeightValue,
                         modifier = Modifier.padding(top = 4.dp),
                         textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
                     )
@@ -1958,7 +2464,11 @@ fun LyricLineByLineView(
     nextLine: NewPreviewLyricLine?,
     currentTime: Long,
     activeColor: Color,
+    playedColor: Color = activeColor,
     inactiveColor: Color,
+    transliterationActiveColor: Color = activeColor,
+    transliterationPlayedColor: Color = transliterationActiveColor,
+    transliterationInactiveColor: Color = inactiveColor,
     fontSize: TextUnit = 24.sp,
     isDuet: Boolean = false,
     fontWeight: Int = 400, // 新增：字体粗细
@@ -1969,21 +2479,28 @@ fun LyricLineByLineView(
     val isLineActive = currentTime >= line.begin && currentTime < effectiveEnd
     val isLinePassed = currentTime >= effectiveEnd
     
-    val displayColor = when {
+    val displayTargetColor = when {
         isLineActive -> activeColor
-        isLinePassed -> activeColor
+        isLinePassed -> playedColor
         else -> inactiveColor
     }
-    
-    // 为了让粗细更明显，映射到更明显的 FontWeight 值
-    val fontWeightValue = when (fontWeight) {
-        300 -> androidx.compose.ui.text.font.FontWeight.Light
-        400 -> androidx.compose.ui.text.font.FontWeight.Normal
-        500 -> androidx.compose.ui.text.font.FontWeight.Medium
-        600 -> androidx.compose.ui.text.font.FontWeight.SemiBold
-        700 -> androidx.compose.ui.text.font.FontWeight.Bold
-        else -> androidx.compose.ui.text.font.FontWeight.Normal
+    val transliterationTargetColor = when {
+        isLineActive -> transliterationActiveColor
+        isLinePassed -> transliterationPlayedColor
+        else -> transliterationInactiveColor
     }
+    val displayColor by androidx.compose.animation.animateColorAsState(
+        targetValue = displayTargetColor,
+        animationSpec = tween(260),
+        label = "lineByLineMainColor"
+    )
+    val transliterationColor by androidx.compose.animation.animateColorAsState(
+        targetValue = transliterationTargetColor,
+        animationSpec = tween(260),
+        label = "lineByLineTransColor"
+    )
+    
+    val fontWeightValue = mapComposeFontWeight(fontWeight)
     
     // 检查是否有注音
     val hasTransliteration = showTransliteration && line.words.any { 
@@ -2012,9 +2529,9 @@ fun LyricLineByLineView(
             }
             Text(
                 text = transliterationText,
-                color = Color.Gray,
+                color = transliterationColor,
                 fontSize = fontSize * 0.6f,
-                fontWeight = FontWeight.Normal,
+                fontWeight = fontWeightValue,
                 textAlign = if (isDuet) TextAlign.End else TextAlign.Start
             )
             // 第二行：显示歌词
@@ -2533,39 +3050,7 @@ private fun DrawScope.drawWordWithTransliteration(
     val paint = android.graphics.Paint().apply {
         this.textSize = fontSizePx
         this.isAntiAlias = true
-        
-        // 为了让粗细更明显，使用 fakeBoldText 和 strokeWidth 配合
-        when (fontWeight) {
-            300 -> {
-                this.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
-                this.isFakeBoldText = false
-                this.style = android.graphics.Paint.Style.FILL
-            }
-            400 -> {
-                this.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
-                this.isFakeBoldText = false
-                this.style = android.graphics.Paint.Style.FILL
-            }
-            500 -> {
-                this.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
-                this.isFakeBoldText = true
-                this.style = android.graphics.Paint.Style.FILL
-            }
-            600 -> {
-                this.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                this.isFakeBoldText = true
-                this.style = android.graphics.Paint.Style.FILL
-            }
-            700 -> {
-                this.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                this.isFakeBoldText = true
-                this.style = android.graphics.Paint.Style.FILL
-            }
-            else -> {
-                this.typeface = android.graphics.Typeface.DEFAULT
-                this.isFakeBoldText = false
-            }
-        }
+        applyAndroidFontWeight(this, fontWeight)
     }
     
     val textX = layout.startPosition
@@ -2588,12 +3073,14 @@ private fun DrawScope.drawWordWithTransliteration(
         (if (hasTransliteration) (with(density) { (fontSize.value / 6).sp.toPx() }) else 0f)
     
     // 绘制主歌词
+    val baseInactiveColor = inactiveColor
+    
     // 1. 绘制背景层（灰色）
     drawContext.canvas.nativeCanvas.drawText(
         word.text,
         textX,
         mainBaseLineY,
-        paint.apply { color = inactiveColor.toArgb() }
+        paint.apply { color = baseInactiveColor.toArgb() }
     )
     
     // 2. 绘制高亮层
@@ -2611,7 +3098,7 @@ private fun DrawScope.drawWordWithTransliteration(
                 startX = textX,
                 endX = textX + highlightWidth,
                 activeColor = activeColor,
-                inactiveColor = inactiveColor,
+                inactiveColor = baseInactiveColor,
                 progress = progress,
                 hasSpace = layout.spaceWidth > 0
             )
@@ -2641,9 +3128,9 @@ private fun DrawScope.drawWordWithTransliteration(
         val transliterationPaint = android.graphics.Paint().apply {
             // 字号为歌词的一半
             this.textSize = with(density) { (fontSize.value / 2).sp.toPx() }
-            this.typeface = android.graphics.Typeface.DEFAULT
             this.isAntiAlias = true
             this.color = inactiveColor.toArgb()
+            applyAndroidFontWeight(this, fontWeight)
         }
         
         val transFontMetrics = transliterationPaint.fontMetrics
@@ -2670,7 +3157,7 @@ private fun DrawScope.drawWordWithTransliteration(
             finalTransliteration,
             finalTransX,
             transBaseLineY,
-            transliterationPaint.apply { color = inactiveColor.toArgb() }
+            transliterationPaint.apply { color = baseInactiveColor.toArgb() }
         )
         
         // 2. 绘制注音高亮层（随歌词进度一起高亮）
@@ -2694,7 +3181,7 @@ private fun DrawScope.drawWordWithTransliteration(
                     startX = finalTransX,
                     endX = finalTransX + highlightWidth,
                     activeColor = activeColor,
-                    inactiveColor = inactiveColor,
+                    inactiveColor = baseInactiveColor,
                     progress = progress,
                     hasSpace = false
                 )
@@ -2784,16 +3271,39 @@ fun PlaybackControls(
         0f
     }
     
+    val controlBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
+    val controlOnBackground = getHighContrastBlackOrWhite(controlBackground)
     val themePrimaryColor = vibrantColor ?: MaterialTheme.colorScheme.primary
-    val onPrimaryColor = if (isDarkTheme) Color.Black else Color.White
-    
-    // 高对比度的外圈颜色：浅色主题用黑色，深色主题用白色
-    val outlineColor = if (isDarkTheme) Color.Black else Color.White 
+    val buttonColor = ensureReadableColor(
+        candidate = blendColors(themePrimaryColor, controlOnBackground, 0.16f),
+        background = controlBackground,
+        fallback = blendColors(controlBackground, controlOnBackground, 0.22f),
+        minContrast = 2.2f
+    )
+    val onPrimaryColor = getHighContrastBlackOrWhite(buttonColor)
+    val outlineColor = ensureReadableColor(
+        candidate = blendColors(controlBackground, controlOnBackground, 0.18f),
+        background = controlBackground,
+        fallback = controlOnBackground.copy(alpha = 0.24f),
+        minContrast = 1.2f
+    )
+    val progressColor = ensureReadableColor(
+        candidate = blendColors(themePrimaryColor, onPrimaryColor, 0.12f),
+        background = controlBackground,
+        fallback = controlOnBackground,
+        minContrast = 2.8f
+    )
+    val progressTrackColor = ensureReadableColor(
+        candidate = blendColors(controlBackground, controlOnBackground, 0.32f),
+        background = controlBackground,
+        fallback = controlOnBackground.copy(alpha = 0.30f),
+        minContrast = 1.3f
+    )
     
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor ?: MaterialTheme.colorScheme.surface)
+            .background(controlBackground)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .navigationBarsPadding(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2805,7 +3315,7 @@ fun PlaybackControls(
             modifier = Modifier
                 .size(56.dp)
                 .background(
-                    themePrimaryColor,
+                    buttonColor,
                     CircleShape
                 )
         ) {
@@ -2835,8 +3345,8 @@ fun PlaybackControls(
             LinearProgressIndicator(
                 progress = { displayProgress },
                 modifier = Modifier.fillMaxSize(),
-                color = themePrimaryColor,
-                trackColor = themePrimaryColor.copy(alpha = 0.3f)
+                color = progressColor,
+                trackColor = progressTrackColor
             )
             
             // 可拖动的进度条
@@ -2912,10 +3422,15 @@ fun LyricPreviewHeader(
     isDarkTheme: Boolean = false,
     backgroundColor: Color? = null
 ) {
-    val defaultIconColor = MaterialTheme.colorScheme.onBackground
-    val iconColor = mutedColor ?: defaultIconColor
-    val textColor = if (isDarkTheme) Color.White else Color.Black
-    val headerBackground = backgroundColor ?: Color.Transparent
+    val headerBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
+    val textColor = getHighContrastBlackOrWhite(headerBackground)
+    val artistColor = ensureReadableColor(
+        candidate = textColor.copy(alpha = 0.76f),
+        background = headerBackground,
+        fallback = textColor,
+        minContrast = 3.4f
+    )
+    val iconColor = getHighContrastBlackOrWhite(headerBackground)
     var menuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     val density = LocalDensity.current
 
@@ -2995,7 +3510,7 @@ fun LyricPreviewHeader(
                 Text(
                     text = artist,
                     fontSize = 16.sp,
-                    color = textColor.copy(alpha = 0.7f),
+                    color = artistColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
