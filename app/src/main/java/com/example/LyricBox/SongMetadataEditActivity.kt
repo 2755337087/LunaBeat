@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -467,9 +468,9 @@ fun SongMetadataEditScreen(
     var lyrics by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
-    
-    // 获取启用的自定义元数据字段
-    val enabledFields = remember { prefs.getStringSet("enabledMetadataFields", emptySet())?.toList() ?: emptyList() }
+    val fieldConfig = remember { MetadataFieldConfigStore.load(prefs) }
+    val visibleFieldKeys = remember { fieldConfig.visibleFieldKeys }
+    val enabledFields = remember { fieldConfig.visibleCustomFieldNames }
     
     // 自定义字段状态
     val customFieldValues = remember { mutableStateMapOf<String, String>() }
@@ -1606,639 +1607,511 @@ fun SongMetadataEditScreen(
                     }
                 }
                 
-                item {
-                    ModifiableMetadataField(
-                        label = "标题",
-                        value = title,
-                        onValueChange = { 
-                            title = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(title = false, canRedoTitle = false)
+                itemsIndexed(
+                    items = visibleFieldKeys,
+                    key = { _, fieldKey -> fieldKey }
+                ) { index, fieldKey ->
+                    when (fieldKey) {
+                        "title" -> ModifiableMetadataField(
+                            label = "标题",
+                            value = title,
+                            onValueChange = {
+                                title = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(title = it != KEEP, canRedoTitle = false)
                                 } else {
-                                    modifiedField = modifiedField.copy(title = true, canRedoTitle = false)
-                                }
-                            } else {
-                                if (it != originalData?.title) {
-                                    modifiedField = modifiedField.copy(title = true, canRedoTitle = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(title = false, canRedoTitle = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.title,
-                        canRedo = modifiedField.canRedoTitle,
-                        onUndo = { undoField("title") },
-                        onRedo = { redoField("title") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(1, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "title"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "艺术家",
-                        value = artist,
-                        onValueChange = { 
-                            artist = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(artist = false, canRedoArtist = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(artist = true, canRedoArtist = false)
-                                }
-                            } else {
-                                if (it != originalData?.artist) {
-                                    modifiedField = modifiedField.copy(artist = true, canRedoArtist = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(artist = false, canRedoArtist = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.artist,
-                        canRedo = modifiedField.canRedoArtist,
-                        onUndo = { undoField("artist") },
-                        onRedo = { redoField("artist") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(2, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "artist"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "专辑",
-                        value = album,
-                        onValueChange = { 
-                            album = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(album = false, canRedoAlbum = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(album = true, canRedoAlbum = false)
-                                }
-                            } else {
-                                if (it != originalData?.album) {
-                                    modifiedField = modifiedField.copy(album = true, canRedoAlbum = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(album = false, canRedoAlbum = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.album,
-                        canRedo = modifiedField.canRedoAlbum,
-                        onUndo = { undoField("album") },
-                        onRedo = { redoField("album") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(3, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "album"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "年份",
-                        value = year,
-                        onValueChange = { 
-                            year = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(year = false, canRedoYear = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(year = true, canRedoYear = false)
-                                }
-                            } else {
-                                if (it != originalData?.year) {
-                                    modifiedField = modifiedField.copy(year = true, canRedoYear = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(year = false, canRedoYear = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.year,
-                        canRedo = modifiedField.canRedoYear,
-                        onUndo = { undoField("year") },
-                        onRedo = { redoField("year") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(4, scrollOffset = -200)
-                            }
-                        },
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "year"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ModifiableMetadataField(
-                            label = "音轨号",
-                            value = trackNumber,
-                            onValueChange = { 
-                            trackNumber = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(trackNumber = false, canRedoTrackNumber = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(trackNumber = true, canRedoTrackNumber = false)
-                                }
-                            } else {
-                                if (it != originalData?.trackNumber) {
-                                    modifiedField = modifiedField.copy(trackNumber = true, canRedoTrackNumber = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(trackNumber = false, canRedoTrackNumber = false)
-                                }
-                            }
-                        },
-                            isModified = modifiedField.trackNumber,
-                            canRedo = modifiedField.canRedoTrackNumber,
-                            onUndo = { undoField("trackNumber") },
-                            onRedo = { redoField("trackNumber") },
-                            onFocused = {
-                                coroutineScope.launch {
-                                    lazyListState.animateScrollToItem(5, scrollOffset = -200)
+                                    modifiedField = modifiedField.copy(title = it != originalData?.title, canRedoTitle = false)
                                 }
                             },
-                            modifier = Modifier.weight(1f),
+                            isModified = modifiedField.title,
+                            canRedo = modifiedField.canRedoTitle,
+                            onUndo = { undoField("title") },
+                            onRedo = { redoField("title") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
                             isBatchEdit = isBatchEdit,
                             onShowDropdown = {
-                                currentSelectionField = "trackNumber"
+                                currentSelectionField = "title"
                                 showFieldSelectionSheet = true
                             }
                         )
-                        
-                        ModifiableMetadataField(
-                            label = "碟号",
-                            value = discNumber,
-                            onValueChange = { 
-                            discNumber = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(discNumber = false, canRedoDiscNumber = false)
+
+                        "artist" -> ModifiableMetadataField(
+                            label = "艺术家",
+                            value = artist,
+                            onValueChange = {
+                                artist = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(artist = it != KEEP, canRedoArtist = false)
                                 } else {
-                                    modifiedField = modifiedField.copy(discNumber = true, canRedoDiscNumber = false)
-                                }
-                            } else {
-                                if (it != originalData?.discNumber) {
-                                    modifiedField = modifiedField.copy(discNumber = true, canRedoDiscNumber = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(discNumber = false, canRedoDiscNumber = false)
-                                }
-                            }
-                        },
-                            isModified = modifiedField.discNumber,
-                            canRedo = modifiedField.canRedoDiscNumber,
-                            onUndo = { undoField("discNumber") },
-                            onRedo = { redoField("discNumber") },
-                            onFocused = {
-                                coroutineScope.launch {
-                                    lazyListState.animateScrollToItem(5, scrollOffset = -200)
+                                    modifiedField = modifiedField.copy(artist = it != originalData?.artist, canRedoArtist = false)
                                 }
                             },
-                            modifier = Modifier.weight(1f),
+                            isModified = modifiedField.artist,
+                            canRedo = modifiedField.canRedoArtist,
+                            onUndo = { undoField("artist") },
+                            onRedo = { redoField("artist") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
                             isBatchEdit = isBatchEdit,
                             onShowDropdown = {
-                                currentSelectionField = "discNumber"
+                                currentSelectionField = "artist"
                                 showFieldSelectionSheet = true
                             }
                         )
-                    }
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "风格",
-                        value = genre,
-                        onValueChange = { 
-                            genre = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(genre = false, canRedoGenre = false)
+
+                        "album" -> ModifiableMetadataField(
+                            label = "专辑",
+                            value = album,
+                            onValueChange = {
+                                album = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(album = it != KEEP, canRedoAlbum = false)
                                 } else {
-                                    modifiedField = modifiedField.copy(genre = true, canRedoGenre = false)
+                                    modifiedField = modifiedField.copy(album = it != originalData?.album, canRedoAlbum = false)
                                 }
-                            } else {
-                                if (it != originalData?.genre) {
-                                    modifiedField = modifiedField.copy(genre = true, canRedoGenre = false)
+                            },
+                            isModified = modifiedField.album,
+                            canRedo = modifiedField.canRedoAlbum,
+                            onUndo = { undoField("album") },
+                            onRedo = { redoField("album") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "album"
+                                showFieldSelectionSheet = true
+                            }
+                        )
+
+                        "year" -> ModifiableMetadataField(
+                            label = "年份",
+                            value = year,
+                            onValueChange = {
+                                year = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(year = it != KEEP, canRedoYear = false)
                                 } else {
-                                    modifiedField = modifiedField.copy(genre = false, canRedoGenre = false)
+                                    modifiedField = modifiedField.copy(year = it != originalData?.year, canRedoYear = false)
                                 }
-                            }
-                        },
-                        isModified = modifiedField.genre,
-                        canRedo = modifiedField.canRedoGenre,
-                        onUndo = { undoField("genre") },
-                        onRedo = { redoField("genre") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(6, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "genre"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "专辑艺术家",
-                        value = albumArtist,
-                        onValueChange = { 
-                            albumArtist = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(albumArtist = false, canRedoAlbumArtist = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(albumArtist = true, canRedoAlbumArtist = false)
+                            },
+                            isModified = modifiedField.year,
+                            canRedo = modifiedField.canRedoYear,
+                            onUndo = { undoField("year") },
+                            onRedo = { redoField("year") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
                                 }
-                            } else {
-                                if (it != originalData?.albumArtist) {
-                                    modifiedField = modifiedField.copy(albumArtist = true, canRedoAlbumArtist = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(albumArtist = false, canRedoAlbumArtist = false)
-                                }
+                            },
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "year"
+                                showFieldSelectionSheet = true
                             }
-                        },
-                        isModified = modifiedField.albumArtist,
-                        canRedo = modifiedField.canRedoAlbumArtist,
-                        onUndo = { undoField("albumArtist") },
-                        onRedo = { redoField("albumArtist") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(7, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "albumArtist"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "作曲",
-                        value = composer,
-                        onValueChange = { 
-                            composer = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(composer = false, canRedoComposer = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(composer = true, canRedoComposer = false)
-                                }
-                            } else {
-                                if (it != originalData?.composer) {
-                                    modifiedField = modifiedField.copy(composer = true, canRedoComposer = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(composer = false, canRedoComposer = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.composer,
-                        canRedo = modifiedField.canRedoComposer,
-                        onUndo = { undoField("composer") },
-                        onRedo = { redoField("composer") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(8, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "composer"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "作词",
-                        value = lyricist,
-                        onValueChange = { 
-                            lyricist = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(lyricist = false, canRedoLyricist = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(lyricist = true, canRedoLyricist = false)
-                                }
-                            } else {
-                                if (it != originalData?.lyricist) {
-                                    modifiedField = modifiedField.copy(lyricist = true, canRedoLyricist = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(lyricist = false, canRedoLyricist = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.lyricist,
-                        canRedo = modifiedField.canRedoLyricist,
-                        onUndo = { undoField("lyricist") },
-                        onRedo = { redoField("lyricist") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(9, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "lyricist"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "注释",
-                        value = comment,
-                        onValueChange = { 
-                            comment = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(comment = false, canRedoComment = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(comment = true, canRedoComment = false)
-                                }
-                            } else {
-                                if (it != originalData?.comment) {
-                                    modifiedField = modifiedField.copy(comment = true, canRedoComment = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(comment = false, canRedoComment = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.comment,
-                        canRedo = modifiedField.canRedoComment,
-                        onUndo = { undoField("comment") },
-                        onRedo = { redoField("comment") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(10, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 4,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "comment"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "版权信息",
-                        value = copyright,
-                        onValueChange = { 
-                            copyright = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(copyrightInfo = false, canRedoCopyrightInfo = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(copyrightInfo = true, canRedoCopyrightInfo = false)
-                                }
-                            } else {
-                                if (it != originalData?.copyrightInfo) {
-                                    modifiedField = modifiedField.copy(copyrightInfo = true, canRedoCopyrightInfo = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(copyrightInfo = false, canRedoCopyrightInfo = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.copyrightInfo,
-                        canRedo = modifiedField.canRedoCopyrightInfo,
-                        onUndo = { undoField("copyrightInfo") },
-                        onRedo = { redoField("copyrightInfo") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(11, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 10,
-                        isBatchEdit = isBatchEdit,
-                        onShowDropdown = {
-                            currentSelectionField = "copyrightInfo"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                item {
-                    ModifiableMetadataField(
-                        label = "歌词",
-                        value = lyrics,
-                        onValueChange = { 
-                            lyrics = it
-                            if (isBatchEdit) {
-                                if (it == KEEP) {
-                                    modifiedField = modifiedField.copy(lyrics = false, canRedoLyrics = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(lyrics = true, canRedoLyrics = false)
-                                }
-                            } else {
-                                if (it != originalData?.lyrics) {
-                                    modifiedField = modifiedField.copy(lyrics = true, canRedoLyrics = false)
-                                } else {
-                                    modifiedField = modifiedField.copy(lyrics = false, canRedoLyrics = false)
-                                }
-                            }
-                        },
-                        isModified = modifiedField.lyrics,
-                        canRedo = modifiedField.canRedoLyrics,
-                        onUndo = { undoField("lyrics") },
-                        onRedo = { redoField("lyrics") },
-                        onFocused = {
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(12, scrollOffset = -200)
-                            }
-                        },
-                        minLines = 1,
-                        maxLines = 7,
-                        isBatchEdit = isBatchEdit,
-                        showDropdown = false,
-                        onShowDropdown = {
-                            currentSelectionField = "lyrics"
-                            showFieldSelectionSheet = true
-                        }
-                    )
-                }
-                
-                if (!isBatchEdit) {
-                    item {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
+                        )
+
+                        "trackDisc" -> Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    if (hasUnsavedChanges()) {
-                                        showLyricsEditConfirmDialog = true
+                            ModifiableMetadataField(
+                                label = "音轨号",
+                                value = trackNumber,
+                                onValueChange = {
+                                    trackNumber = it
+                                    if (isBatchEdit) {
+                                        modifiedField = modifiedField.copy(trackNumber = it != KEEP, canRedoTrackNumber = false)
                                     } else {
-                                        showLyricsSelectionSheet = true
+                                        modifiedField = modifiedField.copy(trackNumber = it != originalData?.trackNumber, canRedoTrackNumber = false)
                                     }
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("去打轴界面编辑")
-                            }
-                            OutlinedButton(
-                                onClick = { 
-                                    val keyword = if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
-                                        "$title $artist"
-                                    } else if (title.isNotEmpty() && title != KEEP) {
-                                        title
-                                    } else if (artist.isNotEmpty() && artist != KEEP) {
-                                        artist
-                                    } else {
-                                        ""
+                                isModified = modifiedField.trackNumber,
+                                canRedo = modifiedField.canRedoTrackNumber,
+                                onUndo = { undoField("trackNumber") },
+                                onRedo = { redoField("trackNumber") },
+                                onFocused = {
+                                    coroutineScope.launch {
+                                        lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
                                     }
-                                    onOpenVerbatimLyricsSearch(keyword)
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("获取歌词")
-                            }
+                                modifier = Modifier.weight(1f),
+                                isBatchEdit = isBatchEdit,
+                                onShowDropdown = {
+                                    currentSelectionField = "trackNumber"
+                                    showFieldSelectionSheet = true
+                                }
+                            )
+                            ModifiableMetadataField(
+                                label = "碟号",
+                                value = discNumber,
+                                onValueChange = {
+                                    discNumber = it
+                                    if (isBatchEdit) {
+                                        modifiedField = modifiedField.copy(discNumber = it != KEEP, canRedoDiscNumber = false)
+                                    } else {
+                                        modifiedField = modifiedField.copy(discNumber = it != originalData?.discNumber, canRedoDiscNumber = false)
+                                    }
+                                },
+                                isModified = modifiedField.discNumber,
+                                canRedo = modifiedField.canRedoDiscNumber,
+                                onUndo = { undoField("discNumber") },
+                                onRedo = { redoField("discNumber") },
+                                onFocused = {
+                                    coroutineScope.launch {
+                                        lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                isBatchEdit = isBatchEdit,
+                                onShowDropdown = {
+                                    currentSelectionField = "discNumber"
+                                    showFieldSelectionSheet = true
+                                }
+                            )
                         }
-                    }
-                }
-                
-                // 自定义元数据字段 - 现在位于两个按钮之后
-                enabledFields.forEachIndexed { index, field ->
-                    item {
-                        // 初始化自定义字段值
-                        if (!customFieldValues.containsKey(field)) {
-                            customFieldValues[field] = if (isBatchEdit) KEEP else ""
-                        }
-                        
-                        ModifiableMetadataField(
-                            label = field,
-                            value = customFieldValues[field] ?: (if (isBatchEdit) KEEP else ""),
-                            onValueChange = { 
-                                customFieldValues[field] = it
+
+                        "genre" -> ModifiableMetadataField(
+                            label = "风格",
+                            value = genre,
+                            onValueChange = {
+                                genre = it
                                 if (isBatchEdit) {
-                                    if (it == KEEP) {
-                                        modifiedField = modifiedField.copy(
-                                            customFields = modifiedField.customFields - field,
-                                            canRedoCustomFields = modifiedField.canRedoCustomFields - field
-                                        )
-                                    } else {
-                                        modifiedField = modifiedField.copy(
-                                            customFields = modifiedField.customFields + (field to true),
-                                            canRedoCustomFields = modifiedField.canRedoCustomFields - field
-                                        )
-                                    }
+                                    modifiedField = modifiedField.copy(genre = it != KEEP, canRedoGenre = false)
                                 } else {
-                                    if (it != originalCustomFieldValues[field]) {
-                                        modifiedField = modifiedField.copy(
-                                            customFields = modifiedField.customFields + (field to true),
-                                            canRedoCustomFields = modifiedField.canRedoCustomFields - field
-                                        )
-                                    } else {
-                                        modifiedField = modifiedField.copy(
-                                            customFields = modifiedField.customFields - field,
-                                            canRedoCustomFields = modifiedField.canRedoCustomFields - field
-                                        )
-                                    }
+                                    modifiedField = modifiedField.copy(genre = it != originalData?.genre, canRedoGenre = false)
                                 }
                             },
-                            isModified = modifiedField.customFields[field] == true,
-                            canRedo = modifiedField.canRedoCustomFields[field] == true,
-                            onUndo = { 
-                                // 撤销自定义字段
-                                originalCustomFieldValues[field]?.let { origValue ->
-                                    redoHistory = redoHistory.copy(
-                                        customFields = redoHistory.customFields + (field to (customFieldValues[field] ?: ""))
-                                    )
-                                    customFieldValues[field] = origValue
-                                    modifiedField = modifiedField.copy(
-                                        customFields = modifiedField.customFields - field,
-                                        canRedoCustomFields = modifiedField.canRedoCustomFields + (field to true)
-                                    )
-                                }
-                            },
-                            onRedo = { 
-                                // 重做自定义字段
-                                redoHistory.customFields[field]?.let { value ->
-                                    customFieldValues[field] = value
-                                    modifiedField = modifiedField.copy(
-                                        customFields = modifiedField.customFields + (field to true),
-                                        canRedoCustomFields = modifiedField.canRedoCustomFields - field
-                                    )
-                                    redoHistory = redoHistory.copy(
-                                        customFields = redoHistory.customFields - field
-                                    )
-                                }
-                            },
+                            isModified = modifiedField.genre,
+                            canRedo = modifiedField.canRedoGenre,
+                            onUndo = { undoField("genre") },
+                            onRedo = { redoField("genre") },
                             onFocused = {
                                 coroutineScope.launch {
-                                    // 更新索引，因为自定义字段现在在两个按钮之后
-                                    val itemIndex = if (isBatchEdit) 13 + index else 14 + index
-                                    lazyListState.animateScrollToItem(itemIndex, scrollOffset = -200)
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "genre"
+                                showFieldSelectionSheet = true
+                            }
+                        )
+
+                        "albumArtist" -> ModifiableMetadataField(
+                            label = "专辑艺术家",
+                            value = albumArtist,
+                            onValueChange = {
+                                albumArtist = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(albumArtist = it != KEEP, canRedoAlbumArtist = false)
+                                } else {
+                                    modifiedField = modifiedField.copy(albumArtist = it != originalData?.albumArtist, canRedoAlbumArtist = false)
+                                }
+                            },
+                            isModified = modifiedField.albumArtist,
+                            canRedo = modifiedField.canRedoAlbumArtist,
+                            onUndo = { undoField("albumArtist") },
+                            onRedo = { redoField("albumArtist") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "albumArtist"
+                                showFieldSelectionSheet = true
+                            }
+                        )
+
+                        "composer" -> ModifiableMetadataField(
+                            label = "作曲",
+                            value = composer,
+                            onValueChange = {
+                                composer = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(composer = it != KEEP, canRedoComposer = false)
+                                } else {
+                                    modifiedField = modifiedField.copy(composer = it != originalData?.composer, canRedoComposer = false)
+                                }
+                            },
+                            isModified = modifiedField.composer,
+                            canRedo = modifiedField.canRedoComposer,
+                            onUndo = { undoField("composer") },
+                            onRedo = { redoField("composer") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "composer"
+                                showFieldSelectionSheet = true
+                            }
+                        )
+
+                        "lyricist" -> ModifiableMetadataField(
+                            label = "作词",
+                            value = lyricist,
+                            onValueChange = {
+                                lyricist = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(lyricist = it != KEEP, canRedoLyricist = false)
+                                } else {
+                                    modifiedField = modifiedField.copy(lyricist = it != originalData?.lyricist, canRedoLyricist = false)
+                                }
+                            },
+                            isModified = modifiedField.lyricist,
+                            canRedo = modifiedField.canRedoLyricist,
+                            onUndo = { undoField("lyricist") },
+                            onRedo = { redoField("lyricist") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "lyricist"
+                                showFieldSelectionSheet = true
+                            }
+                        )
+
+                        "comment" -> ModifiableMetadataField(
+                            label = "注释",
+                            value = comment,
+                            onValueChange = {
+                                comment = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(comment = it != KEEP, canRedoComment = false)
+                                } else {
+                                    modifiedField = modifiedField.copy(comment = it != originalData?.comment, canRedoComment = false)
+                                }
+                            },
+                            isModified = modifiedField.comment,
+                            canRedo = modifiedField.canRedoComment,
+                            onUndo = { undoField("comment") },
+                            onRedo = { redoField("comment") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
                                 }
                             },
                             minLines = 1,
                             maxLines = 4,
                             isBatchEdit = isBatchEdit,
-                            showDropdown = true,
                             onShowDropdown = {
-                                currentSelectionField = field
+                                currentSelectionField = "comment"
                                 showFieldSelectionSheet = true
                             }
                         )
+
+                        "copyrightInfo" -> ModifiableMetadataField(
+                            label = "版权信息",
+                            value = copyright,
+                            onValueChange = {
+                                copyright = it
+                                if (isBatchEdit) {
+                                    modifiedField = modifiedField.copy(copyrightInfo = it != KEEP, canRedoCopyrightInfo = false)
+                                } else {
+                                    modifiedField = modifiedField.copy(copyrightInfo = it != originalData?.copyrightInfo, canRedoCopyrightInfo = false)
+                                }
+                            },
+                            isModified = modifiedField.copyrightInfo,
+                            canRedo = modifiedField.canRedoCopyrightInfo,
+                            onUndo = { undoField("copyrightInfo") },
+                            onRedo = { redoField("copyrightInfo") },
+                            onFocused = {
+                                coroutineScope.launch {
+                                    lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                }
+                            },
+                            minLines = 1,
+                            maxLines = 10,
+                            isBatchEdit = isBatchEdit,
+                            onShowDropdown = {
+                                currentSelectionField = "copyrightInfo"
+                                showFieldSelectionSheet = true
+                            }
+                        )
+
+                        "lyrics" -> Column {
+                            ModifiableMetadataField(
+                                label = "歌词",
+                                value = lyrics,
+                                onValueChange = {
+                                    lyrics = it
+                                    if (isBatchEdit) {
+                                        modifiedField = modifiedField.copy(lyrics = it != KEEP, canRedoLyrics = false)
+                                    } else {
+                                        modifiedField = modifiedField.copy(lyrics = it != originalData?.lyrics, canRedoLyrics = false)
+                                    }
+                                },
+                                isModified = modifiedField.lyrics,
+                                canRedo = modifiedField.canRedoLyrics,
+                                onUndo = { undoField("lyrics") },
+                                onRedo = { redoField("lyrics") },
+                                onFocused = {
+                                    coroutineScope.launch {
+                                        lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                    }
+                                },
+                                minLines = 1,
+                                maxLines = 7,
+                                isBatchEdit = isBatchEdit,
+                                showDropdown = false,
+                                onShowDropdown = {
+                                    currentSelectionField = "lyrics"
+                                    showFieldSelectionSheet = true
+                                }
+                            )
+
+                            if (!isBatchEdit) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (hasUnsavedChanges()) {
+                                                showLyricsEditConfirmDialog = true
+                                            } else {
+                                                showLyricsSelectionSheet = true
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("去打轴界面编辑")
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            val keyword = if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
+                                                "$title $artist"
+                                            } else if (title.isNotEmpty() && title != KEEP) {
+                                                title
+                                            } else if (artist.isNotEmpty() && artist != KEEP) {
+                                                artist
+                                            } else {
+                                                ""
+                                            }
+                                            onOpenVerbatimLyricsSearch(keyword)
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("获取歌词")
+                                    }
+                                }
+                            }
+                        }
+
+                        else -> {
+                            if (isCustomMetadataFieldKey(fieldKey)) {
+                                val field = customMetadataFieldNameFromKey(fieldKey)
+                                if (!customFieldValues.containsKey(field)) {
+                                    customFieldValues[field] = if (isBatchEdit) KEEP else ""
+                                }
+                                ModifiableMetadataField(
+                                    label = field,
+                                    value = customFieldValues[field] ?: (if (isBatchEdit) KEEP else ""),
+                                    onValueChange = {
+                                        customFieldValues[field] = it
+                                        if (isBatchEdit) {
+                                            modifiedField = if (it == KEEP) {
+                                                modifiedField.copy(
+                                                    customFields = modifiedField.customFields - field,
+                                                    canRedoCustomFields = modifiedField.canRedoCustomFields - field
+                                                )
+                                            } else {
+                                                modifiedField.copy(
+                                                    customFields = modifiedField.customFields + (field to true),
+                                                    canRedoCustomFields = modifiedField.canRedoCustomFields - field
+                                                )
+                                            }
+                                        } else {
+                                            modifiedField = if (it != originalCustomFieldValues[field]) {
+                                                modifiedField.copy(
+                                                    customFields = modifiedField.customFields + (field to true),
+                                                    canRedoCustomFields = modifiedField.canRedoCustomFields - field
+                                                )
+                                            } else {
+                                                modifiedField.copy(
+                                                    customFields = modifiedField.customFields - field,
+                                                    canRedoCustomFields = modifiedField.canRedoCustomFields - field
+                                                )
+                                            }
+                                        }
+                                    },
+                                    isModified = modifiedField.customFields[field] == true,
+                                    canRedo = modifiedField.canRedoCustomFields[field] == true,
+                                    onUndo = {
+                                        originalCustomFieldValues[field]?.let { origValue ->
+                                            redoHistory = redoHistory.copy(
+                                                customFields = redoHistory.customFields + (field to (customFieldValues[field] ?: ""))
+                                            )
+                                            customFieldValues[field] = origValue
+                                            modifiedField = modifiedField.copy(
+                                                customFields = modifiedField.customFields - field,
+                                                canRedoCustomFields = modifiedField.canRedoCustomFields + (field to true)
+                                            )
+                                        }
+                                    },
+                                    onRedo = {
+                                        redoHistory.customFields[field]?.let { value ->
+                                            customFieldValues[field] = value
+                                            modifiedField = modifiedField.copy(
+                                                customFields = modifiedField.customFields + (field to true),
+                                                canRedoCustomFields = modifiedField.canRedoCustomFields - field
+                                            )
+                                            redoHistory = redoHistory.copy(
+                                                customFields = redoHistory.customFields - field
+                                            )
+                                        }
+                                    },
+                                    onFocused = {
+                                        coroutineScope.launch {
+                                            lazyListState.animateScrollToItem(index + 1, scrollOffset = -200)
+                                        }
+                                    },
+                                    minLines = 1,
+                                    maxLines = 4,
+                                    isBatchEdit = isBatchEdit,
+                                    showDropdown = true,
+                                    onShowDropdown = {
+                                        currentSelectionField = field
+                                        showFieldSelectionSheet = true
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
-                
+
             }
             
             Box(
