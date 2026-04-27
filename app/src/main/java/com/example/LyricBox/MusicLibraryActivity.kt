@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
+import android.widget.Toast
 import androidx.collection.LruCache
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -236,6 +237,238 @@ fun formatAudioDuration(ms: Long): String {
     val seconds = (ms / 1000) % 60
     val minutes = (ms / 60000) % 60
     return String.format("%d:%02d", minutes, seconds)
+}
+
+private data class PreviewLyricPayload(
+    val lines: List<NewPreviewLyricLine>,
+    val creators: List<String>
+)
+
+private fun buildPlainTextLyricLines(lyricsContent: String): List<LyricLine> {
+    return lyricsContent
+        .lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .map { line ->
+            LyricLine(
+                timeUnits = listOf(LyricTimeUnit(text = line, startTime = "00:00.000", endTime = "00:00.000")),
+                translation = ""
+            )
+        }
+}
+
+private fun trimLeadingSpacesForPreviewWords(words: List<NewPreviewLyricWord>): List<NewPreviewLyricWord> {
+    if (words.isEmpty()) return words
+    val result = mutableListOf<NewPreviewLyricWord>()
+    var foundFirstVisibleWord = false
+
+    for (word in words) {
+        if (foundFirstVisibleWord) {
+            result.add(word)
+            continue
+        }
+
+        if (word.text.isEmpty()) continue
+        if (word.text.all { it == ' ' }) continue
+
+        if (word.text.startsWith(" ")) {
+            val trimmedText = word.text.trimStart()
+            if (trimmedText.isEmpty()) continue
+
+            val removedCount = word.text.length - trimmedText.length
+            val shiftedCharTransliterations = if (word.charTransliterations.isEmpty()) {
+                emptyMap()
+            } else {
+                word.charTransliterations.entries
+                    .mapNotNull { (index, value) ->
+                        val newIndex = index - removedCount
+                        if (newIndex >= 0) newIndex to value else null
+                    }
+                    .toMap()
+            }
+
+            val resolvedTransliteration = if (trimmedText.length == 1 && shiftedCharTransliterations.isNotEmpty()) {
+                shiftedCharTransliterations[0] ?: word.transliteration
+            } else {
+                word.transliteration
+            }
+
+            result.add(
+                word.copy(
+                    text = trimmedText,
+                    transliteration = resolvedTransliteration,
+                    charTransliterations = shiftedCharTransliterations
+                )
+            )
+            foundFirstVisibleWord = true
+            continue
+        }
+
+        result.add(word)
+        foundFirstVisibleWord = true
+    }
+
+    return result
+}
+
+private fun convertToPreviewLyricLines(lines: List<LyricLine>): List<NewPreviewLyricLine> {
+    return lines.mapNotNull { line ->
+        if (line.timeUnits.isEmpty()) {
+            return@mapNotNull null
+        }
+
+        val expandedWords = if (line.timeUnits.size == 1) {
+            // 和 LyricTimingActivity 的预览逻辑保持一致：仅一个 timeUnit 时保留逐行形态
+            val unit = line.timeUnits.first()
+            val beginMs = parseTimeToMs(unit.startTime)
+            val endMs = parseTimeToMs(unit.endTime)
+            val safeEndMs = if (endMs >= beginMs) endMs else beginMs
+            listOf(
+                NewPreviewLyricWord(
+                    text = unit.text,
+                    begin = beginMs,
+                    end = safeEndMs,
+                    transliteration = unit.transliteration,
+                    charTransliterations = unit.charTransliterations
+                )
+            )
+        } else {
+            // 多个 timeUnit 时按字符拆分并均分非空格字符时长（与 LyricTimingActivity 一致）
+            line.timeUnits.flatMap { unit ->
+                val beginMs = parseTimeToMs(unit.startTime)
+                val endMs = parseTimeToMs(unit.endTime)
+                val safeEndMs = if (endMs >= beginMs) endMs else beginMs
+                val duration = safeEndMs - beginMs
+                val text = unit.text
+
+                if (text.isEmpty()) {
+                    emptyList()
+                } else if (text.length == 1) {
+                    listOf(
+                        NewPreviewLyricWord(
+                            text = text,
+                            begin = beginMs,
+                            end = safeEndMs,
+                            transliteration = if (unit.charTransliterations.isNotEmpty()) {
+                                unit.charTransliterations[0] ?: ""
+                            } else {
+                                ""
+                            },
+                            charTransliterations = emptyMap()
+                        )
+                    )
+                } else {
+                    val nonSpaceCount = text.count { it != ' ' }
+                    if (nonSpaceCount == 0) {
+                        text.map { char ->
+                            NewPreviewLyricWord(
+                                text = char.toString(),
+                                begin = beginMs,
+                                end = beginMs,
+                                transliteration = "",
+                                charTransliterations = emptyMap()
+                            )
+                        }
+                    } else {
+                        val charDuration = duration / nonSpaceCount
+                        var currentTime = beginMs
+                        var textIndex = 0
+                        text.map { char ->
+                            if (char == ' ') {
+                                textIndex++
+                                NewPreviewLyricWord(
+                                    text = char.toString(),
+                                    begin = currentTime,
+                                    end = currentTime,
+                                    transliteration = "",
+                                    charTransliterations = emptyMap()
+                                )
+                            } else {
+                                val charBegin = currentTime
+                                val charEnd = if (currentTime + charDuration >= safeEndMs) safeEndMs else currentTime + charDuration
+                                currentTime = charEnd
+                                val transliteration = if (unit.charTransliterations.isNotEmpty()) {
+                                    unit.charTransliterations[textIndex] ?: ""
+                                } else {
+                                    ""
+                                }
+                                textIndex++
+                                NewPreviewLyricWord(
+                                    text = char.toString(),
+                                    begin = charBegin,
+                                    end = charEnd,
+                                    transliteration = transliteration,
+                                    charTransliterations = emptyMap()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val words = trimLeadingSpacesForPreviewWords(expandedWords).filter { it.text.isNotEmpty() }
+
+        if (words.isEmpty()) {
+            return@mapNotNull null
+        }
+
+        NewPreviewLyricLine(
+            words = words,
+            translation = line.translation,
+            isDuet = line.agentType == LyricAgentType.RIGHT,
+            isBackground = line.agentType == LyricAgentType.BACKGROUND
+        )
+    }
+}
+
+private fun buildPreviewLyricPayload(audioPath: String): PreviewLyricPayload? {
+    val audioFile = File(audioPath)
+    val sameNameTtml = audioFile.parentFile?.let { parent ->
+        File(parent, "${audioFile.nameWithoutExtension}.ttml")
+    }
+
+    val preferredLyrics = run {
+        val externalTtmlLyrics = if (sameNameTtml?.exists() == true) {
+            try {
+                sameNameTtml.readText().takeIf { it.isNotBlank() }
+            } catch (e: Exception) {
+                Log.e("MusicLibrary", "Error reading preferred TTML lyric file", e)
+                null
+            }
+        } else {
+            null
+        }
+        externalTtmlLyrics ?: extractEmbeddedLyrics(audioPath)?.takeIf { it.isNotBlank() }
+    } ?: return null
+
+    val detectedFormat = detectLyricsFormat(preferredLyrics)
+    Log.d("MusicLibrary", "buildPreviewLyricPayload: detectedFormat=$detectedFormat, path=$audioPath")
+
+    val parseResult = when (detectedFormat) {
+        1 -> LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, preferredLyrics)
+        2 -> LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, preferredLyrics)
+        3 -> LyricParsingUtils.parseByType(LyricParseType.TTML, preferredLyrics)
+        else -> LyricParseResult(
+            lyrics = preferredLyrics.lines().filter { it.isNotBlank() },
+            lyricLines = buildPlainTextLyricLines(preferredLyrics)
+        )
+    }
+
+    val fallbackLines = buildPlainTextLyricLines(preferredLyrics)
+    val parsedLines = if (parseResult.lyricLines.isNotEmpty()) parseResult.lyricLines else fallbackLines
+    val previewLines = convertToPreviewLyricLines(parsedLines)
+    if (previewLines.isEmpty()) {
+        return null
+    }
+
+    val creators = if (detectedFormat == 3) {
+        LyricParsingUtils.parseSongwritersFromTtml(preferredLyrics)
+    } else {
+        emptyList()
+    }
+
+    return PreviewLyricPayload(lines = previewLines, creators = creators)
 }
 
 enum class SortType(val displayName: String) {
@@ -1302,6 +1535,30 @@ fun MusicLibraryScreen(
                                         selectedPaths.remove(audio.path)
                                         lastSelectedIndices.remove(index)
                                     }
+                                },
+                                onPlayClick = if (isMultiSelectMode) {
+                                    null
+                                } else {
+                                    {
+                                        scope.launch {
+                                            val payload = withContext(Dispatchers.IO) {
+                                                buildPreviewLyricPayload(audio.path)
+                                            }
+                                            if (payload == null) {
+                                                Toast.makeText(context, "未读取到可预览歌词", Toast.LENGTH_SHORT).show()
+                                                return@launch
+                                            }
+                                            LyricPreviewActivity.start(
+                                                context = context,
+                                                audioPath = audio.path,
+                                                lyricLines = payload.lines,
+                                                title = audio.displayTitle,
+                                                initialPosition = 0L,
+                                                creators = payload.creators,
+                                                sourceAudioPath = audio.path
+                                            )
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -1901,7 +2158,8 @@ fun AudioFileItem(
     isSelected: Boolean = false,
     sequenceNumber: Int? = null,
     onLongClick: (() -> Unit)? = null,
-    onSelectionChange: ((Boolean) -> Unit)? = null
+    onSelectionChange: ((Boolean) -> Unit)? = null,
+    onPlayClick: (() -> Unit)? = null
 ) {
     var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val context = LocalContext.current
@@ -2083,6 +2341,21 @@ fun AudioFileItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+
+        if (!isInMultiSelectMode && onPlayClick != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onPlayClick,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.play),
+                    contentDescription = "播放并预览歌词",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

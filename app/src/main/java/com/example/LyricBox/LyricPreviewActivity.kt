@@ -76,11 +76,14 @@ import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.modifier.springPlacement
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.example.LyricBox.utils.AudioConverter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileInputStream
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -250,7 +253,7 @@ class WordLiftAnimator {
     
     fun getLiftOffset(word: NewPreviewLyricWord, currentTime: Long, density: Density): Float {
         val wordKey = "${word.begin}_${word.text}"
-        val liftDuration = word.duration + 500L // 歌词持续时间 + 500ms
+        val liftDuration = (word.duration + 500L).coerceAtLeast(1L) // 歌词持续时间 + 500ms
         val adjustedBegin = word.begin - 200L // 提前200ms开始上抬动画
         
         // 如果播放进度回退到未播放状态（包括等于开始时间的情况），重置该歌词的上抬状态
@@ -267,7 +270,10 @@ class WordLiftAnimator {
         
         // 计算上抬进度
         val elapsed = currentTime - adjustedBegin
-        val progress = (elapsed.toFloat() / liftDuration).coerceIn(0f, 1f)
+        val progress = (elapsed.toFloat() / liftDuration.toFloat())
+            .takeIf { it.isFinite() }
+            ?.coerceIn(0f, 1f)
+            ?: 0f
         
         // 使用缓动函数使动画更自然
         val easedProgress = androidx.compose.animation.core.FastOutSlowInEasing.transform(progress)
@@ -295,6 +301,9 @@ class LyricPreviewActivity : ComponentActivity() {
     private var mediaPlayer: MediaPlayer? = null
     private var currentPlaybackPosition: Long = 0L
     private var playbackCompleted by mutableStateOf(false)
+    private var previewAudioDuration by mutableLongStateOf(0L)
+    private var previewConvertedAudioPath: String? = null
+    private var isFallbackTranscoding by mutableStateOf(false)
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
@@ -367,6 +376,7 @@ class LyricPreviewActivity : ComponentActivity() {
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
         val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
         val restorePlaying = savedInstanceState?.getBoolean(STATE_IS_PLAYING, false) ?: false
+        val shouldAutoPlayOnLoad = if (savedInstanceState == null) true else restorePlaying
         currentPlaybackPosition = restoredPosition
         val creators = intent.getStringArrayExtra(EXTRA_CREATORS)?.toList() ?: emptyList()
         
@@ -433,7 +443,7 @@ class LyricPreviewActivity : ComponentActivity() {
         val reorganizedLines = reorganizeLyricsWithBackground(lines)
         
         if (audioPath.isNotEmpty()) {
-            loadAudio(audioPath, restoredPosition, restorePlaying)
+            loadAudio(audioPath, restoredPosition, shouldAutoPlayOnLoad)
         }
         
         setContent {
@@ -444,9 +454,9 @@ class LyricPreviewActivity : ComponentActivity() {
                     sourceAudioPath = sourceAudioPath,
                     lyricLines = reorganizedLines,
                     creators = creators,
-                    audioDuration = mediaPlayer?.duration?.toLong() ?: 0L,
+                    audioDuration = previewAudioDuration,
                     initialPosition = restoredPosition,
-                    initialIsPlaying = restorePlaying,
+                    initialIsPlaying = shouldAutoPlayOnLoad,
                     onBack = { 
                         // 返回时传递当前播放进度
                         returnWithPosition()
@@ -481,13 +491,47 @@ class LyricPreviewActivity : ComponentActivity() {
             putExtra(EXTRA_RETURN_POSITION, currentPlaybackPosition)
         }
         setResult(RESULT_OK, returnIntent)
+        cleanupPreviewConvertCache()
         finish()
     }
     
     private fun loadAudio(path: String, initialPosition: Long = 0L, autoPlay: Boolean = false) {
+        val targetFile = File(path)
+        if (!targetFile.exists()) {
+            Log.w("LyricPreview", "Audio file does not exist: $path")
+            previewAudioDuration = 0L
+            return
+        }
+
+        val shouldForceTranscode = isAlacEncodedM4a(path)
+        if (shouldForceTranscode) {
+            startFallbackTranscode(path, initialPosition, autoPlay, "detected_alac_m4a")
+            return
+        }
+
+        val loaded = tryLoadAudioDirect(path, initialPosition, autoPlay, allowFallback = true)
+        if (!loaded) {
+            startFallbackTranscode(path, initialPosition, autoPlay, "direct_load_failed")
+        }
+    }
+
+    private fun tryLoadAudioDirect(
+        path: String,
+        initialPosition: Long,
+        autoPlay: Boolean,
+        allowFallback: Boolean
+    ): Boolean {
         try {
             mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
+                setOnErrorListener { _, what, extra ->
+                    Log.e("LyricPreview", "MediaPlayer error: what=$what extra=$extra path=$path")
+                    if (allowFallback) {
+                        val resumePosition = mediaPlayer?.currentPosition?.toLong() ?: currentPlaybackPosition
+                        startFallbackTranscode(path, resumePosition, autoPlay = true, reason = "mediaplayer_error")
+                    }
+                    true
+                }
                 setDataSource(path)
                 prepare()
                 if (initialPosition > 0) {
@@ -500,9 +544,145 @@ class LyricPreviewActivity : ComponentActivity() {
                     playbackCompleted = true
                 }
             }
+            previewAudioDuration = mediaPlayer?.duration?.toLong() ?: 0L
+            return true
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to load audio: $path", e)
+            mediaPlayer?.release()
+            mediaPlayer = null
+            previewAudioDuration = 0L
         }
+        return false
+    }
+
+    private fun isAlacEncodedM4a(path: String): Boolean {
+        val file = File(path)
+        if (!file.exists() || !file.name.lowercase().endsWith(".m4a")) {
+            return false
+        }
+        return try {
+            FileInputStream(file).use { input ->
+                val maxProbeBytes = min(1024 * 1024, file.length().toInt().coerceAtLeast(0))
+                if (maxProbeBytes <= 0) return false
+                val buffer = ByteArray(maxProbeBytes)
+                val readCount = input.read(buffer)
+                if (readCount <= 0) return false
+                String(buffer, 0, readCount, Charsets.ISO_8859_1).contains("alac", ignoreCase = true)
+            }
+        } catch (e: Exception) {
+            Log.w("LyricPreview", "ALAC probe failed for: $path", e)
+            false
+        }
+    }
+
+    private fun getPreviewConvertCacheDir(): File {
+        val dir = File(cacheDir, "preview_audio_cache")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
+
+    private fun startFallbackTranscode(
+        inputPath: String,
+        initialPosition: Long,
+        autoPlay: Boolean,
+        reason: String
+    ) {
+        if (isFallbackTranscoding) {
+            Log.d("LyricPreview", "Transcoding already running, skip new request. reason=$reason")
+            return
+        }
+        val inputFile = File(inputPath)
+        if (!inputFile.exists()) {
+            Log.e("LyricPreview", "Input file missing for transcode: $inputPath")
+            return
+        }
+
+        isFallbackTranscoding = true
+        previewAudioDuration = 0L
+        mediaPlayer?.release()
+        mediaPlayer = null
+
+        val outputFile = File(
+            getPreviewConvertCacheDir(),
+            "preview_transcoded_${System.currentTimeMillis()}_${inputFile.nameWithoutExtension}.wav"
+        )
+        previewConvertedAudioPath = outputFile.absolutePath
+
+        Log.d("LyricPreview", "Start fallback transcode. reason=$reason input=$inputPath output=${outputFile.absolutePath}")
+
+        AudioConverter.decodeToWav(
+            inputPath = inputFile.absolutePath,
+            outputPath = outputFile.absolutePath,
+            callback = object : AudioConverter.ConvertCallback {
+                override fun onProgress(progress: Int, time: Long) {
+                    // 预览页无需进度UI，保留回调以便后续扩展
+                }
+
+                override fun onComplete(success: Boolean, message: String) {
+                    runOnUiThread {
+                        isFallbackTranscoding = false
+                        if (!success) {
+                            Log.e("LyricPreview", "Fallback transcode failed: $message")
+                            if (outputFile.exists()) {
+                                outputFile.delete()
+                            }
+                            previewConvertedAudioPath = null
+                            return@runOnUiThread
+                        }
+
+                        if (!outputFile.exists()) {
+                            Log.e("LyricPreview", "Fallback transcode success but output missing")
+                            previewConvertedAudioPath = null
+                            return@runOnUiThread
+                        }
+
+                        val loaded = tryLoadAudioDirect(
+                            path = outputFile.absolutePath,
+                            initialPosition = initialPosition,
+                            autoPlay = autoPlay,
+                            allowFallback = false
+                        )
+                        if (!loaded) {
+                            Log.e("LyricPreview", "Failed to play transcoded output: ${outputFile.absolutePath}")
+                        }
+                    }
+                }
+
+                override fun onError(error: String) {
+                    runOnUiThread {
+                        isFallbackTranscoding = false
+                        Log.e("LyricPreview", "Fallback transcode error: $error")
+                        if (outputFile.exists()) {
+                            outputFile.delete()
+                        }
+                        previewConvertedAudioPath = null
+                    }
+                }
+            }
+        )
+    }
+
+    private fun cleanupPreviewConvertCache() {
+        if (isFallbackTranscoding) {
+            try {
+                AudioConverter.cancelCurrentTask()
+            } catch (e: Exception) {
+                Log.w("LyricPreview", "Failed to cancel converter task", e)
+            }
+        }
+        isFallbackTranscoding = false
+
+        val dir = getPreviewConvertCacheDir()
+        dir.listFiles()?.forEach { file ->
+            if (file.name.startsWith("preview_transcoded_") || file.name.startsWith("temp_")) {
+                if (!file.delete()) {
+                    Log.w("LyricPreview", "Failed to delete preview cache file: ${file.absolutePath}")
+                }
+            }
+        }
+        previewConvertedAudioPath = null
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -514,9 +694,12 @@ class LyricPreviewActivity : ComponentActivity() {
     }
     
     override fun onDestroy() {
-        super.onDestroy()
         mediaPlayer?.release()
         mediaPlayer = null
+        if (isFinishing) {
+            cleanupPreviewConvertCache()
+        }
+        super.onDestroy()
     }
 }
 
@@ -3017,10 +3200,14 @@ fun LyricWordsCanvasWithWrap(
                         val isFuture = currentTime < word.begin
                         
                         // 计算进度
+                        val safeWordDuration = word.duration.coerceAtLeast(1L)
                         val progress = when {
                             isFuture -> 0f
                             isPassed -> 1f
-                            else -> ((currentTime - word.begin).toFloat() / word.duration).coerceIn(0f, 1f)
+                            else -> ((currentTime - word.begin).toFloat() / safeWordDuration.toFloat())
+                                .takeIf { it.isFinite() }
+                                ?.coerceIn(0f, 1f)
+                                ?: 0f
                         }
                         
                         // 计算上抬偏移（每个字独立计算，不互相影响）
@@ -3276,13 +3463,16 @@ fun PlaybackControls(
     vibrantColor: Color? = null,
     backgroundColor: Color? = null
 ) {
-    // 最小拖动位置是240毫秒
-    val MIN_POSITION = 240L
-    // 计算进度，最小值是240毫秒
-    val normalizedCurrentTime = currentTime.coerceAtLeast(MIN_POSITION)
-    val effectiveDuration = duration.coerceAtLeast(MIN_POSITION)
-    val progress = if (effectiveDuration > 0) {
-        (normalizedCurrentTime - MIN_POSITION).toFloat() / (effectiveDuration - MIN_POSITION)
+    val minSeekStartMs = 240L
+    val safeDuration = duration.coerceAtLeast(0L)
+    val seekStart = if (safeDuration > minSeekStartMs) minSeekStartMs else 0L
+    val seekSpan = (safeDuration - seekStart).coerceAtLeast(0L)
+    val clampedCurrentTime = currentTime.coerceIn(0L, safeDuration)
+    val sliderProgress = if (seekSpan > 0L) {
+        ((clampedCurrentTime - seekStart).toFloat() / seekSpan.toFloat())
+            .takeIf { it.isFinite() }
+            ?.coerceIn(0f, 1f)
+            ?: 0f
     } else {
         0f
     }
@@ -3357,7 +3547,14 @@ fun PlaybackControls(
                 .padding(6.dp)
         ) {
             // 计算显示用的进度，用于LinearProgressIndicator
-            val displayProgress = if (duration > 0) currentTime.toFloat() / duration else 0f
+            val displayProgress = if (safeDuration > 0L) {
+                (clampedCurrentTime.toFloat() / safeDuration.toFloat())
+                    .takeIf { it.isFinite() }
+                    ?.coerceIn(0f, 1f)
+                    ?: 0f
+            } else {
+                0f
+            }
             LinearProgressIndicator(
                 progress = { displayProgress },
                 modifier = Modifier.fillMaxSize(),
@@ -3367,11 +3564,18 @@ fun PlaybackControls(
             
             // 可拖动的进度条
             Slider(
-                value = progress,
+                value = sliderProgress,
                 onValueChange = { newProgress ->
-                    // 计算新位置，保证最小值是240毫秒
-                    val newPosition = MIN_POSITION + (newProgress * (duration - MIN_POSITION)).toLong()
-                    onSeek(newPosition)
+                    val safeProgress = newProgress
+                        .takeIf { it.isFinite() }
+                        ?.coerceIn(0f, 1f)
+                        ?: 0f
+                    val newPosition = if (seekSpan > 0L) {
+                        seekStart + (safeProgress * seekSpan.toFloat()).toLong()
+                    } else {
+                        seekStart
+                    }
+                    onSeek(newPosition.coerceIn(0L, safeDuration))
                 },
                 modifier = Modifier.fillMaxSize(),
                 colors = SliderDefaults.colors(
