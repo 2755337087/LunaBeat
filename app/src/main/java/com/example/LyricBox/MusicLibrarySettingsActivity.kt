@@ -44,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -215,6 +216,7 @@ fun MusicLibrarySettingsScreen(
     var showAddFolderDialog by remember { mutableStateOf(false) }
     var showAddExcludeFolderDialog by remember { mutableStateOf(false) }
     var excludeShortAudio by remember { mutableStateOf(prefs.getBoolean("excludeShortAudio", true)) }
+    var useNativeMediaLibrary by remember { mutableStateOf(prefs.getBoolean("useNativeMediaLibrary", true)) }
     val folderList = remember { mutableStateListOf<String>() }
     val excludeFolderList = remember { mutableStateListOf<String>() }
     
@@ -282,11 +284,39 @@ fun MusicLibrarySettingsScreen(
             )
             
             Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "扫描来源",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            NativeMediaLibrarySwitchItem(
+                checked = useNativeMediaLibrary,
+                onCheckedChange = { useNativeMediaLibrary = it }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = if (useNativeMediaLibrary) {
+                    "首次进入会读取安卓原生媒体库，后续进入自动增量更新。"
+                } else {
+                    "关闭后按目录扫描，新增或修改文件需要刷新。"
+                },
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
             
             folderList.forEach { folder ->
                 FolderItem(
                     path = folder,
-                    showDelete = folderList.size > 1,
+                    showDelete = true,
                     onDelete = {
                         folderToDelete = folder
                         showDeleteConfirmDialog = true
@@ -435,6 +465,7 @@ fun MusicLibrarySettingsScreen(
                         .putStringSet("musicFolders", folderList.toSet())
                         .putStringSet("excludeFolders", excludeFolderList.toSet())
                         .putBoolean("excludeShortAudio", excludeShortAudio)
+                        .putBoolean("useNativeMediaLibrary", useNativeMediaLibrary)
                         .putString("sortType", sortType.value.name)
                         .putString("sortOrder", sortOrder.value.name)
                         .putBoolean("hasSetup", true)
@@ -442,7 +473,7 @@ fun MusicLibrarySettingsScreen(
                     onConfirm()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = folderList.isNotEmpty()
+                enabled = useNativeMediaLibrary || folderList.isNotEmpty()
             ) {
                 Text("确认")
             }
@@ -662,6 +693,41 @@ fun FilterCheckboxItem(
                 MaterialTheme.colorScheme.onPrimaryContainer 
             else 
                 MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun NativeMediaLibrarySwitchItem(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "使用安卓原生媒体库",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "默认开启，读取系统媒体库并自动增量同步",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
         )
     }
 }

@@ -166,7 +166,8 @@ data class AudioFile(
     val lastModified: Long = 0L,
     val addedTime: Long = System.currentTimeMillis(),
     val coverCachePath: String? = null,
-    val year: String = ""
+    val year: String = "",
+    val mediaStoreId: Long = -1L
 ) {
     val displayTitle: String
         get() = if (title.isNotEmpty()) title else File(path).nameWithoutExtension
@@ -196,6 +197,7 @@ data class AudioFile(
             put("addedTime", addedTime)
             put("coverCachePath", coverCachePath)
             put("year", year)
+            put("mediaStoreId", mediaStoreId)
         }
     }
     
@@ -214,7 +216,8 @@ data class AudioFile(
                     val value = json.optString("coverCachePath")
                     if (value.isNotEmpty()) value else null
                 } else null,
-                year = json.optString("year", "")
+                year = json.optString("year", ""),
+                mediaStoreId = json.optLong("mediaStoreId", -1L)
             )
         }
     }
@@ -367,6 +370,13 @@ data class RenameResult(
     val successCount: Int,
     val failedCount: Int,
     val errors: Map<String, String>
+)
+
+data class ScanSummary(
+    val totalCount: Int = 0,
+    val addedCount: Int = 0,
+    val removedCount: Int = 0,
+    val updatedCount: Int = 0
 )
 
 class MusicLibraryActivity : ComponentActivity() {
@@ -755,7 +765,7 @@ fun MusicLibraryScreen(
     var selectedAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showAudioOptionsDialog by remember { mutableStateOf(false) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
-    var scanResultCount by remember { mutableStateOf(0) }
+    var scanSummary by remember { mutableStateOf(ScanSummary()) }
     var isFromCache by remember { mutableStateOf(false) }
     var showScanComplete by remember { mutableStateOf(false) }
     var isLoadingCache by remember { mutableStateOf(true) }
@@ -932,23 +942,29 @@ fun MusicLibraryScreen(
         }
         isLoadingCache = false
         val autoScanEnabled = prefs.getBoolean("autoScan", false)
+        val useNativeMediaLibrary = prefs.getBoolean("useNativeMediaLibrary", true)
         val currentFolders = prefs.getStringSet("musicFolders", emptySet()) ?: emptySet()
         val lastScannedFolders = prefs.getStringSet("lastScannedFolders", emptySet()) ?: emptySet()
         
         // 检查目录是否有变化（新增或减少）
         val foldersChanged = currentFolders != lastScannedFolders
-        
-        // 如果目录有变化或者用户开启了自动扫描，则执行扫描
-        if (foldersChanged || autoScanEnabled) {
+        val shouldScan = if (useNativeMediaLibrary) {
+            true
+        } else {
+            foldersChanged || autoScanEnabled
+        }
+
+        // 原生媒体库模式默认自动增量同步；目录模式按原逻辑触发扫描
+        if (shouldScan) {
             scanJob = launch {
                 isScanning = true
                 scanAudioFiles(context, prefs, allAudioFiles,
                     onProgress = { current, total ->
                         scanProgress = current to total
                     },
-                    onComplete = { count ->
+                    onComplete = { summary ->
                         isScanning = false
-                        scanResultCount = count
+                        scanSummary = summary
                         if (isFromCache) {
                             showScanComplete = true
                             scope.launch {
@@ -1040,9 +1056,9 @@ fun MusicLibraryScreen(
                                             onProgress = { current, total ->
                                                 scanProgress = current to total
                                             },
-                                            onComplete = { count ->
+                                            onComplete = { summary ->
                                                 isScanning = false
-                                                scanResultCount = count
+                                                scanSummary = summary
                                                 showScanComplete = true
                                                 scope.launch {
                                                     kotlinx.coroutines.delay(3000)
@@ -1514,7 +1530,7 @@ fun MusicLibraryScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "扫描完成，共发现 $scanResultCount 首歌曲",
+                                text = "扫描完成，共发现 ${scanSummary.totalCount} 首歌曲\n新增 ${scanSummary.addedCount} 首，删除 ${scanSummary.removedCount} 首，元数据更新 ${scanSummary.updatedCount} 首",
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -2662,78 +2678,238 @@ private fun sortAudioFiles(
     audioFiles.addAll(sorted)
 }
 
+private data class NativeMediaAudioEntry(
+    val mediaStoreId: Long,
+    val path: String,
+    val duration: Long,
+    val fileSize: Long,
+    val lastModified: Long
+)
+
+private fun normalizeLibraryPath(path: String): String {
+    return path.trim().replace('\\', '/').trimEnd('/')
+}
+
+private fun isPathInsideFolder(path: String, folder: String): Boolean {
+    val normalizedPath = normalizeLibraryPath(path)
+    val normalizedFolder = normalizeLibraryPath(folder)
+    if (normalizedPath.isEmpty() || normalizedFolder.isEmpty()) return false
+    return normalizedPath.equals(normalizedFolder, ignoreCase = true) ||
+        normalizedPath.startsWith("$normalizedFolder/", ignoreCase = true)
+}
+
+private fun shouldIncludeLibraryPath(
+    path: String,
+    includeFolders: Set<String>,
+    excludeFolders: Set<String>
+): Boolean {
+    val inIncludeFolders = includeFolders.isEmpty() || includeFolders.any { folder ->
+        isPathInsideFolder(path, folder)
+    }
+    if (!inIncludeFolders) return false
+    return excludeFolders.none { folder -> isPathInsideFolder(path, folder) }
+}
+
+@Suppress("DEPRECATION")
+private fun queryNativeMediaAudioEntries(context: Context): List<NativeMediaAudioEntry> {
+    val resolver = context.contentResolver
+    val uri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+    val projection = arrayOf(
+        android.provider.MediaStore.Audio.Media._ID,
+        android.provider.MediaStore.Audio.Media.DATA,
+        android.provider.MediaStore.Audio.Media.DURATION,
+        android.provider.MediaStore.Audio.Media.SIZE,
+        android.provider.MediaStore.Audio.Media.DATE_MODIFIED,
+        android.provider.MediaStore.Audio.Media.RELATIVE_PATH,
+        android.provider.MediaStore.Audio.Media.DISPLAY_NAME
+    )
+    val selection = "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0"
+    val sortOrder = "${android.provider.MediaStore.Audio.Media.DATE_MODIFIED} DESC"
+    val results = mutableListOf<NativeMediaAudioEntry>()
+
+    try {
+        resolver.query(uri, projection, selection, null, sortOrder)?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
+            val dataIndex = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATA)
+            val durationIndex = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DURATION)
+            val sizeIndex = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.SIZE)
+            val modifiedIndex = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DATE_MODIFIED)
+            val relativePathIndex = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.RELATIVE_PATH)
+            val displayNameIndex = cursor.getColumnIndex(android.provider.MediaStore.Audio.Media.DISPLAY_NAME)
+
+            while (cursor.moveToNext()) {
+                val mediaStoreId = cursor.getLong(idIndex)
+                var path = if (dataIndex >= 0) cursor.getString(dataIndex) else null
+
+                if (path.isNullOrBlank()) {
+                    val relativePath = if (relativePathIndex >= 0) cursor.getString(relativePathIndex) else null
+                    val displayName = if (displayNameIndex >= 0) cursor.getString(displayNameIndex) else null
+                    if (!relativePath.isNullOrBlank() && !displayName.isNullOrBlank()) {
+                        val fallbackFile = File(android.os.Environment.getExternalStorageDirectory(), relativePath + displayName)
+                        if (fallbackFile.exists()) {
+                            path = fallbackFile.absolutePath
+                        }
+                    }
+                }
+
+                if (path.isNullOrBlank()) continue
+
+                val duration = if (durationIndex >= 0) cursor.getLong(durationIndex) else 0L
+                val fileSize = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else 0L
+                val lastModifiedSec = if (modifiedIndex >= 0) cursor.getLong(modifiedIndex) else 0L
+
+                results.add(
+                    NativeMediaAudioEntry(
+                        mediaStoreId = mediaStoreId,
+                        path = path,
+                        duration = duration,
+                        fileSize = fileSize,
+                        lastModified = lastModifiedSec * 1000
+                    )
+                )
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("MusicLibrary", "Error querying native media library", e)
+    }
+
+    return results
+}
+
+private fun isNativeMediaEntryChanged(existing: AudioFile?, entry: NativeMediaAudioEntry): Boolean {
+    if (existing == null) return true
+    if (existing.mediaStoreId != entry.mediaStoreId) return true
+    if (existing.fileSize != entry.fileSize) return true
+    if (kotlin.math.abs(existing.duration - entry.duration) > 1000L) return true
+    return kotlin.math.abs(existing.lastModified - entry.lastModified) > 1000L
+}
+
+private fun hasAudioMetadataChanged(
+    existing: AudioFile,
+    title: String,
+    artist: String,
+    album: String,
+    duration: Long,
+    fileSize: Long,
+    lastModified: Long,
+    year: String,
+    coverCachePath: String?,
+    mediaStoreId: Long
+): Boolean {
+    val finalCoverCachePath = coverCachePath ?: existing.coverCachePath
+    return existing.title != title ||
+        existing.artist != artist ||
+        existing.album != album ||
+        existing.duration != duration ||
+        existing.fileSize != fileSize ||
+        existing.lastModified != lastModified ||
+        existing.year != year ||
+        existing.coverCachePath != finalCoverCachePath ||
+        existing.mediaStoreId != mediaStoreId
+}
+
 private suspend fun scanAudioFiles(
     context: Context,
     prefs: android.content.SharedPreferences,
     audioFiles: MutableList<AudioFile>,
     onProgress: (Int, Int) -> Unit,
-    onComplete: (Int) -> Unit
+    onComplete: (ScanSummary) -> Unit
+) {
+    val useNativeMediaLibrary = prefs.getBoolean("useNativeMediaLibrary", true)
+    if (useNativeMediaLibrary) {
+        scanAudioFilesFromNativeMediaStore(context, prefs, audioFiles, onProgress, onComplete)
+    } else {
+        scanAudioFilesFromFolders(context, prefs, audioFiles, onProgress, onComplete)
+    }
+}
+
+private suspend fun scanAudioFilesFromFolders(
+    context: Context,
+    prefs: android.content.SharedPreferences,
+    audioFiles: MutableList<AudioFile>,
+    onProgress: (Int, Int) -> Unit,
+    onComplete: (ScanSummary) -> Unit
 ) {
     val folders = prefs.getStringSet("musicFolders", emptySet()) ?: emptySet()
     val excludeFolders = prefs.getStringSet("excludeFolders", emptySet()) ?: emptySet()
     val excludeShortAudio = prefs.getBoolean("excludeShortAudio", true)
     val audioExtensions = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "wma", "ape")
-    
+
     val allFiles = mutableListOf<File>()
-    
+
     fun isExcluded(file: File): Boolean {
         return excludeFolders.any { excludeFolder ->
-            file.absolutePath.startsWith(excludeFolder + File.separator) || 
-            file.absolutePath == excludeFolder
+            file.absolutePath.startsWith(excludeFolder + File.separator) ||
+                file.absolutePath == excludeFolder
         }
     }
-    
+
     withContext(Dispatchers.IO) {
+        var addedCount = 0
+        var removedCount = 0
+        var updatedCount = 0
+
         for (folder in folders) {
             val dir = File(folder)
             if (dir.exists() && dir.isDirectory) {
                 scanDirectory(dir, audioExtensions, allFiles, ::isExcluded)
             }
         }
-        
+
         val validPaths = allFiles.map { it.absolutePath }.toSet()
-        val validCoverPaths = mutableSetOf<String>()
-        
         withContext(Dispatchers.Main) {
             val removedFiles = audioFiles.filter { it.path !in validPaths }
+            removedCount = removedFiles.size
             audioFiles.removeAll(removedFiles)
         }
-        
+
         val total = allFiles.size
         allFiles.forEachIndexed { index, file ->
             withContext(Dispatchers.Main) {
                 onProgress(index + 1, total)
             }
-            
+
             try {
                 val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(file.absolutePath)
-                
                 val duration = metadata.duration
                 if (!excludeShortAudio || duration >= 60000) {
-                    // 保存封面到缓存
+                    val fileSize = file.length()
+                    val fileLastModified = file.lastModified()
                     var coverCachePath: String? = null
                     if (metadata.cover != null) {
                         coverCachePath = saveCoverToCache(context, file.absolutePath, metadata.cover)
-                        if (coverCachePath != null) {
-                            validCoverPaths.add(coverCachePath)
-                        }
                     }
-                    
-                    val existingIndex = audioFiles.indexOfFirst { it.path == file.absolutePath }
-                    
+
                     withContext(Dispatchers.Main) {
+                        val existingIndex = audioFiles.indexOfFirst { it.path == file.absolutePath }
                         if (existingIndex >= 0) {
                             val existing = audioFiles[existingIndex]
+                            val changed = hasAudioMetadataChanged(
+                                existing = existing,
+                                title = metadata.title,
+                                artist = metadata.artist,
+                                album = metadata.album,
+                                duration = duration,
+                                fileSize = fileSize,
+                                lastModified = fileLastModified,
+                                year = metadata.year,
+                                coverCachePath = coverCachePath,
+                                mediaStoreId = -1L
+                            )
                             audioFiles[existingIndex] = existing.copy(
                                 title = metadata.title,
                                 artist = metadata.artist,
                                 album = metadata.album,
                                 duration = duration,
-                                fileSize = file.length(),
-                                lastModified = file.lastModified(),
+                                fileSize = fileSize,
+                                lastModified = fileLastModified,
                                 coverCachePath = coverCachePath ?: existing.coverCachePath,
-                                year = metadata.year
+                                year = metadata.year,
+                                mediaStoreId = -1L
                             )
+                            if (changed) {
+                                updatedCount++
+                            }
                         } else {
                             val audioFile = AudioFile(
                                 path = file.absolutePath,
@@ -2741,13 +2917,15 @@ private suspend fun scanAudioFiles(
                                 artist = metadata.artist,
                                 album = metadata.album,
                                 duration = duration,
-                                fileSize = file.length(),
-                                lastModified = file.lastModified(),
+                                fileSize = fileSize,
+                                lastModified = fileLastModified,
                                 addedTime = System.currentTimeMillis(),
                                 coverCachePath = coverCachePath,
-                                year = metadata.year
+                                year = metadata.year,
+                                mediaStoreId = -1L
                             )
                             audioFiles.add(audioFile)
+                            addedCount++
                         }
                     }
                 }
@@ -2755,15 +2933,169 @@ private suspend fun scanAudioFiles(
                 Log.e("MusicLibrary", "Error reading file: ${file.absolutePath}", e)
             }
         }
-        
-        // 清理旧的封面缓存
+
+        val validCoverPaths = withContext(Dispatchers.Main) {
+            audioFiles.mapNotNull { it.coverCachePath }.toSet()
+        }
         clearOldCoverCache(context, validCoverPaths)
-        
+
         withContext(Dispatchers.Main) {
             saveCachedAudioFiles(context, audioFiles)
-            // 保存本次扫描使用的音频目录
             prefs.edit().putStringSet("lastScannedFolders", folders).apply()
-            onComplete(audioFiles.size)
+            onComplete(
+                ScanSummary(
+                    totalCount = audioFiles.size,
+                    addedCount = addedCount,
+                    removedCount = removedCount,
+                    updatedCount = updatedCount
+                )
+            )
+        }
+    }
+}
+
+private suspend fun scanAudioFilesFromNativeMediaStore(
+    context: Context,
+    prefs: android.content.SharedPreferences,
+    audioFiles: MutableList<AudioFile>,
+    onProgress: (Int, Int) -> Unit,
+    onComplete: (ScanSummary) -> Unit
+) {
+    val includeFolders = prefs.getStringSet("musicFolders", emptySet()) ?: emptySet()
+    val excludeFolders = prefs.getStringSet("excludeFolders", emptySet()) ?: emptySet()
+    val excludeShortAudio = prefs.getBoolean("excludeShortAudio", true)
+
+    withContext(Dispatchers.IO) {
+        var addedCount = 0
+        var removedCount = 0
+        var updatedCount = 0
+
+        val mediaEntries = queryNativeMediaAudioEntries(context)
+            .filter { entry -> shouldIncludeLibraryPath(entry.path, includeFolders, excludeFolders) }
+            .filter { entry -> !excludeShortAudio || entry.duration >= 60000L }
+
+        val validPaths = mediaEntries.map { it.path }.toSet()
+        withContext(Dispatchers.Main) {
+            val removedFiles = audioFiles.filter { it.path !in validPaths }
+            removedCount += removedFiles.size
+            audioFiles.removeAll(removedFiles)
+        }
+
+        val existingSnapshot = withContext(Dispatchers.Main) {
+            audioFiles.associateBy { it.path }
+        }
+        val entriesToProcess = mediaEntries.filter { entry ->
+            isNativeMediaEntryChanged(existingSnapshot[entry.path], entry)
+        }
+
+        withContext(Dispatchers.Main) {
+            onProgress(0, entriesToProcess.size)
+        }
+
+        entriesToProcess.forEachIndexed { index, entry ->
+            withContext(Dispatchers.Main) {
+                onProgress(index + 1, entriesToProcess.size)
+            }
+
+            try {
+                val file = File(entry.path)
+                if (!file.exists()) {
+                    withContext(Dispatchers.Main) {
+                        val beforeSize = audioFiles.size
+                        audioFiles.removeAll { it.path == entry.path }
+                        removedCount += (beforeSize - audioFiles.size)
+                    }
+                    return@forEachIndexed
+                }
+
+                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(entry.path)
+                val duration = if (metadata.duration > 0) metadata.duration else entry.duration
+                if (excludeShortAudio && duration < 60000L) {
+                    withContext(Dispatchers.Main) {
+                        val beforeSize = audioFiles.size
+                        audioFiles.removeAll { it.path == entry.path }
+                        removedCount += (beforeSize - audioFiles.size)
+                    }
+                    return@forEachIndexed
+                }
+
+                var coverCachePath: String? = null
+                if (metadata.cover != null) {
+                    coverCachePath = saveCoverToCache(context, entry.path, metadata.cover)
+                }
+
+                withContext(Dispatchers.Main) {
+                    val existingIndex = audioFiles.indexOfFirst { it.path == entry.path }
+                    if (existingIndex >= 0) {
+                        val existing = audioFiles[existingIndex]
+                        val targetFileSize = if (entry.fileSize > 0) entry.fileSize else file.length()
+                        val targetLastModified = if (entry.lastModified > 0) entry.lastModified else file.lastModified()
+                        val changed = hasAudioMetadataChanged(
+                            existing = existing,
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            duration = duration,
+                            fileSize = targetFileSize,
+                            lastModified = targetLastModified,
+                            year = metadata.year,
+                            coverCachePath = coverCachePath,
+                            mediaStoreId = entry.mediaStoreId
+                        )
+                        audioFiles[existingIndex] = existing.copy(
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            duration = duration,
+                            fileSize = targetFileSize,
+                            lastModified = targetLastModified,
+                            coverCachePath = coverCachePath ?: existing.coverCachePath,
+                            year = metadata.year,
+                            mediaStoreId = entry.mediaStoreId
+                        )
+                        if (changed) {
+                            updatedCount++
+                        }
+                    } else {
+                        audioFiles.add(
+                            AudioFile(
+                                path = entry.path,
+                                title = metadata.title,
+                                artist = metadata.artist,
+                                album = metadata.album,
+                                duration = duration,
+                                fileSize = if (entry.fileSize > 0) entry.fileSize else file.length(),
+                                lastModified = if (entry.lastModified > 0) entry.lastModified else file.lastModified(),
+                                addedTime = System.currentTimeMillis(),
+                                coverCachePath = coverCachePath,
+                                year = metadata.year,
+                                mediaStoreId = entry.mediaStoreId
+                            )
+                        )
+                        addedCount++
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MusicLibrary", "Error syncing native media entry: ${entry.path}", e)
+            }
+        }
+
+        val validCoverPaths = withContext(Dispatchers.Main) {
+            audioFiles.mapNotNull { it.coverCachePath }.toSet()
+        }
+        clearOldCoverCache(context, validCoverPaths)
+
+        withContext(Dispatchers.Main) {
+            saveCachedAudioFiles(context, audioFiles)
+            prefs.edit().putLong("lastNativeMediaSyncAt", System.currentTimeMillis()).apply()
+            onComplete(
+                ScanSummary(
+                    totalCount = audioFiles.size,
+                    addedCount = addedCount,
+                    removedCount = removedCount,
+                    updatedCount = updatedCount
+                )
+            )
         }
     }
 }
@@ -5750,6 +6082,12 @@ private fun BatchRenameConfigSheet(
     }
     var renameTtml by remember { mutableStateOf(savedRenameTtml) }
     var artistSeparator by remember { mutableStateOf(savedSeparator) }
+    var showCustomSeparatorSheet by remember { mutableStateOf(false) }
+    var customSeparatorInput by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue("")
+        )
+    }
     val scrollState = rememberScrollState()
     
     LaunchedEffect(Unit) { sheetState.show() }
@@ -5986,6 +6324,35 @@ private fun BatchRenameConfigSheet(
                         )
                     }
                 }
+
+                val isCustomSelected = separatorOptions.none { it.first == artistSeparator }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (isCustomSelected)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .clickable {
+                            customSeparatorInput = androidx.compose.ui.text.input.TextFieldValue(
+                                if (isCustomSelected) artistSeparator else ""
+                            )
+                            showCustomSeparatorSheet = true
+                        }
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = if (isCustomSelected) "自定义: $artistSeparator" else "自定义",
+                        fontSize = 14.sp,
+                        fontWeight = if (isCustomSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isCustomSelected)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(20.dp))
@@ -6042,6 +6409,142 @@ private fun BatchRenameConfigSheet(
                     enabled = isPreviewEnabled
                 ) {
                     Text("预览")
+                }
+            }
+        }
+    }
+
+    if (showCustomSeparatorSheet) {
+        CustomArtistSeparatorSheet(
+            initialValue = customSeparatorInput,
+            onDismiss = { showCustomSeparatorSheet = false },
+            onConfirm = { value ->
+                artistSeparator = value
+                showCustomSeparatorSheet = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CustomArtistSeparatorSheet(
+    initialValue: androidx.compose.ui.text.input.TextFieldValue,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var inputValue by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                text = initialValue.text,
+                selection = androidx.compose.ui.text.TextRange(initialValue.text.length)
+            )
+        )
+    }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) { sheetState.show() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .navigationBarsPadding()
+        ) {
+            Text(
+                text = "自定义艺术家分隔符",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "不能包含文件名非法字符：\\ / : * ? \" < > |",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                BasicTextField(
+                    value = inputValue,
+                    onValueChange = {
+                        inputValue = it
+                        errorMessage = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 1,
+                    maxLines = 2,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 16.sp
+                    ),
+                    decorationBox = { innerTextField ->
+                        if (inputValue.text.isEmpty()) {
+                            Text(
+                                text = "请输入分隔符，例如“／”",
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                fontSize = 16.sp
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+            }
+
+            if (!errorMessage.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = errorMessage ?: "",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("取消")
+                }
+                Button(
+                    onClick = {
+                        val validateError = validateArtistSeparator(inputValue.text)
+                        if (validateError != null) {
+                            errorMessage = validateError
+                            return@Button
+                        }
+                        onConfirm(inputValue.text)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("确定")
                 }
             }
         }
@@ -6446,6 +6949,17 @@ private suspend fun generateRenamePreview(
     }
 }
 
+private fun validateArtistSeparator(separator: String): String? {
+    if (separator.isEmpty()) {
+        return "分隔符不能为空"
+    }
+    val invalidChars = setOf('\\', '/', ':', '*', '?', '"', '<', '>', '|')
+    if (separator.any { it in invalidChars || it.code < 32 }) {
+        return "包含非法字符，不能使用 \\ / : * ? \" < > |"
+    }
+    return null
+}
+
 private fun replaceTemplateTags(
     template: String,
     audioFile: AudioFile,
@@ -6471,9 +6985,9 @@ private fun replaceTemplateTags(
         result = result.replace("[$tag]", value)
     }
     
-    // 构建无效字符集合，如果艺术家分隔符是 "&"，则不将其视为无效字符
+    // 构建无效字符集合；当分隔符包含 "&" 时允许它出现在文件名中
     val invalidChars = mutableSetOf('\\', '/', ':', '*', '?', '"', '<', '>', '|')
-    if (artistSeparator != "&") {
+    if (!artistSeparator.contains('&')) {
         invalidChars.add('&')
     }
     return result.filter { it !in invalidChars }.trim()
