@@ -95,6 +95,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -145,6 +146,20 @@ import kotlinx.coroutines.withContext
 import kotlin.math.pow
 
 class LyricTimingActivity : ComponentActivity() {
+    companion object {
+        private const val KEY_SOURCE_AUDIO_PATH = "lyric_timing.source_audio_path"
+        private const val KEY_SOURCE_TITLE = "lyric_timing.source_title"
+        private const val KEY_SOURCE_ARTIST = "lyric_timing.source_artist"
+        private const val KEY_IMPORTED_LYRICS_CONTENT = "lyric_timing.imported_lyrics_content"
+        private const val KEY_IMPORTED_LYRICS_FORMAT = "lyric_timing.imported_lyrics_format"
+        private const val KEY_CONVERTED_AUDIO_PATH = "lyric_timing.converted_audio_path"
+        private const val KEY_HAS_LYRICS = "lyric_timing.has_lyrics"
+        private const val KEY_PLAYBACK_POSITION = "lyric_timing.playback_position"
+        private const val KEY_PENDING_CREATORS = "lyric_timing.pending_creators"
+        private const val KEY_LYRIC_LINES = "lyric_timing.lyric_lines"
+        private const val KEY_SELECTED_LINE_INDEX = "lyric_timing.selected_line_index"
+        private const val KEY_SELECTED_WORD_INDEX = "lyric_timing.selected_word_index"
+    }
     
     private var mediaPlayer: MediaPlayer? = null
     private var showConfirmDialog by mutableStateOf(false)
@@ -162,6 +177,14 @@ class LyricTimingActivity : ComponentActivity() {
     private var importedLyricsFormat by mutableStateOf(0)
     private var playbackCompleted by mutableStateOf(false)
     private var pendingLyricsCreators by mutableStateOf<List<String>>(emptyList())
+    private var pendingRestoreSeekMs: Long? = null
+    private var lastKnownPlaybackPositionMs: Long = 0L
+    private var currentLyricLinesSnapshot: List<LyricLine> = emptyList()
+    private var restoredLyricLines: List<LyricLine> = emptyList()
+    private var restoredSelectedLineIndex: Int = 0
+    private var restoredSelectedWordIndex: Int = 0
+    private var lastSelectedLineIndexSnapshot: Int = 0
+    private var lastSelectedWordIndexSnapshot: Int = 0
     
     private val audioPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) {
         it?.let {uri ->
@@ -323,6 +346,14 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun loadAudio(uri: android.net.Uri) {
+        val fileName = getFileName(uri)
+        val cachedFile = copyUriToTempFile(uri, fileName)
+        if (cachedFile != null) {
+            loadAudioFromPath(cachedFile.absolutePath)
+            return
+        }
+
+        // 兜底：缓存失败时直接使用 Uri 播放
         mediaPlayer?.release()
         mediaPlayer = MediaPlayer.create(this, uri)
         mediaPlayer?.setOnCompletionListener {
@@ -330,25 +361,41 @@ class LyricTimingActivity : ComponentActivity() {
             playbackCompleted = true
         }
         audioImportCount++
-        
-        val fileName = getFileName(uri)
-        val cachedFile = copyUriToTempFile(uri, fileName)
-        if (cachedFile != null) {
-            sourceAudioPath = cachedFile.absolutePath
+        applyPendingRestoreSeek()
+    }
+
+    private fun applyPendingRestoreSeek() {
+        val seekPosition = pendingRestoreSeekMs ?: return
+        if (seekPosition > 0L) {
+            mediaPlayer?.seekTo(seekPosition.toInt())
+            lastKnownPlaybackPositionMs = seekPosition
         }
+        pendingRestoreSeekMs = null
     }
     
     private fun loadAudioFromPath(path: String) {
+        val targetFile = java.io.File(path)
+        if (!targetFile.exists()) {
+            Log.w("LyricTiming", "Audio file does not exist: $path")
+            return
+        }
         mediaPlayer?.release()
-        mediaPlayer = MediaPlayer().apply {
-            setDataSource(path)
-            prepare()
+        mediaPlayer = try {
+            MediaPlayer().apply {
+                setDataSource(path)
+                prepare()
+            }
+        } catch (e: Exception) {
+            Log.e("LyricTiming", "Failed to load audio from path: $path", e)
+            null
         }
         mediaPlayer?.setOnCompletionListener {
             Log.d("LyricTiming", "Audio playback completed")
             playbackCompleted = true
         }
+        sourceAudioPath = path
         audioImportCount++
+        applyPendingRestoreSeek()
     }
     
     private fun cleanConvertCache() {
@@ -412,7 +459,7 @@ class LyricTimingActivity : ComponentActivity() {
                 if (lyricsFormat == "TTML歌词") {
                     // 导入 TTML 歌词
                     // 先解析创作者信息
-                    val parsedSongwriters = parseSongwritersFromTtml(lyricsContent)
+                    val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(lyricsContent)
                     pendingLyricsCreators = parsedSongwriters
                     
                     if (hasLyrics) {
@@ -438,7 +485,9 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun importVerbatimLyrics(content: String) {
-        val (parsedLyrics, parsedLines) = parseSPLLrcLyrics(content)
+        val parseResult = LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, content)
+        val parsedLyrics = parseResult.lyrics
+        val parsedLines = parseResult.lyricLines
         if (parsedLyrics.isNotEmpty()) {
             verbatimLyricsLines = parsedLines
             hasLyrics = true
@@ -447,7 +496,7 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun importTtmlLyrics(content: String) {
-        val parsedLines = parseTtmlLyrics(content)
+        val parsedLines = LyricParsingUtils.parseByType(LyricParseType.TTML, content).lyricLines
         if (parsedLines.isNotEmpty()) {
             verbatimLyricsLines = parsedLines
             hasLyrics = true
@@ -467,37 +516,82 @@ class LyricTimingActivity : ComponentActivity() {
             showPiracyWarning = true
         }
         
-        sourceAudioPath = intent.getStringExtra("audioPath") ?: ""
-        sourceTitle = intent.getStringExtra("sourceTitle") ?: ""
-        sourceArtist = intent.getStringExtra("sourceArtist") ?: ""
-        importedLyricsContent = intent.getStringExtra("lyricsContent") ?: ""
-        val lyricsFormatStr = intent.getStringExtra("lyricsFormat") ?: ""
-        importedLyricsFormat = when (lyricsFormatStr) {
+        val intentAudioPath = intent.getStringExtra("audioPath") ?: ""
+        val intentSourceTitle = intent.getStringExtra("sourceTitle") ?: ""
+        val intentSourceArtist = intent.getStringExtra("sourceArtist") ?: ""
+        val intentLyricsContent = intent.getStringExtra("lyricsContent") ?: ""
+        val intentLyricsFormat = when (intent.getStringExtra("lyricsFormat") ?: "") {
             "纯文本歌词" -> 0
             "LRC歌词", "LRC逐行/逐字歌词" -> 1
             "增强LRC/ELRC歌词" -> 2
             "TTML歌词" -> 3
             else -> 0
         }
+
+        if (savedInstanceState != null) {
+            sourceAudioPath = savedInstanceState.getString(KEY_SOURCE_AUDIO_PATH, intentAudioPath)
+            sourceTitle = savedInstanceState.getString(KEY_SOURCE_TITLE, intentSourceTitle)
+            sourceArtist = savedInstanceState.getString(KEY_SOURCE_ARTIST, intentSourceArtist)
+            importedLyricsContent = savedInstanceState.getString(KEY_IMPORTED_LYRICS_CONTENT, intentLyricsContent)
+            importedLyricsFormat = savedInstanceState.getInt(KEY_IMPORTED_LYRICS_FORMAT, intentLyricsFormat)
+            convertedAudioPath = savedInstanceState.getString(KEY_CONVERTED_AUDIO_PATH, "")
+            hasLyrics = savedInstanceState.getBoolean(KEY_HAS_LYRICS, false)
+            pendingLyricsCreators = savedInstanceState.getStringArrayList(KEY_PENDING_CREATORS)?.toList() ?: emptyList()
+            lastKnownPlaybackPositionMs = savedInstanceState.getLong(KEY_PLAYBACK_POSITION, 0L)
+            pendingRestoreSeekMs = lastKnownPlaybackPositionMs.takeIf { it > 0L }
+            @Suppress("DEPRECATION")
+            val savedLines = savedInstanceState.getSerializable(KEY_LYRIC_LINES)
+            restoredLyricLines = if (savedLines is ArrayList<*>) {
+                savedLines.filterIsInstance<LyricLine>()
+            } else {
+                emptyList()
+            }
+            restoredSelectedLineIndex = savedInstanceState.getInt(KEY_SELECTED_LINE_INDEX, 0)
+            restoredSelectedWordIndex = savedInstanceState.getInt(KEY_SELECTED_WORD_INDEX, 0)
+            if (restoredLyricLines.isNotEmpty()) {
+                hasLyrics = true
+            }
+        } else {
+            sourceAudioPath = intentAudioPath
+            sourceTitle = intentSourceTitle
+            sourceArtist = intentSourceArtist
+            importedLyricsContent = intentLyricsContent
+            importedLyricsFormat = intentLyricsFormat
+            pendingRestoreSeekMs = null
+            restoredLyricLines = emptyList()
+            restoredSelectedLineIndex = 0
+            restoredSelectedWordIndex = 0
+        }
         
         // 如果是TTML歌词，解析创作者信息
         if (importedLyricsFormat == 3 && importedLyricsContent.isNotEmpty()) {
-            val parsedSongwriters = parseSongwritersFromTtml(importedLyricsContent)
+            val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(importedLyricsContent)
             pendingLyricsCreators = parsedSongwriters
         }
         
-        if (sourceAudioPath.isNotEmpty()) {
-            val file = java.io.File(sourceAudioPath)
+        val startupAudioPath = when {
+            sourceAudioPath.isNotEmpty() -> sourceAudioPath
+            convertedAudioPath.isNotEmpty() -> convertedAudioPath
+            else -> ""
+        }
+        if (startupAudioPath.isNotEmpty()) {
+            val file = java.io.File(startupAudioPath)
             if (file.exists()) {
-                if (sourceAudioPath.lowercase().endsWith(".m4a") || sourceAudioPath.lowercase().endsWith(".alac")) {
+                if (startupAudioPath.lowercase().endsWith(".m4a") || startupAudioPath.lowercase().endsWith(".alac")) {
                     convertProgress = 0
                     convertMessage = "准备解码..."
                     isConverting = true
-                    startConversionFromPath(sourceAudioPath, file.name)
+                    startConversionFromPath(startupAudioPath, file.name)
                 } else {
-                    loadAudioFromPath(sourceAudioPath)
+                    loadAudioFromPath(startupAudioPath)
                 }
+            } else {
+                pendingRestoreSeekMs = null
+                lastKnownPlaybackPositionMs = 0L
             }
+        } else {
+            pendingRestoreSeekMs = null
+            lastKnownPlaybackPositionMs = 0L
         }
         
         val callback = object : OnBackPressedCallback(true) {
@@ -530,9 +624,14 @@ class LyricTimingActivity : ComponentActivity() {
                         },
                         onSeekTo = { timeMs ->
                             mediaPlayer?.seekTo(timeMs.toInt())
+                            lastKnownPlaybackPositionMs = timeMs
                         },
                         onSetPlaybackSpeed = { speed -> setPlaybackSpeed(speed) },
-                        getCurrentPosition = { mediaPlayer?.currentPosition?.toLong() ?: 0L },
+                        getCurrentPosition = {
+                            val position = mediaPlayer?.currentPosition?.toLong() ?: lastKnownPlaybackPositionMs
+                            lastKnownPlaybackPositionMs = position
+                            position
+                        },
                         getAudioDuration = { getAudioDuration() },
                         showConfirmDialog = showConfirmDialog,
                         onConfirmDialogChange = { showConfirmDialog = it },
@@ -568,7 +667,16 @@ class LyricTimingActivity : ComponentActivity() {
                         onPendingVerbatimLyricsContentChange = { pendingVerbatimLyricsContent = it },
                         pendingLyricsCreators = pendingLyricsCreators,
                         onPendingLyricsCreatorsChange = { pendingLyricsCreators = it },
-                        onStartManualConversion = { startManualConversion() }
+                        onStartManualConversion = { startManualConversion() },
+                        initialPlaybackPositionMs = pendingRestoreSeekMs ?: lastKnownPlaybackPositionMs,
+                        initialLyricLines = restoredLyricLines,
+                        initialSelectedLineIndex = restoredSelectedLineIndex,
+                        initialSelectedWordIndex = restoredSelectedWordIndex,
+                        onLyricLinesSnapshot = { currentLyricLinesSnapshot = it },
+                        onSelectionSnapshot = { lineIndex, wordIndex ->
+                            lastSelectedLineIndexSnapshot = lineIndex
+                            lastSelectedWordIndexSnapshot = wordIndex
+                        }
                     )
                     
                     if (showPiracyWarning && piracyCheckResult != null) {
@@ -588,7 +696,28 @@ class LyricTimingActivity : ComponentActivity() {
         super.onDestroy()
         mediaPlayer?.release()
         mediaPlayer = null
-        cleanConvertCache()
+        if (isFinishing) {
+            cleanConvertCache()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_SOURCE_AUDIO_PATH, sourceAudioPath)
+        outState.putString(KEY_SOURCE_TITLE, sourceTitle)
+        outState.putString(KEY_SOURCE_ARTIST, sourceArtist)
+        outState.putString(KEY_IMPORTED_LYRICS_CONTENT, importedLyricsContent)
+        outState.putInt(KEY_IMPORTED_LYRICS_FORMAT, importedLyricsFormat)
+        outState.putString(KEY_CONVERTED_AUDIO_PATH, convertedAudioPath)
+        outState.putBoolean(KEY_HAS_LYRICS, hasLyrics)
+        outState.putStringArrayList(KEY_PENDING_CREATORS, ArrayList(pendingLyricsCreators))
+        val playbackPosition = mediaPlayer?.currentPosition?.toLong() ?: lastKnownPlaybackPositionMs
+        outState.putLong(KEY_PLAYBACK_POSITION, playbackPosition)
+        outState.putInt(KEY_SELECTED_LINE_INDEX, lastSelectedLineIndexSnapshot)
+        outState.putInt(KEY_SELECTED_WORD_INDEX, lastSelectedWordIndexSnapshot)
+        if (currentLyricLinesSnapshot.isNotEmpty()) {
+            outState.putSerializable(KEY_LYRIC_LINES, ArrayList(currentLyricLinesSnapshot))
+        }
     }
 }
 
@@ -598,7 +727,7 @@ data class LyricTimeUnit(
     val endTime: String,
     val transliteration: String = "",
     val charTransliterations: Map<Int, String> = emptyMap()
-)
+) : java.io.Serializable
 
 enum class LyricAgentType {
     LEFT,       
@@ -611,7 +740,7 @@ data class LyricLine(
     val translation: String = "",
     val agentType: LyricAgentType = LyricAgentType.LEFT,
     val lineKey: String = ""
-)
+) : java.io.Serializable
 
 @Composable
 fun LyricLineItem(
@@ -2957,6 +3086,12 @@ fun LyricTimingScreen(
     pendingLyricsCreators: List<String> = emptyList(),
     onPendingLyricsCreatorsChange: (List<String>) -> Unit = {},
     onStartManualConversion: () -> Unit = {},
+    initialPlaybackPositionMs: Long = 0L,
+    initialLyricLines: List<LyricLine> = emptyList(),
+    onLyricLinesSnapshot: (List<LyricLine>) -> Unit = {},
+    initialSelectedLineIndex: Int = 0,
+    initialSelectedWordIndex: Int = 0,
+    onSelectionSnapshot: (Int, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var lyrics by remember { mutableStateOf(listOf<String>()) }
@@ -2964,9 +3099,9 @@ fun LyricTimingScreen(
     var useSpaceSplit by remember { mutableStateOf(false) }
     
     var isPlaying by remember { mutableStateOf(false) }
-    var currentTime by remember { mutableStateOf(0L) }
-    var selectedWordIndex by remember { mutableStateOf(0) }
-    var selectedLineIndex by remember { mutableStateOf(0) }
+    var currentTime by remember { mutableStateOf(initialPlaybackPositionMs) }
+    var selectedWordIndex by rememberSaveable { mutableStateOf(initialSelectedWordIndex) }
+    var selectedLineIndex by rememberSaveable { mutableStateOf(initialSelectedLineIndex) }
     var audioDuration by remember { mutableStateOf(0L) }
     var showLyricDialog by remember { mutableStateOf(false) }
     var savedLyricContent by remember { mutableStateOf("") }
@@ -3075,11 +3210,16 @@ fun LyricTimingScreen(
         }
     }
     
+    var hasHandledFirstAudioImport by remember { mutableStateOf(false) }
     // 音频重新导入时重置播放状态
     LaunchedEffect(audioImportCount) {
         if (audioImportCount > 0) {
             isPlaying = false
-            currentTime = 0L
+            val shouldKeepRestoredProgress = !hasHandledFirstAudioImport && initialPlaybackPositionMs > 0L
+            if (!shouldKeepRestoredProgress) {
+                currentTime = 0L
+            }
+            hasHandledFirstAudioImport = true
         }
     }
     
@@ -3102,7 +3242,6 @@ fun LyricTimingScreen(
     var showDeleteMultipleLinesDialog by remember { mutableStateOf(false) }
     var deleteMultipleLinesSelected by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var originalDeleteMultipleLinesSelected by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var showEditTranslationDialog by remember { mutableStateOf(false) }
     var showAddTranslationDialog by remember { mutableStateOf(false) }
     var showMoveLineDialog by remember { mutableStateOf(false) }
     var showSplitToMultipleLinesDialog by remember { mutableStateOf(false) }
@@ -3167,9 +3306,6 @@ fun LyricTimingScreen(
     var mergeSelectedUnits by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var mergeLyricPreview by remember { mutableStateOf<List<LyricTimeUnit>>(emptyList()) }
     var mergeLyricHistory by remember { mutableStateOf<List<List<LyricTimeUnit>>>(emptyList()) }
-    var editTranslationText by remember { mutableStateOf("") }
-    var originalEditTranslationText by remember { mutableStateOf("") }
-    var showEditTranslationCancelConfirm by remember { mutableStateOf(false) }
     var addTranslationText by remember { mutableStateOf("") }
     var originalAddTranslationText by remember { mutableStateOf("") }
     var showAddTranslationCancelConfirm by remember { mutableStateOf(false) }
@@ -3194,7 +3330,6 @@ fun LyricTimingScreen(
     var splitToMultipleLinesText by remember { mutableStateOf("") }
     var originalSplitToMultipleLinesText by remember { mutableStateOf("") }
     var showSplitToMultipleLinesCancelConfirm by remember { mutableStateOf(false) }
-    var pendingEditTranslationDismiss by remember { mutableStateOf(false) }
     var pendingAddTranslationDismiss by remember { mutableStateOf(false) }
     var pendingMoveLineDismiss by remember { mutableStateOf(false) }
     var pendingSplitToMultipleLinesDismiss by remember { mutableStateOf(false) }
@@ -3213,7 +3348,7 @@ fun LyricTimingScreen(
         with(density) { measuredWidth.toDp() }
     }
     
-    var lyricLines: List<LyricLine> by remember { mutableStateOf(
+    val defaultLyricLines = remember(lyrics) {
         lyrics.map { line ->
             val words = line.split(" ")
             val result = mutableListOf<LyricTimeUnit>()
@@ -3230,7 +3365,12 @@ fun LyricTimingScreen(
             
             LyricLine(result, "")
         }
-    ) }
+    }
+    var lyricLines: List<LyricLine> by remember {
+        mutableStateOf(
+            if (initialLyricLines.isNotEmpty()) initialLyricLines else defaultLyricLines
+        )
+    }
     
     // 创作者列表
         var creators: List<String> by remember { mutableStateOf(emptyList()) }
@@ -3240,6 +3380,26 @@ fun LyricTimingScreen(
         if (lyricLines.isNotEmpty() != hasLyrics) {
             onHasLyricsChange(lyricLines.isNotEmpty())
         }
+    }
+    LaunchedEffect(lyricLines) {
+        onLyricLinesSnapshot(lyricLines)
+    }
+    LaunchedEffect(lyricLines, selectedLineIndex, selectedWordIndex) {
+        if (lyricLines.isEmpty()) {
+            onSelectionSnapshot(0, 0)
+            return@LaunchedEffect
+        }
+        val safeLineIndex = selectedLineIndex.coerceIn(0, lyricLines.size - 1)
+        val safeWordIndex = lyricLines[safeLineIndex].timeUnits.let { units ->
+            if (units.isEmpty()) 0 else selectedWordIndex.coerceIn(0, units.size - 1)
+        }
+        if (safeLineIndex != selectedLineIndex) {
+            selectedLineIndex = safeLineIndex
+        }
+        if (safeWordIndex != selectedWordIndex) {
+            selectedWordIndex = safeWordIndex
+        }
+        onSelectionSnapshot(safeLineIndex, safeWordIndex)
     }
     
     val undoRedoManager = remember { UndoRedoManager(maxSize = 20) }
@@ -3507,7 +3667,7 @@ fun LyricTimingScreen(
     
     // 处理导入的歌词内容
     LaunchedEffect(importedLyricsContent) {
-        if (importedLyricsContent.isNotEmpty()) {
+        if (importedLyricsContent.isNotEmpty() && lyricLines.isEmpty()) {
             var parsedLinesResult: List<LyricLine> = emptyList()
             when (importedLyricsFormat) {
                 0 -> {
@@ -3520,21 +3680,21 @@ fun LyricTimingScreen(
                     }
                 }
                 1 -> {
-                    val result = parseSPLLrcLyrics(importedLyricsContent)
-                    parsedLinesResult = result.second
+                    val result = LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, importedLyricsContent)
+                    parsedLinesResult = result.lyricLines
                 }
                 2 -> {
-                    val result = parseElrcLyrics(importedLyricsContent)
-                    parsedLinesResult = result.second
+                    val result = LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, importedLyricsContent)
+                    parsedLinesResult = result.lyricLines
                 }
                 3 -> {
-                    val result = parseTtmlLyrics(importedLyricsContent)
-                    if (result.isNotEmpty()) {
-                        parsedLinesResult = result
+                    val result = LyricParsingUtils.parseByType(LyricParseType.TTML, importedLyricsContent)
+                    if (result.lyricLines.isNotEmpty()) {
+                        parsedLinesResult = result.lyricLines
                     }
                     // 解析创作者信息
                     Log.d("LyricTiming", "开始解析创作者信息，importedLyricsContent长度=${importedLyricsContent.length}")
-                    val parsedSongwriters = parseSongwritersFromTtml(importedLyricsContent)
+                    val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(importedLyricsContent)
                     Log.d("LyricTiming", "解析到的创作者数量: ${parsedSongwriters.size}, 内容: $parsedSongwriters")
                     if (parsedSongwriters.isNotEmpty()) {
                         creators = parsedSongwriters
@@ -4657,7 +4817,9 @@ fun LyricTimingScreen(
                         }
                         Button(
                             onClick = {
-                                val (parsedLyrics, parsedLines) = parseSPLLrcLyrics(splLrcInput)
+                                val parseResult = LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, splLrcInput)
+                                val parsedLyrics = parseResult.lyrics
+                                val parsedLines = parseResult.lyricLines
                                 lyrics = parsedLyrics
                                 lyricLines = parsedLines
                                 selectedLineIndex = 0
@@ -4786,7 +4948,9 @@ fun LyricTimingScreen(
                         }
                         Button(
                             onClick = {
-                                val (parsedLyrics, parsedLines) = parseElrcLyrics(elrcInput)
+                                val parseResult = LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, elrcInput)
+                                val parsedLyrics = parseResult.lyrics
+                                val parsedLines = parseResult.lyricLines
                                 if (parsedLines.isNotEmpty()) {
                                     lyrics = parsedLyrics
                                     lyricLines = parsedLines
@@ -4918,17 +5082,16 @@ fun LyricTimingScreen(
                         }
                         Button(
                             onClick = {
-                                val parsedLines = parseTtmlLyrics(ttmlInput)
+                                val parseResult = LyricParsingUtils.parseByType(LyricParseType.TTML, ttmlInput)
+                                val parsedLines = parseResult.lyricLines
                                 if (parsedLines.isNotEmpty()) {
                                     lyricLines = parsedLines
-                                    lyrics = parsedLines.map { line ->
-                                        line.timeUnits.joinToString("") { it.text }
-                                    }
+                                    lyrics = parseResult.lyrics
                                     selectedLineIndex = 0
                                     selectedWordIndex = 0
                                     
                                     // 解析创作者信息
-                                    val parsedSongwriters = parseSongwritersFromTtml(ttmlInput)
+                                    val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(ttmlInput)
                                     if (parsedSongwriters.isNotEmpty()) {
                                         creators = parsedSongwriters
                                     }
@@ -6706,17 +6869,24 @@ fun LyricTimingScreen(
                     },
                     onAddTranslation = {
                         showEditControlPanel = false
+                        translationMenuLineIndex = menuLineIndex
                         addTranslationText = ""
                         originalAddTranslationText = ""
                         showAddTranslationDialog = true
                     },
                     onEditTranslation = {
                         showEditControlPanel = false
-                        translationMenuLineIndex = menuLineIndex
-                        if (menuLineIndex < lyricLines.size) {
-                            editTranslationText = lyricLines[menuLineIndex].translation
-                            originalEditTranslationText = editTranslationText
-                            showEditTranslationDialog = true
+                        val targetLineIndex = when {
+                            translationMenuLineIndex >= 0 && translationMenuLineIndex < lyricLines.size -> translationMenuLineIndex
+                            menuLineIndex >= 0 && menuLineIndex < lyricLines.size -> menuLineIndex
+                            else -> -1
+                        }
+                        if (targetLineIndex >= 0) {
+                            menuLineIndex = targetLineIndex
+                            translationMenuLineIndex = targetLineIndex
+                            addTranslationText = lyricLines[targetLineIndex].translation
+                            originalAddTranslationText = addTranslationText
+                            showAddTranslationDialog = true
                         }
                     },
                     onDeleteLine = {
@@ -7380,6 +7550,11 @@ fun LyricTimingScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
+                        .animateContentSize(
+                            animationSpec = tween(
+                                durationMillis = 220
+                            )
+                        )
                 ) {
                     Text(
                         text = "新增行",
@@ -7390,6 +7565,9 @@ fun LyricTimingScreen(
                         value = addLineText,
                         onValueChange = { addLineText = it },
                         placeholder = "歌词内容（必填）",
+                        singleLine = false,
+                        minLines = 1,
+                        maxLines = 10,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -7420,21 +7598,56 @@ fun LyricTimingScreen(
                         Button(
                             onClick = {
                                 if (addLineText.isNotBlank()) {
+                                    val parsedLines = runCatching {
+                                        when (detectLyricsFormat(addLineText)) {
+                                            1 -> LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, addLineText).lyricLines
+                                            2 -> LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, addLineText).lyricLines
+                                            3 -> LyricParsingUtils.parseByType(LyricParseType.TTML, addLineText).lyricLines
+                                            else -> emptyList()
+                                        }
+                                    }.getOrElse { emptyList() }
+
+                                    val linesToInsert = if (parsedLines.isNotEmpty()) {
+                                        parsedLines
+                                    } else {
+                                        listOf(
+                                            LyricLine(
+                                                listOf(LyricTimeUnit(addLineText, "00:00.000", "00:00.000")),
+                                                ""
+                                            )
+                                        )
+                                    }
+
                                     val newLines = lyricLines.toMutableList()
-                                    val insertIndex = if (addLinePosition == 0) menuLineIndex else menuLineIndex + 1
-                                    val addedLine = LyricLine(
-                                        listOf(LyricTimeUnit(addLineText, "00:00.000", "00:00.000")),
-                                        ""
-                                    )
-                                    undoRedoManager.pushAction(UndoAction(
-                                        actionType = UndoActionType.LINE_ADD,
-                                        lineIndex = insertIndex,
-                                        unitIndex = -1,
-                                        oldValue = null,
-                                        newValue = addedLine
-                                    ))
+                                    val rawInsertIndex = if (addLinePosition == 0) menuLineIndex else menuLineIndex + 1
+                                    val insertIndex = rawInsertIndex.coerceIn(0, newLines.size)
+
+                                    if (linesToInsert.size == 1) {
+                                        undoRedoManager.pushAction(
+                                            UndoAction(
+                                                actionType = UndoActionType.LINE_ADD,
+                                                lineIndex = insertIndex,
+                                                unitIndex = -1,
+                                                oldValue = null,
+                                                newValue = linesToInsert.first()
+                                            )
+                                        )
+                                    } else {
+                                        val actions = linesToInsert.mapIndexed { index, line ->
+                                            UndoAction(
+                                                actionType = UndoActionType.LINE_ADD,
+                                                lineIndex = insertIndex + index,
+                                                unitIndex = -1,
+                                                oldValue = null,
+                                                newValue = line
+                                            )
+                                        }
+                                        undoRedoManager.pushBatchAction(
+                                            BatchUndoAction(actions, "新增${linesToInsert.size}行")
+                                        )
+                                    }
                                     updateUndoRedoState()
-                                    newLines.add(insertIndex, addedLine)
+                                    newLines.addAll(insertIndex, linesToInsert)
                                     lyricLines = newLines
                                 }
                                 showAddLineDialog = false
@@ -8129,124 +8342,6 @@ fun LyricTimingScreen(
             )
         }
         
-        // 编辑翻译对话框 - ModalBottomSheet
-        val editTranslationSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showEditTranslationDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (editTranslationText != originalEditTranslationText) {
-                        pendingEditTranslationDismiss = true
-                        showEditTranslationCancelConfirm = true
-                    } else {
-                        showEditTranslationDialog = false
-                    }
-                },
-                sheetState = editTranslationSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "编辑翻译",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    ThemedTextField(
-                        value = editTranslationText,
-                        onValueChange = { editTranslationText = it },
-                        placeholder = "翻译内容",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (editTranslationText != originalEditTranslationText) {
-                                    pendingEditTranslationDismiss = true
-                                    showEditTranslationCancelConfirm = true
-                                } else {
-                                    showEditTranslationDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        Button(
-                            onClick = {
-                                if (translationMenuLineIndex < lyricLines.size) {
-                                    val newLines = lyricLines.toMutableList()
-                                    val currentLine = newLines[translationMenuLineIndex]
-                                    val oldTranslation = currentLine.translation
-                                    undoRedoManager.pushAction(UndoAction(
-                                        actionType = UndoActionType.TRANSLATION_CHANGE,
-                                        lineIndex = translationMenuLineIndex,
-                                        unitIndex = -1,
-                                        oldValue = oldTranslation,
-                                        newValue = editTranslationText
-                                    ))
-                                    updateUndoRedoState()
-                                    newLines[translationMenuLineIndex] = currentLine.copy(translation = editTranslationText)
-                                    lyricLines = newLines
-                                }
-                                showEditTranslationDialog = false
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 编辑翻译放弃修改确认对话框
-        if (showEditTranslationCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showEditTranslationCancelConfirm = false
-                    pendingEditTranslationDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已修改了翻译内容，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showEditTranslationCancelConfirm = false
-                            pendingEditTranslationDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showEditTranslationCancelConfirm = false
-                            showEditTranslationDialog = false
-                            pendingEditTranslationDismiss = false
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-
-        // 处理继续编辑后重新显示编辑翻译 ModalBottomSheet
-        LaunchedEffect(showEditTranslationCancelConfirm, pendingEditTranslationDismiss) {
-            if (!showEditTranslationCancelConfirm && !pendingEditTranslationDismiss && showEditTranslationDialog) {
-                editTranslationSheetState.show()
-            }
-        }
-        
         // 合并行对话框 - ModalBottomSheet
         val mergeLinesSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         if (showMergeLinesDialog && menuLineIndex >= 0) {
@@ -8680,12 +8775,21 @@ fun LyricTimingScreen(
                                 if (menuLineIndex < lyricLines.size) {
                                     val newLines = lyricLines.toMutableList()
                                     val currentLine = newLines[menuLineIndex]
+                                    val oldTranslation = currentLine.translation
+                                    undoRedoManager.pushAction(UndoAction(
+                                        actionType = UndoActionType.TRANSLATION_CHANGE,
+                                        lineIndex = menuLineIndex,
+                                        unitIndex = -1,
+                                        oldValue = oldTranslation,
+                                        newValue = addTranslationText
+                                    ))
+                                    updateUndoRedoState()
                                     newLines[menuLineIndex] = currentLine.copy(translation = addTranslationText)
                                     lyricLines = newLines
                                 }
                                 showAddTranslationDialog = false
                             },
-                            enabled = addTranslationText.isNotBlank()
+                            enabled = addTranslationText != originalAddTranslationText
                         ) {
                             Text("确定")
                         }

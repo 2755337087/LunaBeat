@@ -47,6 +47,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.mapSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
@@ -176,6 +180,104 @@ data class ModifiedField(
     val canRedoCover: Boolean = false,
     val customFields: Map<String, Boolean> = emptyMap(),
     val canRedoCustomFields: Map<String, Boolean> = emptyMap()
+)
+
+private val modifiedFieldSaver: Saver<ModifiedField, Any> = mapSaver(
+    save = { value ->
+        mapOf(
+            "title" to value.title,
+            "artist" to value.artist,
+            "album" to value.album,
+            "year" to value.year,
+            "trackNumber" to value.trackNumber,
+            "discNumber" to value.discNumber,
+            "genre" to value.genre,
+            "albumArtist" to value.albumArtist,
+            "composer" to value.composer,
+            "lyricist" to value.lyricist,
+            "comment" to value.comment,
+            "copyrightInfo" to value.copyrightInfo,
+            "lyrics" to value.lyrics,
+            "cover" to value.cover,
+            "canRedoTitle" to value.canRedoTitle,
+            "canRedoArtist" to value.canRedoArtist,
+            "canRedoAlbum" to value.canRedoAlbum,
+            "canRedoYear" to value.canRedoYear,
+            "canRedoTrackNumber" to value.canRedoTrackNumber,
+            "canRedoDiscNumber" to value.canRedoDiscNumber,
+            "canRedoGenre" to value.canRedoGenre,
+            "canRedoAlbumArtist" to value.canRedoAlbumArtist,
+            "canRedoComposer" to value.canRedoComposer,
+            "canRedoLyricist" to value.canRedoLyricist,
+            "canRedoComment" to value.canRedoComment,
+            "canRedoCopyrightInfo" to value.canRedoCopyrightInfo,
+            "canRedoLyrics" to value.canRedoLyrics,
+            "canRedoCover" to value.canRedoCover,
+            "customFields" to HashMap(value.customFields),
+            "canRedoCustomFields" to HashMap(value.canRedoCustomFields)
+        )
+    },
+    restore = { restored ->
+        @Suppress("UNCHECKED_CAST")
+        val customFields = (restored["customFields"] as? Map<*, *>)?.entries
+            ?.mapNotNull { entry ->
+                val key = entry.key as? String ?: return@mapNotNull null
+                key to (entry.value as? Boolean ?: false)
+            }?.toMap().orEmpty()
+        @Suppress("UNCHECKED_CAST")
+        val canRedoCustomFields = (restored["canRedoCustomFields"] as? Map<*, *>)?.entries
+            ?.mapNotNull { entry ->
+                val key = entry.key as? String ?: return@mapNotNull null
+                key to (entry.value as? Boolean ?: false)
+            }?.toMap().orEmpty()
+        ModifiedField(
+            title = restored["title"] as? Boolean ?: false,
+            artist = restored["artist"] as? Boolean ?: false,
+            album = restored["album"] as? Boolean ?: false,
+            year = restored["year"] as? Boolean ?: false,
+            trackNumber = restored["trackNumber"] as? Boolean ?: false,
+            discNumber = restored["discNumber"] as? Boolean ?: false,
+            genre = restored["genre"] as? Boolean ?: false,
+            albumArtist = restored["albumArtist"] as? Boolean ?: false,
+            composer = restored["composer"] as? Boolean ?: false,
+            lyricist = restored["lyricist"] as? Boolean ?: false,
+            comment = restored["comment"] as? Boolean ?: false,
+            copyrightInfo = restored["copyrightInfo"] as? Boolean ?: false,
+            lyrics = restored["lyrics"] as? Boolean ?: false,
+            cover = restored["cover"] as? Boolean ?: false,
+            canRedoTitle = restored["canRedoTitle"] as? Boolean ?: false,
+            canRedoArtist = restored["canRedoArtist"] as? Boolean ?: false,
+            canRedoAlbum = restored["canRedoAlbum"] as? Boolean ?: false,
+            canRedoYear = restored["canRedoYear"] as? Boolean ?: false,
+            canRedoTrackNumber = restored["canRedoTrackNumber"] as? Boolean ?: false,
+            canRedoDiscNumber = restored["canRedoDiscNumber"] as? Boolean ?: false,
+            canRedoGenre = restored["canRedoGenre"] as? Boolean ?: false,
+            canRedoAlbumArtist = restored["canRedoAlbumArtist"] as? Boolean ?: false,
+            canRedoComposer = restored["canRedoComposer"] as? Boolean ?: false,
+            canRedoLyricist = restored["canRedoLyricist"] as? Boolean ?: false,
+            canRedoComment = restored["canRedoComment"] as? Boolean ?: false,
+            canRedoCopyrightInfo = restored["canRedoCopyrightInfo"] as? Boolean ?: false,
+            canRedoLyrics = restored["canRedoLyrics"] as? Boolean ?: false,
+            canRedoCover = restored["canRedoCover"] as? Boolean ?: false,
+            customFields = customFields,
+            canRedoCustomFields = canRedoCustomFields
+        )
+    }
+)
+
+private val stringStateMapSaver: Saver<SnapshotStateMap<String, String>, Any> = mapSaver(
+    save = { value ->
+        value.toMap()
+    },
+    restore = { restored ->
+        mutableStateMapOf<String, String>().apply {
+            restored.forEach { (key, value) ->
+                if (value is String) {
+                    this[key] = value
+                }
+            }
+        }
+    }
 )
 
 class SongMetadataEditActivity : ComponentActivity() {
@@ -421,7 +523,7 @@ fun SongMetadataEditScreen(
     var videoCoverPath by remember { mutableStateOf<String?>(null) }
     var hasVideoCover by remember { mutableStateOf(false) }
     
-    var modifiedField by remember { mutableStateOf(ModifiedField()) }
+    var modifiedField by rememberSaveable(stateSaver = modifiedFieldSaver) { mutableStateOf(ModifiedField()) }
     var redoHistory by remember { mutableStateOf(RedoHistory()) }
     var batchEditFieldValues by remember { mutableStateOf(BatchEditFieldValues()) }
     var showFieldSelectionSheet by remember { mutableStateOf(false) }
@@ -453,19 +555,20 @@ fun SongMetadataEditScreen(
     }
     
     val KEEP = "[KEEP]"
-    var title by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var artist by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var album by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var year by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var trackNumber by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var discNumber by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var genre by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var albumArtist by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var composer by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var lyricist by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var comment by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var copyright by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
-    var lyrics by remember { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var hasInitializedEditableFields by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(false) }
+    var title by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var artist by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var album by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var year by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var trackNumber by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var discNumber by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var genre by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var albumArtist by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var composer by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var lyricist by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var comment by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var copyright by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var lyrics by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val fieldConfig = remember { MetadataFieldConfigStore.load(prefs) }
@@ -473,8 +576,8 @@ fun SongMetadataEditScreen(
     val enabledFields = remember { fieldConfig.visibleCustomFieldNames }
     
     // 自定义字段状态
-    val customFieldValues = remember { mutableStateMapOf<String, String>() }
-    val originalCustomFieldValues = remember { mutableStateMapOf<String, String>() }
+    val customFieldValues = rememberSaveable(audioPath, isBatchEdit, saver = stringStateMapSaver) { mutableStateMapOf<String, String>() }
+    val originalCustomFieldValues = rememberSaveable(audioPath, isBatchEdit, saver = stringStateMapSaver) { mutableStateMapOf<String, String>() }
     
     var audioFileName by remember { mutableStateOf("") }
     
@@ -1131,25 +1234,28 @@ fun SongMetadataEditScreen(
                 tagData = data
                 coverBitmap = cover
                 originalCoverBitmap = cover
-                title = data.title ?: ""
-                artist = data.artist ?: ""
-                album = data.album ?: ""
-                year = data.date ?: ""
-                trackNumber = data.trackNumber ?: ""
-                discNumber = data.discNumber?.toString() ?: ""
-                genre = data.genre ?: ""
-                albumArtist = data.albumArtist ?: ""
-                composer = data.composer ?: ""
-                lyricist = data.lyricist ?: ""
-                comment = data.comment ?: ""
-                copyright = copyrightFromTagLib ?: ""
-                lyrics = lyricsFromTagLib ?: ""
-                
-                // 设置自定义字段的值
-                customFieldsFromTagLib.forEach { (field, value) ->
-                    customFieldValues[field] = value
-                    originalCustomFieldValues[field] = value
+                if (!hasInitializedEditableFields) {
+                    title = data.title ?: ""
+                    artist = data.artist ?: ""
+                    album = data.album ?: ""
+                    year = data.date ?: ""
+                    trackNumber = data.trackNumber ?: ""
+                    discNumber = data.discNumber?.toString() ?: ""
+                    genre = data.genre ?: ""
+                    albumArtist = data.albumArtist ?: ""
+                    composer = data.composer ?: ""
+                    lyricist = data.lyricist ?: ""
+                    comment = data.comment ?: ""
+                    copyright = copyrightFromTagLib ?: ""
+                    lyrics = lyricsFromTagLib ?: ""
+                    customFieldValues.clear()
+                    customFieldValues.putAll(customFieldsFromTagLib)
+                    hasInitializedEditableFields = true
                 }
+                
+                // 原始值始终更新，用于计算修改状态和撤销逻辑
+                originalCustomFieldValues.clear()
+                originalCustomFieldValues.putAll(customFieldsFromTagLib)
                 
                 originalData = OriginalData(
                     title = data.title ?: "",

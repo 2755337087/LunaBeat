@@ -895,6 +895,7 @@ fun LyricPreviewScreen(
     var seekResetCounter by remember { mutableStateOf(0L) }
     // 记录最后一次尝试滚动但被跳过的行索引
     var lastSkippedScrollIndex by remember { mutableIntStateOf(-1) }
+    var closeNextSkipStreak by remember { mutableIntStateOf(0) }
     val autoScrollMinIntervalMs = 700L
     fun logAutoScroll(message: String) {
         Log.d(AUTO_SCROLL_LOG_TAG, message)
@@ -1100,12 +1101,19 @@ fun LyricPreviewScreen(
 
                 // 情况三：如果下一次自动滚动触发间隔 < 1000ms，跳过当前行，仅让下一次触发生效
                 if (shouldScroll && shouldSkipAutoScrollDueToCloseNextTrigger(currentLineIndex, currentTime)) {
-                    shouldScroll = false
-                    skipBecauseCloseNextTrigger = true
+                    if (closeNextSkipStreak >= 1) {
+                        logAutoScroll("force scroll current=$currentLineIndex after close-next skip streak=$closeNextSkipStreak")
+                        closeNextSkipStreak = 0
+                    } else {
+                        shouldScroll = false
+                        skipBecauseCloseNextTrigger = true
+                        closeNextSkipStreak += 1
+                    }
                 }
                 
                 // 如果应该滚动，直接滚动
                 if (shouldScroll) {
+                    closeNextSkipStreak = 0
                     lastAutoScrolledIndex = currentLineIndex
                     lastSkippedScrollIndex = -1
                     requestAutoScroll(currentLineIndex)
@@ -1116,6 +1124,7 @@ fun LyricPreviewScreen(
                         logAutoScroll("drop current=$currentLineIndex due close-next window")
                     } else {
                         // 其余情况保留补滚动机制
+                        closeNextSkipStreak = 0
                         lastSkippedScrollIndex = currentLineIndex
                         if (hasLargeTimeDiff) {
                             logAutoScroll("mark skipped for补滚动 index=$currentLineIndex")
@@ -1143,11 +1152,18 @@ fun LyricPreviewScreen(
                         if (currentTime >= prevEndTime) {
                             // 若距离下一次自动滚动触发太近，补滚动失效（避免短时间内二次滚动）
                             if (shouldSkipAutoScrollDueToCloseNextTrigger(skippedLineIndex, currentTime)) {
-                                lastSkippedScrollIndex = -1
-                                logAutoScroll("drop 补滚动 index=$skippedLineIndex due close-next window")
-                                return@LaunchedEffect
+                                if (closeNextSkipStreak >= 1) {
+                                    logAutoScroll("force 补滚动 index=$skippedLineIndex after close-next skip streak=$closeNextSkipStreak")
+                                    closeNextSkipStreak = 0
+                                } else {
+                                    closeNextSkipStreak += 1
+                                    lastSkippedScrollIndex = -1
+                                    logAutoScroll("drop 补滚动 index=$skippedLineIndex due close-next window")
+                                    return@LaunchedEffect
+                                }
                             }
                             // 上一句播放结束了，强制滚动到当前跳过的行
+                            closeNextSkipStreak = 0
                             lastAutoScrolledIndex = skippedLineIndex
                             lastSkippedScrollIndex = -1
                             logAutoScroll("trigger 补滚动 index=$skippedLineIndex at=$currentTime")

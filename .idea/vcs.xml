@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/audiotag/src/main/cpp/taglib" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/audiotag/src/main/cpp/taglib/3rdparty/utfcpp" vcs="Git" />
   </component>

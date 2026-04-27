@@ -2118,40 +2118,6 @@ fun AudioOptionsDialog(
         "TTML歌词"
     )
     
-    fun detectLyricsFormat(lyrics: String): Int {
-        val trimmed = lyrics.trim()
-        
-        if (trimmed.contains("<tt xmlns")) {
-            return 3
-        }
-        
-        val hasAngleBrackets = trimmed.contains("<\\d{2}:\\d{2}\\.\\d{2,3}>".toRegex())
-        val lines = trimmed.lines().filter { it.isNotBlank() }
-        var lineWithMultipleTimestamps = 0
-        
-        for (line in lines.take(20)) {
-            val timestamps = "\\[\\d{2}:\\d{2}\\.\\d{2,3}\\]".toRegex().findAll(line).count()
-            if (timestamps > 1) {
-                lineWithMultipleTimestamps++
-            }
-        }
-        
-        if (hasAngleBrackets) {
-            return 2
-        }
-        
-        if (lineWithMultipleTimestamps > 0) {
-            return 1
-        }
-        
-        val hasTimestamps = trimmed.contains("\\[\\d{2}:\\d{2}\\.\\d{2,3}\\]".toRegex())
-        if (hasTimestamps) {
-            return 1
-        }
-        
-        return 0
-    }
-    
     val detectedFormat by remember { derivedStateOf { 
         embeddedLyrics?.let { detectLyricsFormat(it) } ?: 0
     } }
