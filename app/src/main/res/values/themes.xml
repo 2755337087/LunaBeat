@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.歌词转换" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.歌词转换.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="windowSplashScreenBackground">@android:color/system_accent1_100</item>
+        <item name="postSplashScreenTheme">@style/Theme.歌词转换</item>
+    </style>
+</resources>

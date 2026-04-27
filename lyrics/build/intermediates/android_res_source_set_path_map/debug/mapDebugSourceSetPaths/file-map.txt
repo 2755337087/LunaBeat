@@ -1,0 +1,8 @@
+com.example.lyrics-pngs-0 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\build\generated\res\pngs\debug
+com.example.lyrics-updated_navigation_xml-1 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\build\generated\updated_navigation_xml\debug
+com.example.lyrics-mergeDebugResources-2 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\build\intermediates\incremental\debug\mergeDebugResources\merged.dir
+com.example.lyrics-mergeDebugResources-3 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\build\intermediates\incremental\debug\mergeDebugResources\stripped.dir
+com.example.lyrics-debug-4 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\build\intermediates\merged_res\debug\mergeDebugResources
+com.example.lyrics-debug-5 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\build\intermediates\packaged_res\debug\packageDebugResources
+com.example.lyrics-debug-6 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\src\debug\res
+com.example.lyrics-main-7 D:\Users\B\AndroidStudioProjects\lyricEdite\lyrics\src\main\res
