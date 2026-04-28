@@ -239,6 +239,9 @@ class LyricTimingActivity : ComponentActivity() {
             isConverting = false
             return
         }
+
+        // 保留原始音频路径（临时文件），用于后续封面/元数据读取
+        sourceAudioPath = inputFile.absolutePath
         
         val outputFileName = fileName.substringBeforeLast(".") + ".wav"
         val outputFile = java.io.File(cacheDir, outputFileName)
@@ -260,10 +263,9 @@ class LyricTimingActivity : ComponentActivity() {
                     if (success) {
                         convertMessage = "解码完成"
                         convertProgress = 100
-                        
-                        inputFile.delete()
-                        
-                        loadAudioFromPath(outputFile.absolutePath)
+
+                        // 使用转码音频播放，但不覆盖原始音频路径
+                        loadAudioFromPath(outputFile.absolutePath, updateSourcePath = false)
                     } else {
                         convertMessage = "解码失败: $message"
                         inputFile.delete()
@@ -292,6 +294,9 @@ class LyricTimingActivity : ComponentActivity() {
             isConverting = false
             return
         }
+
+        // 保留原始音频路径，避免被转码输出覆盖导致封面读取丢失
+        sourceAudioPath = inputFile.absolutePath
         
         val outputFileName = fileName.substringBeforeLast(".") + ".wav"
         val outputFile = java.io.File(cacheDir, outputFileName)
@@ -313,8 +318,9 @@ class LyricTimingActivity : ComponentActivity() {
                     if (success) {
                         convertMessage = "解码完成"
                         convertProgress = 100
-                        
-                        loadAudioFromPath(outputFile.absolutePath)
+
+                        // 使用转码音频播放，但不覆盖原始音频路径
+                        loadAudioFromPath(outputFile.absolutePath, updateSourcePath = false)
                     } else {
                         convertMessage = "解码失败: $message"
                         outputFile.delete()
@@ -373,7 +379,7 @@ class LyricTimingActivity : ComponentActivity() {
         pendingRestoreSeekMs = null
     }
     
-    private fun loadAudioFromPath(path: String) {
+    private fun loadAudioFromPath(path: String, updateSourcePath: Boolean = true) {
         val targetFile = java.io.File(path)
         if (!targetFile.exists()) {
             Log.w("LyricTiming", "Audio file does not exist: $path")
@@ -393,7 +399,9 @@ class LyricTimingActivity : ComponentActivity() {
             Log.d("LyricTiming", "Audio playback completed")
             playbackCompleted = true
         }
-        sourceAudioPath = path
+        if (updateSourcePath) {
+            sourceAudioPath = path
+        }
         audioImportCount++
         applyPendingRestoreSeek()
     }
@@ -570,8 +578,8 @@ class LyricTimingActivity : ComponentActivity() {
         }
         
         val startupAudioPath = when {
-            sourceAudioPath.isNotEmpty() -> sourceAudioPath
             convertedAudioPath.isNotEmpty() -> convertedAudioPath
+            sourceAudioPath.isNotEmpty() -> sourceAudioPath
             else -> ""
         }
         if (startupAudioPath.isNotEmpty()) {
@@ -4121,6 +4129,7 @@ fun LyricTimingScreen(
                                         isPlaying = false
                                     }
                                     val audioPath = if (convertedAudioPath.isNotEmpty()) convertedAudioPath else sourceAudioPath
+                                    val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
                                     val currentPos = getCurrentPosition()
                                     val previewLyricLines = lyricLines.map { line ->
                                         val expandedWords = if (line.timeUnits.size == 1) {
@@ -4215,7 +4224,7 @@ fun LyricTimingScreen(
                                     }
                                     val intent = android.content.Intent(context, LyricPreviewActivity::class.java).apply {
                                         putExtra(LyricPreviewActivity.EXTRA_AUDIO_PATH, audioPath)
-                                        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, sourceAudioPath)
+                                        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, previewSourceAudioPath)
                                         putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
                                         putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
                                         putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
@@ -4419,6 +4428,7 @@ fun LyricTimingScreen(
                                         isPlaying = false
                                     }
                                     val audioPath = if (convertedAudioPath.isNotEmpty()) convertedAudioPath else sourceAudioPath
+                                    val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
                                     val currentPos = getCurrentPosition()
                                     val previewLyricLines = lyricLines.map { line ->
                                         val expandedWords = if (line.timeUnits.size == 1) {
@@ -4513,7 +4523,7 @@ fun LyricTimingScreen(
                                     }
                                     val intent = android.content.Intent(context, LyricPreviewActivity::class.java).apply {
                                         putExtra(LyricPreviewActivity.EXTRA_AUDIO_PATH, audioPath)
-                                        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, sourceAudioPath)
+                                        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, previewSourceAudioPath)
                                         putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
                                         putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
                                         putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
