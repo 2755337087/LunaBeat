@@ -138,6 +138,7 @@ import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
 import com.example.LyricBox.utils.ChineseConverter
+import com.example.LyricBox.utils.LyricSaveEmbedUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -2437,7 +2438,7 @@ fun EnhancedLrcSaveDialog(
 ) {
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val enhancedLrcContent = remember(lyricLines, showDuet) {
-        toEnhancedLrc(lyricLines, showDuet)
+        LyricSaveEmbedUtils.buildEnhancedLrc(lyricLines, showDuet)
     }
     if (showDialog) {
         androidx.compose.material3.ModalBottomSheet(
@@ -2518,7 +2519,7 @@ fun EmbedEnhancedLrcDialog(
 ) {
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val enhancedLrcContent = remember(lyricLines, showDuet) {
-        toEnhancedLrc(lyricLines, showDuet)
+        LyricSaveEmbedUtils.buildEnhancedLrc(lyricLines, showDuet)
     }
     val scrollState = rememberScrollState()
     if (showDialog) {
@@ -2594,7 +2595,7 @@ fun EmbedEnhancedLrcDialog(
                             }
                             kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                 Log.d("LyricTiming", "Embedding Enhanced LRC lyrics to: $sourceAudioPath")
-                                val result = com.example.LyricBox.utils.AudioMetadataReader.writeLyrics(context, sourceAudioPath, enhancedLrcContent)
+                                val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, enhancedLrcContent)
                                 Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                 withContext(Dispatchers.Main) {
                                     onEmbedResult(result.success, if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage, result.needPermission)
@@ -2622,26 +2623,7 @@ fun LineLyricSaveDialog(
 ) {
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val lineLyricContent = remember(lyricLines, showLineEndTime) {
-        buildString {
-            lyricLines.forEachIndexed { index, lyricLine ->
-                if (lyricLine.timeUnits.isNotEmpty()) {
-                    val startTime = lyricLine.timeUnits.first().startTime
-                    val endTime = lyricLine.timeUnits.last().endTime
-                    val lineText = lyricLine.timeUnits.joinToString("") { it.text }
-                    
-                    if (showLineEndTime) {
-                        append("[$startTime]$lineText[$endTime]")
-                    } else {
-                        append("[$startTime]$lineText")
-                    }
-                    append("\n")
-                    
-                    if (lyricLine.translation.isNotEmpty()) {
-                        append("[$startTime]${lyricLine.translation}\n")
-                    }
-                }
-            }
-        }
+        LyricSaveEmbedUtils.buildLineLrc(lyricLines, showLineEndTime)
     }
     
     if (showDialog) {
@@ -3865,34 +3847,7 @@ fun LyricTimingScreen(
     
     // 构建保存的歌词内容
     val buildSavedLyric = { ->
-        val sb = StringBuilder()
-        
-        lyricLines.forEachIndexed { lineIndex, lyricLine ->
-            val timeUnits = lyricLine.timeUnits
-            var lastEndTime = ""
-            
-            timeUnits.forEach { timeUnit ->
-                if (timeUnit.text.isNotBlank()) {
-                    // 如果当前开始时间等于上一个结束时间，则省略开始时间标签
-                    if (timeUnit.startTime != lastEndTime) {
-                        sb.append("[${timeUnit.startTime}]")
-                    }
-                    sb.append(timeUnit.text)
-                    sb.append("[${timeUnit.endTime}]")
-                    lastEndTime = timeUnit.endTime
-                }
-            }
-            
-            sb.append("\n")
-            
-            // 如果有翻译，添加翻译行
-            if (lyricLine.translation.isNotEmpty()) {
-                val firstStartTime = if (timeUnits.isNotEmpty()) timeUnits[0].startTime else "00:00.000"
-                sb.append("[$firstStartTime]${lyricLine.translation}\n")
-            }
-        }
-        
-        sb.toString()
+        LyricSaveEmbedUtils.buildWordLrc(lyricLines)
     }
 
     // 菜单状态
@@ -4407,7 +4362,7 @@ fun LyricTimingScreen(
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
                                         } else {
-                                            val ttmlContent = buildTtmlContent(lyricLines, creators)
+                                            val ttmlContent = LyricSaveEmbedUtils.buildTtml(lyricLines, creators)
                                             savedTtmlContent = ttmlContent
                                             showTtmlSaveDialog = true
                                         }
@@ -5650,7 +5605,7 @@ fun LyricTimingScreen(
         val embedLrcWordSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         if (showEmbedLrcWordDialog) {
             val lrcContent = remember(lyricLines) {
-                buildSavedLyricFromLines(lyricLines)
+                LyricSaveEmbedUtils.buildWordLrc(lyricLines)
             }
             val scrollState = rememberScrollState()
             
@@ -5722,7 +5677,7 @@ fun LyricTimingScreen(
                                 }
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     Log.d("LyricTiming", "Embedding lyrics to: $sourceAudioPath")
-                                    val result = com.example.LyricBox.utils.AudioMetadataReader.writeLyrics(context, sourceAudioPath, lrcContent)
+                                    val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, lrcContent)
                                     Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                     withContext(Dispatchers.Main) {
                                         embedResultSuccess = result.success
@@ -5744,26 +5699,7 @@ fun LyricTimingScreen(
         val embedLrcLineSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         if (showEmbedLrcLineDialog) {
             val lineLrcContent = remember(lyricLines, showLineEndTime) {
-                buildString {
-                    lyricLines.forEachIndexed { index, lyricLine ->
-                        if (lyricLine.timeUnits.isNotEmpty()) {
-                            val startTime = lyricLine.timeUnits.first().startTime
-                            val endTime = lyricLine.timeUnits.last().endTime
-                            val lineText = lyricLine.timeUnits.joinToString("") { it.text }
-                            
-                            if (showLineEndTime) {
-                                append("[$startTime]$lineText[$endTime]")
-                            } else {
-                                append("[$startTime]$lineText")
-                            }
-                            append("\n")
-                            
-                            if (lyricLine.translation.isNotEmpty()) {
-                                append("[$startTime]${lyricLine.translation}\n")
-                            }
-                        }
-                    }
-                }
+                LyricSaveEmbedUtils.buildLineLrc(lyricLines, showLineEndTime)
             }
             val scrollState = rememberScrollState()
             
@@ -5841,7 +5777,7 @@ fun LyricTimingScreen(
                                 }
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     Log.d("LyricTiming", "Embedding line lyrics to: $sourceAudioPath")
-                                    val result = com.example.LyricBox.utils.AudioMetadataReader.writeLyrics(context, sourceAudioPath, lineLrcContent)
+                                    val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, lineLrcContent)
                                     Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                     withContext(Dispatchers.Main) {
                                         embedResultSuccess = result.success
@@ -5863,7 +5799,7 @@ fun LyricTimingScreen(
         val embedTtmlSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         if (showEmbedTtmlDialog) {
             val ttmlContent = remember(lyricLines, creators) {
-                buildTtmlContent(lyricLines, creators)
+                LyricSaveEmbedUtils.buildTtml(lyricLines, creators)
             }
             val scrollState = rememberScrollState()
             
@@ -5935,7 +5871,7 @@ fun LyricTimingScreen(
                                 }
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     Log.d("LyricTiming", "Embedding TTML lyrics to: $sourceAudioPath")
-                                    val result = com.example.LyricBox.utils.AudioMetadataReader.writeLyrics(context, sourceAudioPath, ttmlContent)
+                                    val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, ttmlContent)
                                     Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                     withContext(Dispatchers.Main) {
                                         embedResultSuccess = result.success
@@ -5957,7 +5893,7 @@ fun LyricTimingScreen(
         val saveTtmlFileSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         if (showSaveTtmlFileDialog) {
             val ttmlContent = remember(lyricLines, creators) {
-                buildTtmlContent(lyricLines, creators)
+                LyricSaveEmbedUtils.buildTtml(lyricLines, creators)
             }
             val scrollState = rememberScrollState()
             val audioFile = java.io.File(sourceAudioPath)
@@ -6009,7 +5945,7 @@ fun LyricTimingScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
-                                val success = saveTtmlToFile(sourceAudioPath, ttmlContent)
+                                val success = LyricSaveEmbedUtils.saveTtmlFile(sourceAudioPath, ttmlContent)
                                 showSaveTtmlFileDialog = false
                                 if (success) {
                                     showSaveSuccessDialog = true
