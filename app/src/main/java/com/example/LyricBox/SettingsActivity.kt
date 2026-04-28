@@ -53,18 +53,93 @@ import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.ui.theme.DarkModeType
 
-fun getAMRegionDisplayName(region: String): String {
-    return when (region) {
-        "HK_SC" -> "HK - 香港（转简体）"
-        "HK" -> "HK - 香港"
-        "TW_SC" -> "TW - 台湾（转简体）"
-        "TW" -> "TW - 台湾"
-        "CN" -> "CN - 中国"
-        "JP" -> "JP - 日本"
-        "KR" -> "KR - 韩国"
-        "US" -> "US - 美国"
-        else -> "HK - 香港（转简体）"
+private const val APP_SETTINGS_PREFS_NAME = "AppSettings"
+private const val PREF_KEY_AM_REGION = "amRegion"
+private const val DEFAULT_AM_REGION = "HK_SC"
+private const val PREF_KEY_AM_TOKEN_SOURCE = "amTokenSource"
+private const val PREF_KEY_AM_USER_TOKEN = "amUserToken"
+private const val PREF_KEY_AM_CLOUDFLARE_URL = "amCloudflareUrl"
+private const val PREF_KEY_AM_COUNTRY = "amCountry"
+private const val PREF_KEY_AM_URL = "amUrl"
+private const val PREF_KEY_AM_URL_NAME = "amUrlName"
+private const val PREF_KEY_AM_URL_NAME_CONTRIBUTOR = "amUrlNameContributor"
+private const val PREF_KEY_NOTICE_CONTRIBUTOR = "noticeContributor"
+private const val DEFAULT_AM_TOKEN_SOURCE = "cloudflare"
+private const val DEFAULT_AM_URL_NAME = "软件内置"
+private const val DEFAULT_AM_URL_NAME_CONTRIBUTOR = "贡献配置"
+
+data class AMTokenConfig(
+    val tokenSource: String = DEFAULT_AM_TOKEN_SOURCE,
+    val userToken: String = "",
+    val cloudflareUrl: String = "",
+    val country: String = "",
+    val defaultUrlName: String = DEFAULT_AM_URL_NAME,
+    val contributorUrlName: String = DEFAULT_AM_URL_NAME_CONTRIBUTOR,
+    val noticeContributor: String = ""
+)
+
+private val AM_REGION_OPTIONS = listOf(
+    "HK_SC" to "HK - 香港（转简体）",
+    "HK" to "HK - 香港",
+    "TW_SC" to "TW - 台湾（转简体）",
+    "TW" to "TW - 台湾",
+    "CN" to "CN - 中国",
+    "JP" to "JP - 日本",
+    "KR" to "KR - 韩国",
+    "US" to "US - 美国"
+)
+
+fun getSavedAMDefaultRegion(context: Context): String {
+    return context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(PREF_KEY_AM_REGION, DEFAULT_AM_REGION) ?: DEFAULT_AM_REGION
+}
+
+fun updateAMDefaultRegion(context: Context, region: String) {
+    context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PREF_KEY_AM_REGION, region)
+        .apply()
+}
+
+fun getSavedAMTokenConfig(context: Context): AMTokenConfig {
+    val prefs = context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+    val fallbackCloudflareUrl = prefs.getString(PREF_KEY_AM_URL, "") ?: ""
+    return AMTokenConfig(
+        tokenSource = prefs.getString(PREF_KEY_AM_TOKEN_SOURCE, DEFAULT_AM_TOKEN_SOURCE) ?: DEFAULT_AM_TOKEN_SOURCE,
+        userToken = prefs.getString(PREF_KEY_AM_USER_TOKEN, "") ?: "",
+        cloudflareUrl = prefs.getString(PREF_KEY_AM_CLOUDFLARE_URL, fallbackCloudflareUrl) ?: fallbackCloudflareUrl,
+        country = prefs.getString(PREF_KEY_AM_COUNTRY, "") ?: "",
+        defaultUrlName = prefs.getString(PREF_KEY_AM_URL_NAME, DEFAULT_AM_URL_NAME) ?: DEFAULT_AM_URL_NAME,
+        contributorUrlName = prefs.getString(PREF_KEY_AM_URL_NAME_CONTRIBUTOR, DEFAULT_AM_URL_NAME_CONTRIBUTOR) ?: DEFAULT_AM_URL_NAME_CONTRIBUTOR,
+        noticeContributor = prefs.getString(PREF_KEY_NOTICE_CONTRIBUTOR, "") ?: ""
+    )
+}
+
+fun updateAMTokenConfig(context: Context, config: AMTokenConfig) {
+    context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PREF_KEY_AM_TOKEN_SOURCE, config.tokenSource)
+        .putString(PREF_KEY_AM_USER_TOKEN, config.userToken)
+        .putString(PREF_KEY_AM_CLOUDFLARE_URL, config.cloudflareUrl)
+        .putString(PREF_KEY_AM_COUNTRY, config.country)
+        .apply()
+}
+
+fun getAMTokenSourceDisplayName(
+    tokenSource: String,
+    defaultUrlName: String,
+    contributorUrlName: String
+): String {
+    return when (tokenSource) {
+        "cloudflare" -> defaultUrlName
+        "contributor" -> contributorUrlName
+        else -> "自行填写"
     }
+}
+
+fun getAMRegionDisplayName(region: String): String {
+    return AM_REGION_OPTIONS.firstOrNull { it.first == region }?.second
+        ?: AM_REGION_OPTIONS.first().second
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -102,7 +177,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE) }
     val musicLibraryPrefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     
     val savedDarkModeType = remember {
@@ -121,21 +196,24 @@ fun SettingsScreen(
     val savedCoverSize = remember { prefs.getInt("amCoverSize", 3000) }
     val savedQmCoverSize = remember { prefs.getInt("qmCoverSize", 1200) }
     val savedNeCoverSize = remember { prefs.getInt("neCoverSize", 1000) }
-    val savedAMRegion = remember { prefs.getString("amRegion", "HK_SC") } ?: "HK_SC"
-    val savedAMTokenSource = remember { prefs.getString("amTokenSource", "cloudflare") } ?: "cloudflare"
-    val savedAMUserToken = remember { prefs.getString("amUserToken", "") } ?: ""
-    val savedAMUrl = remember { prefs.getString("amUrl", "") } ?: ""
-    val savedAMUrlName = remember { prefs.getString("amUrlName", "软件内置") } ?: "软件内置"
-    val savedAMUrlCountry = remember { prefs.getString("amUrlCountry", "cn") } ?: "cn"
-    val savedAMUrlNameContributor = remember { prefs.getString("amUrlNameContributor", "贡献配置") } ?: "贡献配置"
-    val savedAMUrlCountryContributor = remember { prefs.getString("amUrlCountryContributor", "tr") } ?: "tr"
-    val savedNoticeContributor = remember { prefs.getString("noticeContributor", "") } ?: ""
-    val savedAMCloudflareUrl = remember { prefs.getString("amCloudflareUrl", savedAMUrl) } ?: savedAMUrl
-    val savedAMCountry = remember { prefs.getString("amCountry", "") } ?: ""
+    val savedAMRegion = remember { getSavedAMDefaultRegion(context) }
+    val savedAMTokenConfig = remember { getSavedAMTokenConfig(context) }
+    val savedAMTokenSource = savedAMTokenConfig.tokenSource
+    val savedAMUserToken = savedAMTokenConfig.userToken
+    val savedAMUrlName = savedAMTokenConfig.defaultUrlName
+    val savedAMUrlNameContributor = savedAMTokenConfig.contributorUrlName
+    val savedNoticeContributor = savedAMTokenConfig.noticeContributor
+    val savedAMCloudflareUrl = savedAMTokenConfig.cloudflareUrl
+    val savedAMCountry = savedAMTokenConfig.country
     
     val savedSongClickAction = remember { musicLibraryPrefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
     var tempSongClickAction by remember { mutableStateOf(savedSongClickAction) }
     val currentSongClickAction = remember { mutableStateOf(savedSongClickAction) }
+    val savedAutoDetectEmbeddedLyricsType = remember {
+        musicLibraryPrefs.getBoolean("autoDetectEmbeddedLyricsType", false)
+    }
+    var tempAutoDetectEmbeddedLyricsType by remember { mutableStateOf(savedAutoDetectEmbeddedLyricsType) }
+    val currentAutoDetectEmbeddedLyricsType = remember { mutableStateOf(savedAutoDetectEmbeddedLyricsType) }
     
     var showSongClickActionDialog by remember { mutableStateOf(false) }
     
@@ -335,6 +413,7 @@ fun SettingsScreen(
                     },
                     onClick = {
                         tempSongClickAction = currentSongClickAction.value
+                        tempAutoDetectEmbeddedLyricsType = currentAutoDetectEmbeddedLyricsType.value
                         showSongClickActionDialog = true
                     }
                 )
@@ -450,11 +529,11 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = "APPLE_MUSIC_MEDIA_USER_TOKEN",
-                    summary = when (currentAMTokenSource.value) {
-                        "cloudflare" -> savedAMUrlName
-                        "contributor" -> savedAMUrlNameContributor
-                        else -> "自行填写"
-                    },
+                    summary = getAMTokenSourceDisplayName(
+                        tokenSource = currentAMTokenSource.value,
+                        defaultUrlName = savedAMUrlName,
+                        contributorUrlName = savedAMUrlNameContributor
+                    ),
                     onClick = {
                         tempAMTokenSource = currentAMTokenSource.value
                         tempAMUserToken = currentAMUserToken.value
@@ -544,7 +623,7 @@ fun SettingsScreen(
             onDismiss = { showAMRegionDialog = false },
             onConfirm = {
                 currentAMRegion.value = tempAMRegion
-                prefs.edit().putString("amRegion", tempAMRegion).apply()
+                updateAMDefaultRegion(context, tempAMRegion)
                 showAMRegionDialog = false
             }
         )
@@ -569,10 +648,18 @@ fun SettingsScreen(
                 currentAMUserToken.value = tempAMUserToken
                 currentAMCloudflareUrl.value = tempAMCloudflareUrl
                 currentAMCountry.value = tempAMCountry
-                prefs.edit().putString("amTokenSource", tempAMTokenSource).apply()
-                prefs.edit().putString("amUserToken", tempAMUserToken).apply()
-                prefs.edit().putString("amCloudflareUrl", tempAMCloudflareUrl).apply()
-                prefs.edit().putString("amCountry", tempAMCountry).apply()
+                updateAMTokenConfig(
+                    context = context,
+                    config = AMTokenConfig(
+                        tokenSource = tempAMTokenSource,
+                        userToken = tempAMUserToken,
+                        cloudflareUrl = tempAMCloudflareUrl,
+                        country = tempAMCountry,
+                        defaultUrlName = savedAMUrlName,
+                        contributorUrlName = savedAMUrlNameContributor,
+                        noticeContributor = savedNoticeContributor
+                    )
+                )
                 showAMTokenDialog = false
             }
         )
@@ -582,10 +669,18 @@ fun SettingsScreen(
         SongClickActionDialog(
             currentValue = tempSongClickAction,
             onValueChange = { tempSongClickAction = it },
+            autoDetectEmbeddedLyricsType = tempAutoDetectEmbeddedLyricsType,
+            onAutoDetectEmbeddedLyricsTypeChange = { tempAutoDetectEmbeddedLyricsType = it },
             onDismiss = { showSongClickActionDialog = false },
             onConfirm = {
                 currentSongClickAction.value = tempSongClickAction
-                musicLibraryPrefs.edit().putString("songClickAction", tempSongClickAction).apply()
+                val editor = musicLibraryPrefs.edit()
+                editor.putString("songClickAction", tempSongClickAction)
+                if (tempSongClickAction == "editLyrics") {
+                    currentAutoDetectEmbeddedLyricsType.value = tempAutoDetectEmbeddedLyricsType
+                    editor.putBoolean("autoDetectEmbeddedLyricsType", tempAutoDetectEmbeddedLyricsType)
+                }
+                editor.apply()
                 showSongClickActionDialog = false
             }
         )
@@ -959,16 +1054,7 @@ fun AMRegionDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    val regions = listOf(
-        "HK_SC" to "HK - 香港（转简体）",
-        "HK" to "HK - 香港",
-        "TW_SC" to "TW - 台湾（转简体）",
-        "TW" to "TW - 台湾",
-        "CN" to "CN - 中国",
-        "JP" to "JP - 日本",
-        "KR" to "KR - 韩国",
-        "US" to "US - 美国"
-    )
+    val regions = AM_REGION_OPTIONS
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("AM 默认地区") },
@@ -1176,6 +1262,8 @@ fun AMTokenDialog(
 fun SongClickActionDialog(
     currentValue: String,
     onValueChange: (String) -> Unit,
+    autoDetectEmbeddedLyricsType: Boolean,
+    onAutoDetectEmbeddedLyricsTypeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -1214,6 +1302,37 @@ fun SongClickActionDialog(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
+                }
+
+                if (currentValue == "editLyrics") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onAutoDetectEmbeddedLyricsTypeChange(!autoDetectEmbeddedLyricsType) }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "自动判断歌词类型",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "对于不标准的歌词，可能会判断出错",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = autoDetectEmbeddedLyricsType,
+                            onCheckedChange = onAutoDetectEmbeddedLyricsTypeChange
+                        )
                     }
                 }
             }

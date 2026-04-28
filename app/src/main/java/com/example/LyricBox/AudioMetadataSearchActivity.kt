@@ -45,6 +45,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.LyricBox.lyrics.LyricsService
 import com.example.LyricBox.lyrics.models.SongInfo
 import com.example.LyricBox.lyrics.models.Source
+import com.example.LyricBox.ui.components.CustomDropdownMenu
+import com.example.LyricBox.ui.components.MenuAnchorPosition
+import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -247,6 +250,12 @@ fun AudioMetadataSearchScreen(
     var selectedSong by remember { mutableStateOf<MetadataSearchResult?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var showLoading by remember { mutableStateOf(false) }
+    var showHeadbarMenu by remember { mutableStateOf(false) }
+    var showAMRegionDialog by remember { mutableStateOf(false) }
+
+    val savedAMRegion = remember { getSavedAMDefaultRegion(context) }
+    var currentAMRegion by remember { mutableStateOf(savedAMRegion) }
+    var tempAMRegion by remember { mutableStateOf(savedAMRegion) }
     
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pagerState = androidx.compose.foundation.pager.rememberPagerState { 4 }
@@ -268,7 +277,7 @@ fun AudioMetadataSearchScreen(
     }
     
     fun getItunesCountry(): String {
-        return when (prefs.getString("amRegion", "HK_SC") ?: "HK_SC") {
+        return when (currentAMRegion) {
             "HK_SC" -> "HK"
             "HK" -> "HK"
             "TW_SC" -> "TW"
@@ -282,8 +291,7 @@ fun AudioMetadataSearchScreen(
     }
     
     fun shouldConvertToSimplified(): Boolean {
-        val region = prefs.getString("amRegion", "HK_SC") ?: "HK_SC"
-        return region == "HK_SC" || region == "TW_SC"
+        return currentAMRegion == "HK_SC" || currentAMRegion == "TW_SC"
     }
     
     fun getArtistSeparator(): String {
@@ -616,8 +624,25 @@ fun AudioMetadataSearchScreen(
             CommonHeadBar(
                 title = "搜索音频元数据",
                 showBack = true,
-                showMenu = false,
-                onBackClick = onBack
+                showMenu = true,
+                onBackClick = onBack,
+                onMenuClick = { showHeadbarMenu = true },
+                menuContent = { menuButtonPosition ->
+                    CustomDropdownMenu(
+                        expanded = showHeadbarMenu,
+                        onDismissRequest = { showHeadbarMenu = false },
+                        items = listOf(
+                            MenuItem(
+                                title = "AM默认地区",
+                                onClick = {
+                                    tempAMRegion = currentAMRegion
+                                    showAMRegionDialog = true
+                                }
+                            )
+                        ),
+                        anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f)
+                    )
+                }
             )
             
             Column(
@@ -858,6 +883,19 @@ fun AudioMetadataSearchScreen(
                     selectedSong?.metadata?.let { metadata ->
                         onImport(metadata, selectedFields)
                     }
+                }
+            )
+        }
+
+        if (showAMRegionDialog) {
+            AMRegionDialog(
+                currentValue = tempAMRegion,
+                onValueChange = { tempAMRegion = it },
+                onDismiss = { showAMRegionDialog = false },
+                onConfirm = {
+                    currentAMRegion = tempAMRegion
+                    updateAMDefaultRegion(context, tempAMRegion)
+                    showAMRegionDialog = false
                 }
             )
         }

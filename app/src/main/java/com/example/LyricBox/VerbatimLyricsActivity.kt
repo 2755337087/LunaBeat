@@ -43,6 +43,9 @@ import com.example.LyricBox.lyrics.models.SongInfo
 import com.example.LyricBox.lyrics.models.Source
 import com.example.LyricBox.lyrics.models.VerbatimLyricsResult
 import com.example.LyricBox.lyrics.parser.VerbatimLrcConverter
+import com.example.LyricBox.ui.components.CustomDropdownMenu
+import com.example.LyricBox.ui.components.MenuAnchorPosition
+import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
@@ -263,6 +266,16 @@ fun VerbatimLyricsScreen(
     var showInputDialog by remember { mutableStateOf(false) }
     var showCopiedDialog by remember { mutableStateOf(false) }
     var showNoLyricsDialog by remember { mutableStateOf(false) }
+    var showHeadbarMenu by remember { mutableStateOf(false) }
+    var showAMRegionDialog by remember { mutableStateOf(false) }
+    var showAMTokenDialog by remember { mutableStateOf(false) }
+
+    val savedAMRegion = remember { getSavedAMDefaultRegion(context) }
+    var currentAMRegion by remember { mutableStateOf(savedAMRegion) }
+    var tempAMRegion by remember { mutableStateOf(savedAMRegion) }
+    val savedAMTokenConfig = remember { getSavedAMTokenConfig(context) }
+    var currentAMTokenConfig by remember { mutableStateOf(savedAMTokenConfig) }
+    var tempAMTokenConfig by remember { mutableStateOf(savedAMTokenConfig) }
     
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
@@ -390,8 +403,32 @@ fun VerbatimLyricsScreen(
         CommonHeadBar(
             title = "获取逐字歌词",
             showBack = true,
-            showMenu = false,
-            onBackClick = onBack
+            showMenu = true,
+            onBackClick = onBack,
+            onMenuClick = { showHeadbarMenu = true },
+            menuContent = { menuButtonPosition ->
+                CustomDropdownMenu(
+                    expanded = showHeadbarMenu,
+                    onDismissRequest = { showHeadbarMenu = false },
+                    items = listOf(
+                        MenuItem(
+                            title = "AM歌词配置",
+                            onClick = {
+                                tempAMTokenConfig = currentAMTokenConfig
+                                showAMTokenDialog = true
+                            }
+                        ),
+                        MenuItem(
+                            title = "AM默认地区",
+                            onClick = {
+                                tempAMRegion = currentAMRegion
+                                showAMRegionDialog = true
+                            }
+                        )
+                    ),
+                    anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f)
+                )
+            }
         )
         
         Column(
@@ -919,6 +956,41 @@ fun VerbatimLyricsScreen(
                 }
             )
         }
+    }
+
+    if (showAMRegionDialog) {
+        AMRegionDialog(
+            currentValue = tempAMRegion,
+            onValueChange = { tempAMRegion = it },
+            onDismiss = { showAMRegionDialog = false },
+            onConfirm = {
+                currentAMRegion = tempAMRegion
+                updateAMDefaultRegion(context, tempAMRegion)
+                showAMRegionDialog = false
+            }
+        )
+    }
+
+    if (showAMTokenDialog) {
+        AMTokenDialog(
+            currentSource = tempAMTokenConfig.tokenSource,
+            onSourceChange = { tempAMTokenConfig = tempAMTokenConfig.copy(tokenSource = it) },
+            currentUserToken = tempAMTokenConfig.userToken,
+            onUserTokenChange = { tempAMTokenConfig = tempAMTokenConfig.copy(userToken = it) },
+            currentCloudflareUrl = tempAMTokenConfig.cloudflareUrl,
+            onCloudflareUrlChange = { tempAMTokenConfig = tempAMTokenConfig.copy(cloudflareUrl = it) },
+            currentCountry = tempAMTokenConfig.country,
+            onCountryChange = { tempAMTokenConfig = tempAMTokenConfig.copy(country = it) },
+            defaultUrlName = savedAMTokenConfig.defaultUrlName,
+            contributorUrlName = savedAMTokenConfig.contributorUrlName,
+            noticeContributor = savedAMTokenConfig.noticeContributor,
+            onDismiss = { showAMTokenDialog = false },
+            onConfirm = {
+                currentAMTokenConfig = tempAMTokenConfig
+                updateAMTokenConfig(context, tempAMTokenConfig)
+                showAMTokenDialog = false
+            }
+        )
     }
     
     if (showInputDialog) {
