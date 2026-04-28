@@ -239,6 +239,32 @@ fun formatAudioDuration(ms: Long): String {
     return String.format("%d:%02d", minutes, seconds)
 }
 
+private val LYRIC_FORMAT_OPTIONS = listOf(
+    "纯文本歌词",
+    "LRC逐行/逐字歌词",
+    "增强LRC/ELRC歌词",
+    "TTML歌词"
+)
+
+private data class AudioLyricsLoadResult(
+    val embeddedLyrics: String?,
+    val externalLyrics: String?,
+    val externalLyricsPath: String?,
+    val detectedEmbeddedFormat: Int
+) {
+    val hasEmbedded: Boolean
+        get() = !embeddedLyrics.isNullOrBlank()
+    val hasExternal: Boolean
+        get() = !externalLyrics.isNullOrBlank()
+    val isEmbeddedOnly: Boolean
+        get() = hasEmbedded && !hasExternal
+}
+
+private fun Int.toLyricFormatLabel(): String {
+    val safeIndex = coerceIn(0, LYRIC_FORMAT_OPTIONS.lastIndex)
+    return LYRIC_FORMAT_OPTIONS[safeIndex]
+}
+
 private data class PreviewLyricPayload(
     val lines: List<NewPreviewLyricLine>,
     val creators: List<String>
@@ -634,6 +660,9 @@ class MusicLibraryActivity : ComponentActivity() {
         fun putCoverToCache(cachePath: String, bitmap: Bitmap) {
             coverCache.put(cachePath, bitmap)
         }
+        fun removeCoverFromCache(cachePath: String) {
+            coverCache.remove(cachePath)
+        }
         
         fun calculateInSampleSize(
             options: BitmapFactory.Options,
@@ -988,6 +1017,7 @@ fun MusicLibraryScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val songClickAction = remember { prefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
+    val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
     val scope = rememberCoroutineScope()
     
     val allAudioFiles = remember { mutableStateListOf<AudioFile>() }
@@ -1166,6 +1196,21 @@ fun MusicLibraryScreen(
         selectedPaths.clear()
         lastSelectedIndices.clear()
     }
+
+    fun startLyricTimingEditor(audio: AudioFile, lyricsContent: String?, format: String) {
+        val intent = Intent(context, LyricTimingActivity::class.java).apply {
+            putExtra("audioPath", audio.path)
+            putExtra("lyricsContent", lyricsContent)
+            putExtra("sourceTitle", audio.displayTitle)
+            putExtra("sourceArtist", audio.artist)
+            putExtra("lyricsFormat", format)
+        }
+        context.startActivity(intent)
+    }
+
+    fun shouldShowScanComplete(summary: ScanSummary): Boolean {
+        return summary.addedCount > 0 || summary.removedCount > 0 || summary.updatedCount > 0
+    }
     
     LaunchedEffect(Unit) {
         val hasCache = loadCachedAudioFiles(context, allAudioFiles)
@@ -1198,12 +1243,14 @@ fun MusicLibraryScreen(
                     onComplete = { summary ->
                         isScanning = false
                         scanSummary = summary
-                        if (isFromCache) {
+                        if (isFromCache && shouldShowScanComplete(summary)) {
                             showScanComplete = true
                             scope.launch {
                                 kotlinx.coroutines.delay(3000)
                                 showScanComplete = false
                             }
+                        } else {
+                            showScanComplete = false
                         }
                         updateDisplayFiles()
                     }
@@ -1292,9 +1339,13 @@ fun MusicLibraryScreen(
                                             onComplete = { summary ->
                                                 isScanning = false
                                                 scanSummary = summary
-                                                showScanComplete = true
-                                                scope.launch {
-                                                    kotlinx.coroutines.delay(3000)
+                                                if (shouldShowScanComplete(summary)) {
+                                                    showScanComplete = true
+                                                    scope.launch {
+                                                        kotlinx.coroutines.delay(3000)
+                                                        showScanComplete = false
+                                                    }
+                                                } else {
                                                     showScanComplete = false
                                                 }
                                                 updateDisplayFiles()
@@ -1511,8 +1562,32 @@ fun MusicLibraryScreen(
                                         if (songClickAction == "editMetadata") {
                                             onEditMetadata(audio.path)
                                         } else {
-                                            selectedAudio = audio
-                                            showAudioOptionsDialog = true
+                                            if (autoDetectEmbeddedLyricsType) {
+                                                scope.launch {
+                                                    val hasExternalTtml = withContext(Dispatchers.IO) {
+                                                        resolveExternalTtmlFile(audio.path)?.exists() == true
+                                                    }
+                                                    if (hasExternalTtml) {
+                                                        selectedAudio = audio
+                                                        showAudioOptionsDialog = true
+                                                        return@launch
+                                                    }
+                                                    val lyricsLoadResult = loadAudioLyricsLoadResult(audio.path)
+                                                    if (lyricsLoadResult.isEmbeddedOnly && lyricsLoadResult.embeddedLyrics != null) {
+                                                        startLyricTimingEditor(
+                                                            audio = audio,
+                                                            lyricsContent = lyricsLoadResult.embeddedLyrics,
+                                                            format = lyricsLoadResult.detectedEmbeddedFormat.toLyricFormatLabel()
+                                                        )
+                                                    } else {
+                                                        selectedAudio = audio
+                                                        showAudioOptionsDialog = true
+                                                    }
+                                                }
+                                            } else {
+                                                selectedAudio = audio
+                                                showAudioOptionsDialog = true
+                                            }
                                         }
                                     }
                                 },
@@ -1800,25 +1875,21 @@ fun MusicLibraryScreen(
     }
     
     if (showAudioOptionsDialog && selectedAudio != null) {
-        val audioPath = selectedAudio!!.path
-        val audioTitle = selectedAudio!!.displayTitle
-        val audioArtist = selectedAudio!!.artist
+        val dialogAudio = selectedAudio!!
         AudioOptionsDialog(
-            audio = selectedAudio!!,
+            audio = dialogAudio,
+            autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
             onDismiss = {
                 showAudioOptionsDialog = false
                 selectedAudio = null
             },
             onEditLyrics = { lyricsContent, format ->
                 showAudioOptionsDialog = false
-                val intent = Intent(context, LyricTimingActivity::class.java).apply {
-                    putExtra("audioPath", audioPath)
-                    putExtra("lyricsContent", lyricsContent)
-                    putExtra("sourceTitle", audioTitle)
-                    putExtra("sourceArtist", audioArtist)
-                    putExtra("lyricsFormat", format)
-                }
-                context.startActivity(intent)
+                startLyricTimingEditor(
+                    audio = dialogAudio,
+                    lyricsContent = lyricsContent,
+                    format = format
+                )
             },
             onEditMetadata = { path ->
                 onEditMetadata(path)
@@ -2199,7 +2270,7 @@ fun AudioFileItem(
         label = "sequenceOffset"
     )
     
-    LaunchedEffect(audio.coverCachePath) {
+    LaunchedEffect(audio.coverCachePath, audio.lastModified) {
         coverBitmap = null
         audio.coverCachePath?.let { cachePath ->
             val cached = MusicLibraryActivity.getCoverFromCache(cachePath)
@@ -2364,6 +2435,7 @@ fun AudioFileItem(
 @Composable
 fun AudioOptionsDialog(
     audio: AudioFile,
+    autoDetectEmbeddedLyricsType: Boolean = false,
     onDismiss: () -> Unit,
     onEditLyrics: (String?, String) -> Unit,
     onEditMetadata: (String) -> Unit,
@@ -2384,18 +2456,19 @@ fun AudioOptionsDialog(
     val hasExternal by remember { derivedStateOf { externalLyrics != null } }
     val hasLyrics by remember { derivedStateOf { hasEmbedded || hasExternal } }
     
-    val formats = listOf(
-        "纯文本歌词",
-        "LRC逐行/逐字歌词",
-        "增强LRC/ELRC歌词",
-        "TTML歌词"
-    )
-    
-    val detectedFormat by remember { derivedStateOf { 
+    val detectedEmbeddedFormat by remember { derivedStateOf {
         embeddedLyrics?.let { detectLyricsFormat(it) } ?: 0
     } }
     
-    val recommendedFormatIndex by remember { derivedStateOf { detectedFormat } }
+    val resolvedEmbeddedFormatIndex by remember {
+        derivedStateOf {
+            if (autoDetectEmbeddedLyricsType) {
+                detectedEmbeddedFormat
+            } else {
+                selectedFormat
+            }.coerceIn(0, LYRIC_FORMAT_OPTIONS.lastIndex)
+        }
+    }
     
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
@@ -2403,49 +2476,33 @@ fun AudioOptionsDialog(
         sheetState.show()
     }
     
-    LaunchedEffect(audio.path) {
+    LaunchedEffect(audio.path, audio.coverCachePath) {
         isLoadingLyrics = true
-        
-        // 加载封面
-        audio.coverCachePath?.let { cachePath ->
-            withContext(Dispatchers.IO) {
-                try {
-                    val cacheFile = File(cachePath)
-                    if (cacheFile.exists()) {
-                        val bytes = cacheFile.readBytes()
-                        coverBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    }
-                } catch (e: Exception) {
-                    Log.e("MusicLibrary", "Error loading cover bitmap", e)
-                }
-            }
-        }
-        
-        embeddedLyrics = withContext(Dispatchers.IO) {
-            extractEmbeddedLyrics(audio.path)
-        }
-        
-        val ttmlFile = java.io.File(audio.path).let { audioFile ->
-            java.io.File(audioFile.parent, audioFile.nameWithoutExtension + ".ttml")
-        }
-        
-        if (ttmlFile.exists()) {
-            externalLyrics = withContext(Dispatchers.IO) {
-                try {
-                    ttmlFile.readText()
-                } catch (e: Exception) {
-                    Log.e("MusicLibrary", "Error reading external TTML", e)
-                    null
-                }
-            }
-            externalLyricsPath = ttmlFile.absolutePath
-        }
-        
-        if (embeddedLyrics != null && externalLyrics == null) {
+        selectedSource = null
+        selectedFormat = 0
+        embeddedLyrics = null
+        externalLyrics = null
+        externalLyricsPath = null
+        coverBitmap = null
+
+        // 先显示弹窗与加载态，再并行读取封面和歌词
+        kotlinx.coroutines.yield()
+
+        val coverDeferred = async { loadAudioOptionsCoverBitmap(audio.coverCachePath) }
+        val lyricsLoadResult = loadAudioLyricsLoadResult(audio.path)
+
+        coverBitmap = coverDeferred.await()
+        embeddedLyrics = lyricsLoadResult.embeddedLyrics
+        externalLyrics = lyricsLoadResult.externalLyrics
+        externalLyricsPath = lyricsLoadResult.externalLyricsPath
+
+        if (lyricsLoadResult.isEmbeddedOnly) {
             selectedSource = "embedded"
-            selectedFormat = detectLyricsFormat(embeddedLyrics!!)
+            selectedFormat = lyricsLoadResult.detectedEmbeddedFormat
+        } else if (!lyricsLoadResult.hasEmbedded && lyricsLoadResult.hasExternal) {
+            selectedSource = "external"
         }
-        
+
         isLoadingLyrics = false
     }
     
@@ -2546,7 +2603,7 @@ fun AudioOptionsDialog(
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "正在检测歌词...",
+                            text = "正在读取歌词...",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2569,7 +2626,7 @@ fun AudioOptionsDialog(
                             selected = selectedSource == "embedded",
                             onClick = { 
                                 selectedSource = "embedded"
-                                selectedFormat = recommendedFormatIndex
+                                selectedFormat = detectedEmbeddedFormat
                             },
                             onPreview = {
                                 previewLyricsContent = embeddedLyrics ?: ""
@@ -2595,7 +2652,22 @@ fun AudioOptionsDialog(
                     }
                     
                     AnimatedVisibility(
-                        visible = selectedSource == "embedded",
+                        visible = selectedSource == "embedded" && autoDetectEmbeddedLyricsType,
+                        enter = fadeIn(animationSpec = tween(250)),
+                        exit = fadeOut(animationSpec = tween(200))
+                    ) {
+                        Column {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "已自动判断歌词格式：${detectedEmbeddedFormat.toLyricFormatLabel()}",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = selectedSource == "embedded" && !autoDetectEmbeddedLyricsType,
                         enter = fadeIn(animationSpec = tween(300)) + slideInVertically(
                             animationSpec = tween(300),
                             initialOffsetY = { -it / 2 }
@@ -2615,8 +2687,8 @@ fun AudioOptionsDialog(
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            formats.forEachIndexed { index, format ->
-                                val isRecommended = index == recommendedFormatIndex
+                            LYRIC_FORMAT_OPTIONS.forEachIndexed { index, format ->
+                                val isRecommended = index == detectedEmbeddedFormat
                                 val displayText = if (isRecommended) "$format（推荐）" else format
                                 
                                 if (index > 0) Spacer(modifier = Modifier.height(8.dp))
@@ -2698,7 +2770,7 @@ fun AudioOptionsDialog(
                             onEditLyrics(externalLyrics, "TTML歌词")
                         }
                         selectedSource == "embedded" && embeddedLyrics != null -> {
-                            onEditLyrics(embeddedLyrics, formats[selectedFormat])
+                            onEditLyrics(embeddedLyrics, resolvedEmbeddedFormatIndex.toLyricFormatLabel())
                         }
                         hasExternal && !hasEmbedded -> {
                             onEditLyrics(externalLyrics, "TTML歌词")
@@ -2716,7 +2788,7 @@ fun AudioOptionsDialog(
             ) {
                 Text(
                     text = when {
-                        isLoadingLyrics -> "正在加载..."
+                        isLoadingLyrics -> "正在读取歌词..."
                         hasLyrics && selectedSource == null -> "请先选择歌词来源"
                         else -> "开始编辑歌词"
                     },
@@ -3247,7 +3319,11 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
                     return@forEachIndexed
                 }
 
-                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(entry.path)
+                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                    context = context,
+                    filePath = entry.path,
+                    mediaStoreId = entry.mediaStoreId
+                )
                 val duration = if (metadata.duration > 0) metadata.duration else entry.duration
                 if (excludeShortAudio && duration < 60000L) {
                     withContext(Dispatchers.Main) {
@@ -3361,6 +3437,49 @@ private fun extractEmbeddedLyrics(path: String): String? {
     return com.example.LyricBox.utils.AudioMetadataReader.readLyrics(path)
 }
 
+private fun resolveExternalTtmlFile(audioPath: String): File? {
+    val audioFile = File(audioPath)
+    val parentDir = audioFile.parentFile ?: return null
+    return File(parentDir, "${audioFile.nameWithoutExtension}.ttml")
+}
+
+private suspend fun loadAudioLyricsLoadResult(audioPath: String): AudioLyricsLoadResult =
+    withContext(Dispatchers.IO) {
+        val embeddedLyrics = extractEmbeddedLyrics(audioPath)?.takeIf { it.isNotBlank() }
+        val ttmlFile = resolveExternalTtmlFile(audioPath)
+        val externalLyrics = if (ttmlFile?.exists() == true) {
+            try {
+                ttmlFile.readText().takeIf { it.isNotBlank() }
+            } catch (e: Exception) {
+                Log.e("MusicLibrary", "Error reading external TTML", e)
+                null
+            }
+        } else {
+            null
+        }
+        val detectedEmbeddedFormat = embeddedLyrics?.let { detectLyricsFormat(it) } ?: 0
+        AudioLyricsLoadResult(
+            embeddedLyrics = embeddedLyrics,
+            externalLyrics = externalLyrics,
+            externalLyricsPath = ttmlFile?.absolutePath?.takeIf { externalLyrics != null },
+            detectedEmbeddedFormat = detectedEmbeddedFormat
+        )
+    }
+
+private suspend fun loadAudioOptionsCoverBitmap(coverCachePath: String?): Bitmap? =
+    withContext(Dispatchers.IO) {
+        if (coverCachePath.isNullOrBlank()) return@withContext null
+        try {
+            val cacheFile = File(coverCachePath)
+            if (!cacheFile.exists()) return@withContext null
+            val bytes = cacheFile.readBytes()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+            Log.e("MusicLibrary", "Error loading cover bitmap", e)
+            null
+        }
+    }
+
 private fun getCoverCacheDir(context: Context): File {
     val cacheDir = File(context.cacheDir, "covers")
     if (!cacheDir.exists()) {
@@ -3369,10 +3488,20 @@ private fun getCoverCacheDir(context: Context): File {
     return cacheDir
 }
 
-private fun saveCoverToCache(context: Context, audioFilePath: String, coverData: ByteArray): String? {
+private fun saveCoverToCache(
+    context: Context,
+    audioFilePath: String,
+    coverData: ByteArray,
+    cacheDiscriminator: String? = null
+): String? {
     return try {
         val cacheDir = getCoverCacheDir(context)
-        val fileName = audioFilePath.hashCode().toString() + ".jpg"
+        val baseHash = audioFilePath.hashCode().toString()
+        val fileName = if (cacheDiscriminator.isNullOrBlank()) {
+            "$baseHash.jpg"
+        } else {
+            "${baseHash}_${cacheDiscriminator.hashCode()}.jpg"
+        }
         val cacheFile = File(cacheDir, fileName)
         
         val options = BitmapFactory.Options()
@@ -3457,6 +3586,8 @@ fun ExternalAudioScreen(
 ) {
     var showAudioOptionsDialog by remember { mutableStateOf(true) }
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     
     // 当从编辑页面返回时，重新弹出对话框
@@ -3523,11 +3654,9 @@ fun ExternalAudioScreen(
     }
     
     if (showAudioOptionsDialog) {
-        val audioPath = audio.path
-        val audioTitle = audio.displayTitle
-        val audioArtist = audio.artist
         AudioOptionsDialog(
             audio = audio,
+            autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
             onDismiss = {
                 showAudioOptionsDialog = false
             },
@@ -6237,15 +6366,42 @@ private suspend fun refreshAudioFileMetadata(context: Context, path: String, aud
             
             val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(file.absolutePath)
             
-            var coverCachePath: String? = null
+            var refreshedCoverCachePath: String? = null
             if (metadata.cover != null) {
-                coverCachePath = saveCoverToCache(context, file.absolutePath, metadata.cover)
+                refreshedCoverCachePath = saveCoverToCache(
+                    context = context,
+                    audioFilePath = file.absolutePath,
+                    coverData = metadata.cover,
+                    cacheDiscriminator = file.lastModified().toString()
+                )
             }
             
             withContext(Dispatchers.Main) {
                 val existingIndex = audioFiles.indexOfFirst { it.path == path }
                 if (existingIndex >= 0) {
                     val existing = audioFiles[existingIndex]
+                    val oldCoverCachePath = existing.coverCachePath
+                    val finalCoverCachePath = if (metadata.cover != null) {
+                        refreshedCoverCachePath ?: existing.coverCachePath
+                    } else {
+                        null
+                    }
+
+                    oldCoverCachePath?.let { oldPath ->
+                        MusicLibraryActivity.removeCoverFromCache(oldPath)
+                        if (finalCoverCachePath == null || oldPath != finalCoverCachePath) {
+                            try {
+                                File(oldPath).delete()
+                            } catch (e: Exception) {
+                                Log.w("MusicLibrary", "Failed to delete old cover cache: $oldPath", e)
+                            }
+                        }
+                    }
+
+                    if (!finalCoverCachePath.isNullOrBlank() && finalCoverCachePath != oldCoverCachePath) {
+                        MusicLibraryActivity.removeCoverFromCache(finalCoverCachePath)
+                    }
+
                     val newAudioFile = existing.copy(
                         title = metadata.title,
                         artist = metadata.artist,
@@ -6253,7 +6409,7 @@ private suspend fun refreshAudioFileMetadata(context: Context, path: String, aud
                         duration = metadata.duration,
                         fileSize = file.length(),
                         lastModified = file.lastModified(),
-                        coverCachePath = coverCachePath ?: existing.coverCachePath
+                        coverCachePath = finalCoverCachePath
                     )
                     audioFiles[existingIndex] = newAudioFile
                     return@withContext newAudioFile
