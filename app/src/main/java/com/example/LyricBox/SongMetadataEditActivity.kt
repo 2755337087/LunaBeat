@@ -2898,7 +2898,7 @@ suspend fun loadMetadata(
             val data = AudioTagReader.read(pfd, true)
             pfd.close()
             
-            val coverBitmap = data.pictures.firstOrNull()?.let { pic ->
+            var coverBitmap = data.pictures.firstOrNull()?.let { pic ->
                 BitmapFactory.decodeByteArray(pic.data, 0, pic.data.size)
             }
             
@@ -2931,7 +2931,19 @@ suspend fun loadMetadata(
                     }
                     
                     copyrightValue = firstOf("COPYRIGHT", "COPYRIGHTS", "COPYRIGHTINFO")
-                    lyricsValue = firstOf("LYRICS", "UNSYNCEDLYRICS", "USLT")
+                    lyricsValue = firstOf("LYRICS", "UNSYNCED LYRICS", "UNSYNCEDLYRICS", "USLT", "LYRIC", "LYRICSENG")
+
+                    if (coverBitmap == null) {
+                        try {
+                            val coverFd = tagPfd.dup().detachFd()
+                            val frontCover = TagLib.getFrontCover(coverFd)
+                            coverBitmap = frontCover?.data?.let { bytes ->
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            }
+                        } catch (coverError: Exception) {
+                            Log.w(TAG, "TagLib fallback cover read failed", coverError)
+                        }
+                    }
                     
                     // 读取自定义字段
                     enabledFields.forEach { field ->
