@@ -1,13 +1,16 @@
 package com.example.LyricBox.utils
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -40,6 +43,34 @@ data class WriteResult(
 
 object AudioMetadataReader {
     private const val TAG = "AudioMetadataReader"
+
+    private fun resolveMediaStoreUri(context: Context, filePath: String, mediaStoreId: Long = -1L): Uri? {
+        return try {
+            if (mediaStoreId > 0L) {
+                return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaStoreId)
+            }
+            val projection = arrayOf(MediaStore.Audio.Media._ID)
+            val selection = "${MediaStore.Audio.Media.DATA} = ?"
+            val args = arrayOf(filePath)
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                args,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+                    ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "resolveMediaStoreUri failed for path=$filePath, id=$mediaStoreId", e)
+            null
+        }
+    }
     
     fun hasStoragePermission(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -73,7 +104,11 @@ object AudioMetadataReader {
             val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val result = readMetadataFromPfd(pfd)
             pfd.close()
-            result
+            if (result.cover != null) {
+                result
+            } else {
+                result.copy(cover = extractCoverWithRetriever(filePath))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error reading metadata from $filePath", e)
             AudioMetadata()
@@ -88,10 +123,80 @@ object AudioMetadataReader {
             }
             val result = readMetadataFromPfd(pfd)
             pfd.close()
-            result
+            if (result.cover != null) {
+                result
+            } else {
+                result.copy(cover = extractCoverWithRetriever(context, uri))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error reading metadata from uri $uri", e)
             AudioMetadata()
+        }
+    }
+
+    fun readMetadata(context: Context, filePath: String, mediaStoreId: Long = -1L): AudioMetadata {
+        val fromFile = readMetadata(filePath)
+        if (!shouldFallbackToUri(fromFile)) {
+            return fromFile
+        }
+
+        val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId) ?: return fromFile
+        val fromUri = readMetadataFromUri(context, mediaUri)
+        return mergePreferPrimary(fromFile, fromUri)
+    }
+
+    private fun shouldFallbackToUri(metadata: AudioMetadata): Boolean {
+        return metadata.cover == null ||
+            metadata.title.isBlank() ||
+            metadata.artist.isBlank() ||
+            metadata.album.isBlank() ||
+            metadata.duration <= 0L
+    }
+
+    private fun mergePreferPrimary(primary: AudioMetadata, fallback: AudioMetadata): AudioMetadata {
+        return primary.copy(
+            title = primary.title.takeIf { it.isNotBlank() } ?: fallback.title,
+            artist = primary.artist.takeIf { it.isNotBlank() } ?: fallback.artist,
+            album = primary.album.takeIf { it.isNotBlank() } ?: fallback.album,
+            lyrics = primary.lyrics.takeIf { it.isNotBlank() } ?: fallback.lyrics,
+            duration = if (primary.duration > 0L) primary.duration else fallback.duration,
+            cover = primary.cover ?: fallback.cover,
+            year = primary.year.takeIf { it.isNotBlank() } ?: fallback.year,
+            trackNumber = primary.trackNumber.takeIf { it.isNotBlank() } ?: fallback.trackNumber,
+            discNumber = primary.discNumber.takeIf { it.isNotBlank() } ?: fallback.discNumber,
+            albumArtist = primary.albumArtist.takeIf { it.isNotBlank() } ?: fallback.albumArtist
+        )
+    }
+
+    private fun extractCoverWithRetriever(filePath: String): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            retriever.embeddedPicture
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaMetadataRetriever cover fallback failed for path=$filePath", e)
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun extractCoverWithRetriever(context: Context, uri: Uri): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            retriever.embeddedPicture
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaMetadataRetriever cover fallback failed for uri=$uri", e)
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
         }
     }
     
@@ -189,6 +294,43 @@ object AudioMetadataReader {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error reading lyrics from $filePath", e)
+            null
+        }
+    }
+
+    fun readLyrics(context: Context, filePath: String, mediaStoreId: Long = -1L): String? {
+        val fromFile = readLyrics(filePath)
+        if (!fromFile.isNullOrBlank()) return fromFile
+
+        return try {
+            val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId) ?: return null
+            val pfd = context.contentResolver.openFileDescriptor(mediaUri, "r") ?: return null
+            val nativeFd = pfd.dup().detachFd()
+            val metadata = TagLib.getMetadata(nativeFd, false)
+            pfd.close()
+            val props = metadata?.propertyMap ?: return null
+
+            fun firstOf(vararg keys: String): String? {
+                for (key in keys) {
+                    val arr = props[key]
+                    if (!arr.isNullOrEmpty()) {
+                        val value = arr[0].trim()
+                        if (value.isNotEmpty()) return value
+                    }
+                }
+                return null
+            }
+
+            firstOf(
+                "LYRICS",
+                "UNSYNCED LYRICS",
+                "UNSYNCEDLYRICS",
+                "USLT",
+                "LYRIC",
+                "LYRICSENG"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading lyrics from uri fallback, path=$filePath", e)
             null
         }
     }

@@ -959,7 +959,7 @@ class MusicLibraryActivity : ComponentActivity() {
                 val file = File(path)
                 if (!file.exists()) return@Thread
                 
-                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(path)
+                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(this, path)
                 
                 // 保存封面到缓存
                 var coverCachePath: String? = null
@@ -2118,7 +2118,7 @@ fun MusicLibraryScreen(
                             
                             // 读取新文件的元数据并添加到列表
                             try {
-                                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(newFile.absolutePath)
+                                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, newFile.absolutePath)
                                 var coverCachePath: String? = null
                                 if (metadata.cover != null) {
                                     coverCachePath = saveCoverToCache(context, newFile.absolutePath, metadata.cover)
@@ -3181,7 +3181,7 @@ private suspend fun scanAudioFilesFromFolders(
             }
 
             try {
-                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(file.absolutePath)
+                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, file.absolutePath)
                 val duration = metadata.duration
                 if (!excludeShortAudio || duration >= 60000) {
                     val fileSize = file.length()
@@ -6364,7 +6364,7 @@ private suspend fun refreshAudioFileMetadata(context: Context, path: String, aud
             val file = java.io.File(path)
             if (!file.exists()) return@withContext null
             
-            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(file.absolutePath)
+            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, file.absolutePath)
             
             var refreshedCoverCachePath: String? = null
             if (metadata.cover != null) {
@@ -7311,7 +7311,11 @@ private suspend fun generateRenamePreview(
         files.map { audioFile ->
             val file = File(audioFile.path)
             val oldName = file.name
-            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(audioFile.path)
+            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                context = context,
+                filePath = audioFile.path,
+                mediaStoreId = audioFile.mediaStoreId
+            )
             
             val newNameWithoutExt = replaceTemplateTags(config.template, audioFile, metadata, config.artistSeparator)
             val newName = if (newNameWithoutExt.isNotEmpty()) {
