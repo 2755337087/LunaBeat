@@ -137,7 +137,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
-import com.example.LyricBox.utils.ChineseConverter
+import com.example.LyricBox.utils.LyricBatchEditUtils
 import com.example.LyricBox.utils.LyricSaveEmbedUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -3647,12 +3647,12 @@ fun LyricTimingScreen(
     
     // 辅助函数：检测是否存在空行
     fun hasEmptyLines(lines: List<LyricLine>): Boolean {
-        return lines.any { it.timeUnits.isEmpty() }
+        return LyricBatchEditUtils.hasEmptyLines(lines)
     }
     
     // 辅助函数：删除所有空行
     fun removeEmptyLines(lines: List<LyricLine>): List<LyricLine> {
-        return lines.filter { it.timeUnits.isNotEmpty() }
+        return LyricBatchEditUtils.removeEmptyLines(lines)
     }
     
     // 处理导入的歌词内容
@@ -3994,7 +3994,7 @@ fun LyricTimingScreen(
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
                                         } else {
-                                            val emptyLinesIndices = lyricLines.indices.filter { lyricLines[it].timeUnits.isEmpty() }
+                                            val emptyLinesIndices = LyricBatchEditUtils.emptyLineIndices(lyricLines)
                                             if (emptyLinesIndices.isEmpty()) {
                                                 showNoEmptyLinesDialog = true
                                             } else {
@@ -4298,7 +4298,7 @@ fun LyricTimingScreen(
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
                                         } else {
-                                            val emptyLinesIndices = lyricLines.indices.filter { lyricLines[it].timeUnits.isEmpty() }
+                                            val emptyLinesIndices = LyricBatchEditUtils.emptyLineIndices(lyricLines)
                                             if (emptyLinesIndices.isEmpty()) {
                                                 showNoEmptyLinesDialog = true
                                             } else {
@@ -6265,7 +6265,7 @@ fun LyricTimingScreen(
                     Button(onClick = {
                         showFormatTimelineConfirmDialog = false
                         val oldLines = lyricLines.toList()
-                        val newLines = formatLyricTimeline(lyricLines)
+                        val newLines = LyricBatchEditUtils.formatTimeline(lyricLines)
                         lyricLines = newLines
                         undoRedoManager.pushAction(
                             UndoAction(
@@ -9892,8 +9892,8 @@ fun LyricTimingScreen(
                                                         unitIndex = unitIdx,
                                                         oldValue = unit,
                                                         newValue = unit.copy(
-                                                            startTime = adjustTime(unit.startTime, -shiftMs),
-                                                            endTime = adjustTime(unit.endTime, -shiftMs)
+                                                            startTime = LyricBatchEditUtils.adjustTime(unit.startTime, -shiftMs),
+                                                            endTime = LyricBatchEditUtils.adjustTime(unit.endTime, -shiftMs)
                                                         )
                                                     ))
                                                 }
@@ -9901,18 +9901,11 @@ fun LyricTimingScreen(
                                         }
                                         undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
                                         updateUndoRedoState()
-                                        val newLyricLines = lyricLines.mapIndexed { index, line ->
-                                            if (timestampShiftSelectedLines.contains(index)) {
-                                                val newTimeUnits = line.timeUnits.map { unit ->
-                                                    val newStartTime = adjustTime(unit.startTime, -shiftMs)
-                                                    val newEndTime = adjustTime(unit.endTime, -shiftMs)
-                                                    unit.copy(startTime = newStartTime, endTime = newEndTime)
-                                                }
-                                                line.copy(timeUnits = newTimeUnits)
-                                            } else {
-                                                line
-                                            }
-                                        }
+                                        val newLyricLines = LyricBatchEditUtils.shiftTimestamps(
+                                            lyricLines,
+                                            timestampShiftSelectedLines,
+                                            -shiftMs
+                                        )
                                         lyricLines = newLyricLines
                                     }
                                     showTimestampShiftDialog = false
@@ -9935,8 +9928,8 @@ fun LyricTimingScreen(
                                                         unitIndex = unitIdx,
                                                         oldValue = unit,
                                                         newValue = unit.copy(
-                                                            startTime = adjustTime(unit.startTime, shiftMs),
-                                                            endTime = adjustTime(unit.endTime, shiftMs)
+                                                            startTime = LyricBatchEditUtils.adjustTime(unit.startTime, shiftMs),
+                                                            endTime = LyricBatchEditUtils.adjustTime(unit.endTime, shiftMs)
                                                         )
                                                     ))
                                                 }
@@ -9944,18 +9937,11 @@ fun LyricTimingScreen(
                                         }
                                         undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
                                         updateUndoRedoState()
-                                        val newLyricLines = lyricLines.mapIndexed { index, line ->
-                                            if (timestampShiftSelectedLines.contains(index)) {
-                                                val newTimeUnits = line.timeUnits.map { unit ->
-                                                    val newStartTime = adjustTime(unit.startTime, shiftMs)
-                                                    val newEndTime = adjustTime(unit.endTime, shiftMs)
-                                                    unit.copy(startTime = newStartTime, endTime = newEndTime)
-                                                }
-                                                line.copy(timeUnits = newTimeUnits)
-                                            } else {
-                                                line
-                                            }
-                                        }
+                                        val newLyricLines = LyricBatchEditUtils.shiftTimestamps(
+                                            lyricLines,
+                                            timestampShiftSelectedLines,
+                                            shiftMs
+                                        )
                                         lyricLines = newLyricLines
                                     }
                                     showTimestampShiftDialog = false
@@ -10086,7 +10072,7 @@ fun LyricTimingScreen(
                                     convertToSimplifiedSelectedLines.forEach { lineIdx ->
                                         if (lineIdx < lyricLines.size) {
                                             lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
-                                                val simplifiedText = ChineseConverter.toSimplified(unit.text)
+                                                val simplifiedText = LyricBatchEditUtils.toSimplifiedText(unit.text)
                                                 if (simplifiedText != unit.text) {
                                                     actions.add(UndoAction(
                                                         actionType = UndoActionType.BATCH_CONVERT_TO_SIMPLIFIED,
@@ -10098,7 +10084,7 @@ fun LyricTimingScreen(
                                                 }
                                             }
                                             val oldTranslation = lyricLines[lineIdx].translation
-                                            val newTranslation = ChineseConverter.toSimplified(oldTranslation)
+                                            val newTranslation = LyricBatchEditUtils.toSimplifiedText(oldTranslation)
                                             if (newTranslation != oldTranslation) {
                                                 actions.add(UndoAction(
                                                     actionType = UndoActionType.BATCH_CONVERT_TO_SIMPLIFIED,
@@ -10114,17 +10100,10 @@ fun LyricTimingScreen(
                                         undoRedoManager.pushBatchAction(BatchUndoAction(actions, "转换为简体"))
                                         updateUndoRedoState()
                                     }
-                                    val newLyricLines = lyricLines.mapIndexed { index, line ->
-                                        if (convertToSimplifiedSelectedLines.contains(index)) {
-                                            val newTimeUnits = line.timeUnits.map { unit ->
-                                                unit.copy(text = ChineseConverter.toSimplified(unit.text))
-                                            }
-                                            val newTranslation = ChineseConverter.toSimplified(line.translation)
-                                            line.copy(timeUnits = newTimeUnits, translation = newTranslation)
-                                        } else {
-                                            line
-                                        }
-                                    }
+                                    val newLyricLines = LyricBatchEditUtils.convertToSimplified(
+                                        lyricLines,
+                                        convertToSimplifiedSelectedLines
+                                    )
                                     lyricLines = newLyricLines
                                 }
                                 showConvertToSimplifiedDialog = false
@@ -10779,77 +10758,19 @@ fun smartSegmentLyric(text: String): List<String> {
 }
 
 fun formatTime(timeMs: Long): String {
-    val seconds = (timeMs / 1000) % 60
-    val minutes = (timeMs / 60000) % 60
-    val milliseconds = timeMs % 1000
-    return String.format("%02d:%02d.%03d", minutes, seconds, milliseconds)
+    return LyricBatchEditUtils.formatTime(timeMs)
 }
 
 fun parseTimeToMs(timeStr: String): Long {
-    val parts = timeStr.split(":", ".")
-    if (parts.size == 3) {
-        val minutes = parts[0].toLongOrNull() ?: 0L
-        val seconds = parts[1].toLongOrNull() ?: 0L
-        val msStr = parts[2]
-        val msValue = msStr.toLongOrNull() ?: 0L
-        val milliseconds = if (msStr.length <= 2) {
-            msValue * 10
-        } else {
-            msValue
-        }
-        return minutes * 60 * 1000 + seconds * 1000 + milliseconds
-    }
-    return 0L
+    return LyricBatchEditUtils.parseTimeToMs(timeStr)
 }
 
 fun adjustTime(timeStr: String, shiftMs: Long): String {
-    val currentTimeMs = parseTimeToMs(timeStr)
-    val newTimeMs = maxOf(0L, currentTimeMs + shiftMs)
-    return formatTime(newTimeMs)
+    return LyricBatchEditUtils.adjustTime(timeStr, shiftMs)
 }
 
 fun formatLyricTimeline(lyricLines: List<LyricLine>): List<LyricLine> {
-    data class LyricLineWithTime(
-        val line: LyricLine,
-        val firstTimeMs: Long
-    )
-
-    val linesWithTime = lyricLines.mapNotNull { line ->
-        line.timeUnits.firstOrNull()?.startTime?.let { startTime ->
-            LyricLineWithTime(line, parseTimeToMs(startTime))
-        }
-    }
-
-    val sorted = linesWithTime.sortedBy { it.firstTimeMs }
-
-    val result = mutableListOf<LyricLine>()
-    val timeGroupMap = mutableMapOf<Long, MutableList<LyricLine>>()
-
-    for (item in sorted) {
-        val timeMs = item.firstTimeMs
-        val lines = timeGroupMap.getOrPut(timeMs) { mutableListOf() }
-        lines.add(item.line)
-    }
-
-    for ((timeMs, lines) in timeGroupMap) {
-        if (lines.size == 1) {
-            result.add(lines[0])
-        } else {
-            val mainLine = lines.find { it.timeUnits.size > 1 || it.translation.isEmpty() } ?: lines[0]
-            val translationLine = lines.find { it != mainLine && (it.translation.isNotEmpty() || it.timeUnits.size == 1) }
-
-            val finalTranslation = if (translationLine != null) {
-                val textFromTranslationLine = translationLine.timeUnits.joinToString("") { it.text }
-                if (textFromTranslationLine.isNotEmpty()) textFromTranslationLine else translationLine.translation
-            } else {
-                mainLine.translation
-            }
-
-            result.add(mainLine.copy(translation = finalTranslation))
-        }
-    }
-
-    return result
+    return LyricBatchEditUtils.formatTimeline(lyricLines)
 }
 
 // 检测字符是否为CJK字符
