@@ -267,12 +267,8 @@ fun VerbatimLyricsScreen(
     var showCopiedDialog by remember { mutableStateOf(false) }
     var showNoLyricsDialog by remember { mutableStateOf(false) }
     var showHeadbarMenu by remember { mutableStateOf(false) }
-    var showAMRegionDialog by remember { mutableStateOf(false) }
     var showAMTokenDialog by remember { mutableStateOf(false) }
 
-    val savedAMRegion = remember { getSavedAMDefaultRegion(context) }
-    var currentAMRegion by remember { mutableStateOf(savedAMRegion) }
-    var tempAMRegion by remember { mutableStateOf(savedAMRegion) }
     val savedAMTokenConfig = remember { getSavedAMTokenConfig(context) }
     var currentAMTokenConfig by remember { mutableStateOf(savedAMTokenConfig) }
     var tempAMTokenConfig by remember { mutableStateOf(savedAMTokenConfig) }
@@ -416,13 +412,6 @@ fun VerbatimLyricsScreen(
                             onClick = {
                                 tempAMTokenConfig = currentAMTokenConfig
                                 showAMTokenDialog = true
-                            }
-                        ),
-                        MenuItem(
-                            title = "AM默认地区",
-                            onClick = {
-                                tempAMRegion = currentAMRegion
-                                showAMRegionDialog = true
                             }
                         )
                     ),
@@ -956,19 +945,6 @@ fun VerbatimLyricsScreen(
                 }
             )
         }
-    }
-
-    if (showAMRegionDialog) {
-        AMRegionDialog(
-            currentValue = tempAMRegion,
-            onValueChange = { tempAMRegion = it },
-            onDismiss = { showAMRegionDialog = false },
-            onConfirm = {
-                currentAMRegion = tempAMRegion
-                updateAMDefaultRegion(context, tempAMRegion)
-                showAMRegionDialog = false
-            }
-        )
     }
 
     if (showAMTokenDialog) {
