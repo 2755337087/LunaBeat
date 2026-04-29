@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -41,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -90,6 +92,9 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
+private const val PLAYED_LINE_BLUR_RADIUS = 3f
+private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
+private const val UPCOMING_LINE_BLUR_STEP = 4f
 
 // ==================== 数据模型 ====================
 
@@ -109,7 +114,8 @@ data class NewPreviewLyricLine(
     val translation: String = "",
     val isDuet: Boolean = false,
     val isBackground: Boolean = false,
-    val isInterlude: Boolean = false // 新增：是否是间奏行
+    val isInterlude: Boolean = false, // 新增：是否是间奏行
+    val backgroundPlacement: Int = 0 // -1: 主句上方背景歌词, 1: 主句下方背景歌词, 0: 非背景/未知
 )
 
 // 检测是否为逐行歌词
@@ -150,15 +156,19 @@ class TimingNavigator(private val lyricLines: List<NewPreviewLyricLine>) {
     fun findTargetIndex(position: Long): Int {
         if (lyricLines.isEmpty()) return -1
         
-        // 找到最后一个满足 position >= line.begin 的非背景歌词行
+        // 找到最后一个满足 position >= line.begin 的可滚动目标行：
+        // 主句歌词 + 上方背景歌词（下方背景歌词不作为目标）
+        fun isEligibleTarget(line: NewPreviewLyricLine): Boolean {
+            return !line.isBackground || line.backgroundPlacement < 0
+        }
+
         var result = -1
         var latestBegin = -1L
         
         for (i in lyricLines.indices) {
             val line = lyricLines[i]
             
-            // 跳过背景歌词
-            if (line.isBackground) continue
+            if (!isEligibleTarget(line)) continue
             
             // 检查当前时间是否大于等于该行的开始时间
             if (position >= line.begin) {
@@ -170,10 +180,10 @@ class TimingNavigator(private val lyricLines: List<NewPreviewLyricLine>) {
             }
         }
         
-        // 如果没有找到任何行，返回第一个非背景歌词行
+        // 如果没有找到任何行，返回第一个可滚动目标行
         if (result == -1) {
             for (i in lyricLines.indices) {
-                if (!lyricLines[i].isBackground) {
+                if (isEligibleTarget(lyricLines[i])) {
                     result = i
                     break
                 }
@@ -891,6 +901,68 @@ private fun applyAndroidFontWeight(
     }
 }
 
+private fun computeLyricLineBlurRadius(
+    lyricLines: List<NewPreviewLyricLine>,
+    line: NewPreviewLyricLine,
+    nextLine: NewPreviewLyricLine?,
+    lineIndex: Int,
+    currentPlayingIndex: Int,
+    currentTime: Long,
+    isBlurEnabled: Boolean
+): Float {
+    if (!isBlurEnabled) return 0f
+    if (line.isInterlude) return 0f
+    if (lineIndex == currentPlayingIndex) return 0f
+
+    val effectiveEnd = getEffectiveEndTime(line, nextLine)
+    val isLineActive = currentTime >= line.begin && currentTime < effectiveEnd
+    if (isLineActive) return 0f
+
+    // 主句播放期间，其下方背景歌词也视为“当前行”，不做模糊
+    if (line.isBackground && line.backgroundPlacement > 0) {
+        val (mainLine, _, mainLineIndex) = findBackgroundAssociatedInfo(lyricLines, lineIndex)
+        if (mainLine != null && mainLineIndex != null) {
+            val mainNextLine = lyricLines.getOrNull(mainLineIndex + 1)
+            val mainEffectiveEnd = getEffectiveEndTime(mainLine, mainNextLine)
+            val isMainActive = currentTime >= mainLine.begin && currentTime < mainEffectiveEnd
+            if (isMainActive) return 0f
+        }
+    }
+
+    val isLinePlayed = currentTime >= effectiveEnd
+    if (isLinePlayed) return PLAYED_LINE_BLUR_RADIUS
+
+    val distanceFromCurrent = if (currentPlayingIndex >= 0) {
+        (lineIndex - currentPlayingIndex).coerceAtLeast(1)
+    } else {
+        1
+    }
+
+    val targetBlur = PLAYED_LINE_BLUR_RADIUS + (distanceFromCurrent - 1) * UPCOMING_LINE_BLUR_STEP
+    return targetBlur.coerceIn(PLAYED_LINE_BLUR_RADIUS, UPCOMING_LINE_MAX_BLUR_RADIUS)
+}
+
+@Composable
+private fun rememberLyricLineBlurModifier(blurRadius: Float): Modifier {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || blurRadius <= 0f) {
+        return Modifier
+    }
+
+    val safeBlur = blurRadius.coerceIn(0f, UPCOMING_LINE_MAX_BLUR_RADIUS)
+    val blurEffect = remember(safeBlur) {
+        android.graphics.RenderEffect
+            .createBlurEffect(safeBlur, safeBlur, android.graphics.Shader.TileMode.CLAMP)
+            .asComposeRenderEffect()
+    }
+
+    return Modifier.graphicsLayer {
+        // 与外层 springPlacement 解耦，避免位移动画过程中的模糊采样异常
+        compositingStrategy = CompositingStrategy.Offscreen
+        clip = false
+        renderEffect = blurEffect
+    }
+}
+
 // ==================== 预览界面 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1074,11 +1146,13 @@ fun LyricPreviewScreen(
     var lastAutoScrollWallTime by remember { mutableLongStateOf(0L) }
     var lastAutoScrolledIndex by remember { mutableIntStateOf(-1) }
     var currentLineIndex by remember { mutableIntStateOf(-1) }
+    var isLyricBlurEnabled by remember { mutableStateOf(true) }
     // seek 重置触发器 - 使用计数器确保每次 seek 都能被唯一识别
     var seekResetCounter by remember { mutableStateOf(0L) }
     // 记录最后一次尝试滚动但被跳过的行索引
     var lastSkippedScrollIndex by remember { mutableIntStateOf(-1) }
     var closeNextSkipStreak by remember { mutableIntStateOf(0) }
+    val maxCloseNextConsecutiveSkips = 2
     val autoScrollMinIntervalMs = 700L
     fun logAutoScroll(message: String) {
         Log.d(AUTO_SCROLL_LOG_TAG, message)
@@ -1086,6 +1160,10 @@ fun LyricPreviewScreen(
 
     fun requestAutoScroll(targetIndex: Int) {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
+        if (!isLyricBlurEnabled) {
+            isLyricBlurEnabled = true
+            logAutoScroll("restore lyric blur at auto-scroll target=$targetIndex")
+        }
         logAutoScroll(
             "request target=$targetIndex currentVisible=${lazyListState.firstVisibleItemIndex}" +
                 " running=$autoScrollRunningTarget pending=$pendingAutoScrollIndex activeJob=${autoScrollJob?.isActive == true}"
@@ -1158,6 +1236,10 @@ fun LyricPreviewScreen(
             when (interaction) {
                 is PressInteraction.Press, is DragInteraction.Start -> {
                     isUserScrolling = true
+                    if (interaction is DragInteraction.Start && isLyricBlurEnabled) {
+                        isLyricBlurEnabled = false
+                        logAutoScroll("disable lyric blur while user dragging list")
+                    }
                     scrollJob?.cancel()
                     autoScrollJob?.cancel()
                     pendingAutoScrollIndex = -1
@@ -1217,6 +1299,13 @@ fun LyricPreviewScreen(
     val autoScrollConflictWindowMs = 1000L
 
     fun shouldSkipAutoScrollDueToCloseNextTrigger(currentMainIndex: Int, referenceTimeMs: Long): Boolean {
+        val currentLine = processedLyricLines.getOrNull(currentMainIndex) ?: return false
+        // 上方背景歌词要按本行触发滚动，不受“下一次触发过近”规则抑制
+        if (currentLine.isBackground && currentLine.backgroundPlacement < 0) {
+            logAutoScroll("keep upper-background scroll index=$currentMainIndex (ignore close-next rule)")
+            return false
+        }
+
         var nextMainLineIndex = currentMainIndex + 1
         while (nextMainLineIndex < processedLyricLines.size &&
             (processedLyricLines[nextMainLineIndex].isBackground || processedLyricLines[nextMainLineIndex].isInterlude)
@@ -1251,9 +1340,14 @@ fun LyricPreviewScreen(
                 var shouldScroll = true
                 var skipBecauseCloseNextTrigger = false
                 
-                // 情况一：歌词行是背景歌词 → 不触发
-                if (targetLine.isBackground || targetLine.isInterlude) {
+                // 情况一：间奏行不触发；背景歌词仅上方背景可触发，下方背景不触发
+                if (targetLine.isInterlude) {
                     shouldScroll = false
+                } else if (targetLine.isBackground) {
+                    val isUpperBackground = targetLine.backgroundPlacement < 0
+                    if (!isUpperBackground) {
+                        shouldScroll = false
+                    }
                 }
                 
                 // 情况二：上一句主句歌词结束时间减去当前行开始时间差大于1.55秒 → 不触发
@@ -1284,7 +1378,7 @@ fun LyricPreviewScreen(
 
                 // 情况三：如果下一次自动滚动触发间隔 < 1000ms，跳过当前行，仅让下一次触发生效
                 if (shouldScroll && shouldSkipAutoScrollDueToCloseNextTrigger(currentLineIndex, currentTime)) {
-                    if (closeNextSkipStreak >= 1) {
+                    if (closeNextSkipStreak >= maxCloseNextConsecutiveSkips) {
                         logAutoScroll("force scroll current=$currentLineIndex after close-next skip streak=$closeNextSkipStreak")
                         closeNextSkipStreak = 0
                     } else {
@@ -1335,7 +1429,7 @@ fun LyricPreviewScreen(
                         if (currentTime >= prevEndTime) {
                             // 若距离下一次自动滚动触发太近，补滚动失效（避免短时间内二次滚动）
                             if (shouldSkipAutoScrollDueToCloseNextTrigger(skippedLineIndex, currentTime)) {
-                                if (closeNextSkipStreak >= 1) {
+                                if (closeNextSkipStreak >= maxCloseNextConsecutiveSkips) {
                                     logAutoScroll("force 补滚动 index=$skippedLineIndex after close-next skip streak=$closeNextSkipStreak")
                                     closeNextSkipStreak = 0
                                 } else {
@@ -1488,6 +1582,15 @@ fun LyricPreviewScreen(
                             // 计算动态 stiffness - 距离当前行越近，stiffness 越大，动画越快
                             val distance = if (currentLineIndex >= 0) kotlin.math.abs(index - currentLineIndex) else 0
                             val dynamicStiffness = (120f - (distance * 20f)).coerceAtLeast(20f)
+                            val lyricLineBlurRadius = computeLyricLineBlurRadius(
+                                lyricLines = processedLyricLines,
+                                line = line,
+                                nextLine = nextLine,
+                                lineIndex = index,
+                                currentPlayingIndex = currentLineIndex,
+                                currentTime = currentTime,
+                                isBlurEnabled = isLyricBlurEnabled
+                            )
                             
                             // 判断背景歌词是否应该显示
                             val shouldShowBackground = if (line.isBackground) {
@@ -1512,6 +1615,8 @@ fun LyricPreviewScreen(
                             LyricLineView(
                                 line = line,
                                 nextLine = nextLine,
+                                lineIndex = index,
+                                currentPlayingIndex = currentLineIndex,
                                 currentTime = currentTime,
                                 showTranslation = showTranslation,
                                 isDarkTheme = isDarkTheme,
@@ -1531,6 +1636,7 @@ fun LyricPreviewScreen(
                                 nextLineIsDuet = getNextLineIsDuet(processedLyricLines, index), // 新增
                                 isPlaying = isPlaying, // 新增
                                 animationType = animationType, // 新增
+                                blurRadius = lyricLineBlurRadius,
                                 onClick = {
                                     // 点击歌词行跳转到该行开始播放
                                     onSeekTo(line.begin)
@@ -1990,7 +2096,8 @@ fun reorganizeLyricsWithBackground(lyricLines: List<NewPreviewLyricLine>): List<
             // 先添加上方背景歌词，结束时间延长到主句结束
             backgroundAbove.forEach { bg ->
                 val adjustedBg = bg.copy(
-                    end = latestEnd
+                    end = latestEnd,
+                    backgroundPlacement = -1
                 )
                 result.add(adjustedBg)
             }
@@ -2006,7 +2113,8 @@ fun reorganizeLyricsWithBackground(lyricLines: List<NewPreviewLyricLine>): List<
             // 添加下方背景歌词，结束时间延长到主句结束
             backgroundBelow.forEach { bg ->
                 val adjustedBg = bg.copy(
-                    end = latestEnd
+                    end = latestEnd,
+                    backgroundPlacement = 1
                 )
                 result.add(adjustedBg)
             }
@@ -2027,25 +2135,55 @@ fun findBackgroundAssociatedInfo(
     lyricLines: List<NewPreviewLyricLine>,
     backgroundIndex: Int
 ): Triple<NewPreviewLyricLine?, Boolean, Int?> { // 主句, 是否在上方, 主句索引
-    // 先向前查找主句（背景歌词在列表中位于主句下方）
-    for (i in backgroundIndex - 1 downTo 0) {
-        if (!lyricLines[i].isBackground) {
-            val mainLine = lyricLines[i]
-            // 背景歌词在主句后面（下方），isAbove 为 false
-            return Triple(mainLine, false, i)
+    val backgroundLine = lyricLines.getOrNull(backgroundIndex) ?: return Triple(null, false, null)
+
+    fun findPrevMain(): Pair<NewPreviewLyricLine, Int>? {
+        for (i in backgroundIndex - 1 downTo 0) {
+            if (!lyricLines[i].isBackground) {
+                return lyricLines[i] to i
+            }
         }
+        return null
     }
-    
-    // 再向后查找主句（背景歌词在列表中位于主句上方）
-    for (i in backgroundIndex + 1 until lyricLines.size) {
-        if (!lyricLines[i].isBackground) {
-            val mainLine = lyricLines[i]
-            // 背景歌词在主句前面（上方），isAbove 为 true
-            return Triple(mainLine, true, i)
+
+    fun findNextMain(): Pair<NewPreviewLyricLine, Int>? {
+        for (i in backgroundIndex + 1 until lyricLines.size) {
+            if (!lyricLines[i].isBackground) {
+                return lyricLines[i] to i
+            }
         }
+        return null
     }
-    
-    return Triple(null, false, null)
+
+    val prevMain = findPrevMain()
+    val nextMain = findNextMain()
+
+    // 优先使用重组阶段记录的上下方信息，避免误关联到上一句主句
+    if (backgroundLine.backgroundPlacement < 0) {
+        if (nextMain != null) return Triple(nextMain.first, true, nextMain.second)
+        if (prevMain != null) return Triple(prevMain.first, false, prevMain.second)
+        return Triple(null, false, null)
+    }
+    if (backgroundLine.backgroundPlacement > 0) {
+        if (prevMain != null) return Triple(prevMain.first, false, prevMain.second)
+        if (nextMain != null) return Triple(nextMain.first, true, nextMain.second)
+        return Triple(null, false, null)
+    }
+
+    // 兼容未知场景：按最近主句回退
+    if (prevMain == null && nextMain == null) return Triple(null, false, null)
+    if (prevMain == null && nextMain != null) return Triple(nextMain.first, true, nextMain.second)
+    if (nextMain == null && prevMain != null) return Triple(prevMain.first, false, prevMain.second)
+
+    val prev = prevMain!!
+    val next = nextMain!!
+    val prevDistance = backgroundIndex - prev.second
+    val nextDistance = next.second - backgroundIndex
+    return if (nextDistance < prevDistance) {
+        Triple(next.first, true, next.second)
+    } else {
+        Triple(prev.first, false, prev.second)
+    }
 }
 
 /**
@@ -2076,11 +2214,13 @@ fun shouldShowBackgroundLine(
     currentTime: Long
 ): Boolean {
     val backgroundLine = lyricLines[backgroundLineIndex]
-    val (mainLine, isAbove, mainLineIndex) = findBackgroundAssociatedInfo(lyricLines, backgroundLineIndex)
+    val (mainLine, isAbove, _) = findBackgroundAssociatedInfo(lyricLines, backgroundLineIndex)
     
     if (mainLine == null) return false
-    
-    return if (isAbove == true) {
+
+    val isUpperBackground = backgroundLine.backgroundPlacement < 0 || (backgroundLine.backgroundPlacement == 0 && isAbove == true)
+
+    return if (isUpperBackground) {
         // 上方背景歌词：自己开始前400毫秒显示，播放后不自动隐藏
         currentTime >= (backgroundLine.begin - 400L)
     } else {
@@ -2370,6 +2510,8 @@ fun DinosaurAnimation(
 fun LyricLineView(
     line: NewPreviewLyricLine,
     nextLine: NewPreviewLyricLine?,
+    lineIndex: Int,
+    currentPlayingIndex: Int,
     currentTime: Long,
     showTranslation: Boolean,
     isDarkTheme: Boolean,
@@ -2389,6 +2531,7 @@ fun LyricLineView(
     nextLineIsDuet: Boolean = false, // 新增：下一句是否是对唱歌词（用于间奏行）
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
+    blurRadius: Float = 0f,
     onClick: () -> Unit = {}
 ) {
     val interludeLyricColor = backgroundColor?.let { bg ->
@@ -2458,6 +2601,12 @@ fun LyricLineView(
         fallback = blendColors(baseForeground, resolvedBackground, 0.52f),
         minContrast = 2.5f
     )
+    val translationPlayedColor = ensureReadableColor(
+        candidate = blendColors(translationActiveColor, resolvedBackground, 0.50f),
+        background = resolvedBackground,
+        fallback = translationInactiveColor,
+        minContrast = 2.4f
+    )
     val transliterationInactiveColor = ensureReadableColor(
         candidate = blendColors(inactiveColor, translationInactiveColor, 0.45f),
         background = resolvedBackground,
@@ -2498,12 +2647,18 @@ fun LyricLineView(
         animationSpec = tween(300),
         label = "lineAlpha"
     )
-    val translationTargetColor = if (isLineActive) translationActiveColor else translationInactiveColor
+    val translationTargetColor = when {
+        lineIndex == currentPlayingIndex -> translationActiveColor
+        isLineActive -> translationActiveColor
+        isLinePassed -> translationPlayedColor
+        else -> translationInactiveColor
+    }
     val translationColor by androidx.compose.animation.animateColorAsState(
         targetValue = translationTargetColor,
         animationSpec = tween(260),
         label = "translationColor"
     )
+    val lineBlurModifier = rememberLyricLineBlurModifier(blurRadius)
     
     // 把 springPlacement 放在外面，确保占位始终存在
     Box(
@@ -2548,6 +2703,7 @@ fun LyricLineView(
                         .alpha(lineAlpha * 0.8f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.Transparent)
+                        .then(lineBlurModifier)
                         .clickable(onClick = onClick)
                         .padding(horizontal = 12.dp, vertical = verticalPadding),
                     horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
@@ -2604,6 +2760,7 @@ fun LyricLineView(
                     .alpha(lineAlpha)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Transparent)
+                    .then(lineBlurModifier)
                     .clickable(onClick = onClick)
                     .padding(horizontal = 12.dp, vertical = verticalPadding),
                 horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
