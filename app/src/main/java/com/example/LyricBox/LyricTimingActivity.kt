@@ -363,6 +363,16 @@ class LyricTimingActivity : ComponentActivity() {
         // 兜底：缓存失败时直接使用 Uri 播放
         mediaPlayer?.release()
         mediaPlayer = MediaPlayer.create(this, uri)
+        if (mediaPlayer == null) {
+            Log.w("LyricTiming", "Direct uri playback init failed, fallback decode: $uri")
+            startConversion(uri, fileName)
+            return
+        }
+        mediaPlayer?.setOnErrorListener { _, what, extra ->
+            Log.e("LyricTiming", "Uri playback error: what=$what extra=$extra uri=$uri, fallback decode")
+            startConversion(uri, fileName)
+            true
+        }
         mediaPlayer?.setOnCompletionListener {
             Log.d("LyricTiming", "Audio playback completed")
             playbackCompleted = true
@@ -394,7 +404,18 @@ class LyricTimingActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             Log.e("LyricTiming", "Failed to load audio from path: $path", e)
-            null
+            if (!path.lowercase().endsWith(".wav")) {
+                Log.w("LyricTiming", "Direct path playback failed, fallback decode: $path")
+                startConversionFromPath(path, targetFile.name)
+            }
+            return
+        }
+        mediaPlayer?.setOnErrorListener { _, what, extra ->
+            Log.e("LyricTiming", "Path playback error: what=$what extra=$extra path=$path, fallback decode")
+            if (!path.lowercase().endsWith(".wav")) {
+                startConversionFromPath(path, targetFile.name)
+            }
+            true
         }
         mediaPlayer?.setOnCompletionListener {
             Log.d("LyricTiming", "Audio playback completed")
