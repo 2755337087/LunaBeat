@@ -13,6 +13,8 @@ import androidx.collection.LruCache
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -130,6 +132,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.documentfile.provider.DocumentFile
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
@@ -141,6 +144,8 @@ import com.example.LyricBox.lyrics.parser.VerbatimLrcConverter
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
+import com.example.LyricBox.utils.LyricExportFormat
+import com.example.LyricBox.utils.LyricSaveEmbedUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -650,6 +655,36 @@ data class BatchLyricMatchResult(
     val totalFailed: Int
 )
 
+private enum class BatchLyricsTargetFormat(
+    val label: String,
+    val extension: String,
+    val exportFormat: LyricExportFormat
+) {
+    LRC_WORD("LRC逐字", ".lrc", LyricExportFormat.LRC_WORD),
+    LRC_LINE("LRC逐行", ".lrc", LyricExportFormat.LRC_LINE),
+    ELRC("ELRC", ".elrc", LyricExportFormat.ENHANCED_LRC),
+    TTML("TTML", ".ttml", LyricExportFormat.TTML);
+
+    val mimeType: String
+        get() = if (this == TTML) "application/ttml+xml" else "text/plain"
+}
+
+private data class BatchLyricsExternalExportConfig(
+    val preferSameNameTtml: Boolean = true,
+    val targetFormat: BatchLyricsTargetFormat = BatchLyricsTargetFormat.LRC_WORD,
+    val useCustomDirectory: Boolean = false,
+    val customDirectoryUri: Uri? = null
+)
+
+private data class BatchLyricsOperationResult(
+    val total: Int,
+    val successCount: Int,
+    val failedMessages: List<String>
+) {
+    val failedCount: Int
+        get() = failedMessages.size
+}
+
 data class RenameConfig(
     val template: String = "[歌曲标题] - [艺术家]",
     val renameTtml: Boolean = true,
@@ -1107,6 +1142,14 @@ fun MusicLibraryScreen(
     var batchLyricsMatchProgress by remember { mutableStateOf(0 to 0) }
     var batchLyricMatchResult by remember { mutableStateOf<BatchLyricMatchResult?>(null) }
     var showBatchLyricMatchResult by remember { mutableStateOf(false) }
+    
+    var showBatchLyricsEditSheet by remember { mutableStateOf(false) }
+    var showBatchLyricsConvertSheet by remember { mutableStateOf(false) }
+    var showBatchLyricsExportSheet by remember { mutableStateOf(false) }
+    var isBatchLyricsConverting by remember { mutableStateOf(false) }
+    var batchLyricsConvertProgress by remember { mutableStateOf(0 to 0) }
+    var isBatchLyricsExporting by remember { mutableStateOf(false) }
+    var batchLyricsExportProgress by remember { mutableStateOf(0 to 0) }
     
     val sortType = remember { 
         mutableStateOf(
@@ -1780,6 +1823,7 @@ fun MusicLibraryScreen(
                         onBatchMatch = { showBatchMatchConfig = true },
                         onBatchLyricMatch = { showBatchLyricMatchConfig = true },
                         onBatchRename = { showBatchRenameConfig = true },
+                        onBatchLyricsEdit = { showBatchLyricsEditSheet = true },
                         selectedPaths = selectedPaths,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -2079,6 +2123,93 @@ fun MusicLibraryScreen(
                 showBatchLyricMatchResult = false
                 batchLyricMatchResult = null
             }
+        )
+    }
+    
+    if (showBatchLyricsEditSheet) {
+        BatchLyricsEditSheet(
+            selectedCount = selectedPaths.size,
+            onDismiss = { showBatchLyricsEditSheet = false },
+            onOpenBatchConvert = {
+                showBatchLyricsEditSheet = false
+                showBatchLyricsConvertSheet = true
+            },
+            onOpenBatchExport = {
+                showBatchLyricsEditSheet = false
+                showBatchLyricsExportSheet = true
+            }
+        )
+    }
+    
+    if (showBatchLyricsConvertSheet) {
+        BatchLyricsConvertSheet(
+            selectedCount = selectedPaths.size,
+            onDismiss = { showBatchLyricsConvertSheet = false },
+            onStartConvert = { targetFormat ->
+                showBatchLyricsConvertSheet = false
+                isBatchLyricsConverting = true
+                val selectedFiles = displayAudioFiles.filter { it.path in selectedPaths }
+                batchLyricsConvertProgress = 0 to selectedFiles.size
+                scope.launch {
+                    val result = performBatchLyricsFormatConversion(
+                        context = context,
+                        audioFiles = selectedFiles,
+                        targetFormat = targetFormat,
+                        onProgress = { current, total ->
+                            batchLyricsConvertProgress = current to total
+                        }
+                    )
+                    isBatchLyricsConverting = false
+                    Toast.makeText(
+                        context,
+                        "批量转换完成：成功 ${result.successCount} 首，失败 ${result.failedCount} 首",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+    }
+    
+    if (isBatchLyricsConverting) {
+        BatchLyricsConvertProgressDialog(
+            current = batchLyricsConvertProgress.first,
+            total = batchLyricsConvertProgress.second
+        )
+    }
+    
+    if (showBatchLyricsExportSheet) {
+        BatchLyricsExternalExportSheet(
+            selectedCount = selectedPaths.size,
+            onDismiss = { showBatchLyricsExportSheet = false },
+            onStartExport = { config ->
+                showBatchLyricsExportSheet = false
+                isBatchLyricsExporting = true
+                val selectedFiles = displayAudioFiles.filter { it.path in selectedPaths }
+                batchLyricsExportProgress = 0 to selectedFiles.size
+                scope.launch {
+                    val result = performBatchLyricsExternalExport(
+                        context = context,
+                        audioFiles = selectedFiles,
+                        config = config,
+                        onProgress = { current, total ->
+                            batchLyricsExportProgress = current to total
+                        }
+                    )
+                    isBatchLyricsExporting = false
+                    Toast.makeText(
+                        context,
+                        "保存外挂歌词完成：成功 ${result.successCount} 首，失败 ${result.failedCount} 首",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+    }
+    
+    if (isBatchLyricsExporting) {
+        BatchLyricsExportProgressDialog(
+            current = batchLyricsExportProgress.first,
+            total = batchLyricsExportProgress.second
         )
     }
     
@@ -4068,6 +4199,7 @@ private fun BatchOperationFAB(
     onBatchMatch: () -> Unit,
     onBatchLyricMatch: () -> Unit,
     onBatchRename: () -> Unit,
+    onBatchLyricsEdit: () -> Unit,
     selectedPaths: Set<String>,
     modifier: Modifier = Modifier
 ) {
@@ -4145,7 +4277,15 @@ private fun BatchOperationFAB(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     BatchOperationMenuItem(
-                        title = "批量编辑",
+                        title = "批量编辑歌词",
+                        onClick = {
+                            onShowSheetChange(false)
+                            onBatchLyricsEdit()
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    BatchOperationMenuItem(
+                        title = "批量编辑元数据",
                         onClick = {
                             onShowSheetChange(false)
                             val intent = Intent(context, com.example.LyricBox.SongMetadataEditActivity::class.java).apply {
@@ -4179,6 +4319,436 @@ private fun BatchOperationMenuItem(
             fontSize = 15.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BatchLyricsEditSheet(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onOpenBatchConvert: () -> Unit,
+    onOpenBatchExport: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(Unit) { sheetState.show() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "批量编辑歌词",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "已选择 $selectedCount 个音频文件",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+
+            BatchOperationMenuItem(
+                title = "批量转换歌词格式",
+                onClick = onOpenBatchConvert
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            BatchOperationMenuItem(
+                title = "批量保存为外挂歌词",
+                onClick = onOpenBatchExport
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BatchLyricsConvertSheet(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onStartConvert: (BatchLyricsTargetFormat) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val savedFormat = remember {
+        runCatching {
+            BatchLyricsTargetFormat.valueOf(
+                prefs.getString("batchLyricsConvertTargetFormat", BatchLyricsTargetFormat.LRC_WORD.name)
+                    ?: BatchLyricsTargetFormat.LRC_WORD.name
+            )
+        }.getOrDefault(BatchLyricsTargetFormat.LRC_WORD)
+    }
+    var targetFormat by remember { mutableStateOf(savedFormat) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(Unit) { sheetState.show() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        val scrollState = rememberScrollState()
+
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .navigationBarsPadding()
+        ) {
+            Text(
+                text = "批量转换歌词格式",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "已选择 $selectedCount 个音频文件",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "目标歌词格式",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BatchLyricsTargetFormat.values().forEach { format ->
+                    val selected = targetFormat == format
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (selected) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                }
+                            )
+                            .clickable { targetFormat = format }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = format.label,
+                            fontSize = 15.sp,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("取消")
+                }
+                Button(
+                    onClick = {
+                        prefs.edit()
+                            .putString("batchLyricsConvertTargetFormat", targetFormat.name)
+                            .apply()
+                        onStartConvert(targetFormat)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("确认转换")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BatchLyricsExternalExportSheet(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onStartExport: (BatchLyricsExternalExportConfig) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val savedPreferSameNameTtml = remember { prefs.getBoolean("batchLyricsExportPreferSameNameTtml", true) }
+    val savedUseCustomDirectory = remember { prefs.getBoolean("batchLyricsExportUseCustomDirectory", false) }
+    val savedCustomUri = remember {
+        prefs.getString("batchLyricsExportCustomDirectoryUri", null)?.let { raw ->
+            runCatching { Uri.parse(raw) }.getOrNull()
+        }
+    }
+    val savedFormat = remember {
+        runCatching {
+            BatchLyricsTargetFormat.valueOf(
+                prefs.getString("batchLyricsExportTargetFormat", BatchLyricsTargetFormat.LRC_WORD.name)
+                    ?: BatchLyricsTargetFormat.LRC_WORD.name
+            )
+        }.getOrDefault(BatchLyricsTargetFormat.LRC_WORD)
+    }
+
+    var preferSameNameTtml by remember { mutableStateOf(savedPreferSameNameTtml) }
+    var useCustomDirectory by remember { mutableStateOf(savedUseCustomDirectory) }
+    var customDirectoryUri by remember { mutableStateOf(savedCustomUri) }
+    var targetFormat by remember { mutableStateOf(savedFormat) }
+    val customDirectoryName = remember(customDirectoryUri) {
+        customDirectoryUri?.let { uri ->
+            DocumentFile.fromTreeUri(context, uri)?.name?.takeIf { it.isNotBlank() } ?: uri.toString()
+        } ?: "未选择目录"
+    }
+
+    val directoryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            }
+            customDirectoryUri = uri
+            useCustomDirectory = true
+        }
+    }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val canStartExport = !useCustomDirectory || customDirectoryUri != null
+
+    LaunchedEffect(Unit) { sheetState.show() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        val scrollState = rememberScrollState()
+
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .navigationBarsPadding()
+        ) {
+            Text(
+                text = "批量保存为外挂歌词",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "已选择 $selectedCount 个音频文件",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .clickable { preferSameNameTtml = !preferSameNameTtml }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = preferSameNameTtml,
+                    onCheckedChange = { preferSameNameTtml = it }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "优先读取同名TTML文件",
+                    fontSize = 15.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "外挂歌词格式",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BatchLyricsTargetFormat.values().forEach { format ->
+                    val selected = targetFormat == format
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (selected) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                }
+                            )
+                            .clickable { targetFormat = format }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = "${format.label}（${format.extension}）",
+                            fontSize = 15.sp,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "保存目录",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (!useCustomDirectory) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        }
+                    )
+                    .clickable { useCustomDirectory = false }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = !useCustomDirectory,
+                    onClick = { useCustomDirectory = false }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("保存到音频同目录", fontSize = 15.sp)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (useCustomDirectory) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        }
+                    )
+                    .clickable { useCustomDirectory = true }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = useCustomDirectory,
+                        onClick = { useCustomDirectory = true }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("选择自定义目录", fontSize = 15.sp)
+                }
+                if (useCustomDirectory) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = customDirectoryName,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { directoryPickerLauncher.launch(customDirectoryUri) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("使用系统文件选择器")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("取消")
+                }
+                Button(
+                    onClick = {
+                        prefs.edit()
+                            .putBoolean("batchLyricsExportPreferSameNameTtml", preferSameNameTtml)
+                            .putString("batchLyricsExportTargetFormat", targetFormat.name)
+                            .putBoolean("batchLyricsExportUseCustomDirectory", useCustomDirectory)
+                            .putString("batchLyricsExportCustomDirectoryUri", customDirectoryUri?.toString())
+                            .apply()
+                        onStartExport(
+                            BatchLyricsExternalExportConfig(
+                                preferSameNameTtml = preferSameNameTtml,
+                                targetFormat = targetFormat,
+                                useCustomDirectory = useCustomDirectory,
+                                customDirectoryUri = customDirectoryUri
+                            )
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = canStartExport
+                ) {
+                    Text("确认保存")
+                }
+            }
+        }
     }
 }
 
@@ -4629,6 +5199,74 @@ private fun BatchLyricMatchProgressDialog(
                 Text("取消匹配", color = MaterialTheme.colorScheme.error)
             }
         }
+    )
+}
+
+@Composable
+private fun BatchLyricsConvertProgressDialog(
+    current: Int,
+    total: Int,
+    modifier: Modifier = Modifier
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = {
+            Text("转换歌词中...")
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "$current / $total",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { if (total > 0) current.toFloat() / total.toFloat() else 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {}
+    )
+}
+
+@Composable
+private fun BatchLyricsExportProgressDialog(
+    current: Int,
+    total: Int,
+    modifier: Modifier = Modifier
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = {
+            Text("保存外挂歌词中...")
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "$current / $total",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { if (total > 0) current.toFloat() / total.toFloat() else 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {}
     )
 }
 
@@ -8032,4 +8670,204 @@ private suspend fun saveBatchLyricsMatches(context: Context, items: List<BatchLy
             }
         }
     }
+}
+
+private fun parseLyricsLinesForBatchTargetConversion(lyricsContent: String): List<LyricLine> {
+    val trimmed = lyricsContent.trim()
+    if (trimmed.isEmpty()) return emptyList()
+    return when (detectLyricsFormat(trimmed)) {
+        1 -> LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, trimmed).lyricLines
+        2 -> LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, trimmed).lyricLines
+        3 -> LyricParsingUtils.parseByType(LyricParseType.TTML, trimmed).lyricLines
+        else -> buildPlainTextLyricLines(trimmed)
+    }
+}
+
+private fun removePlaceholderLinesForBatchConversion(lines: List<LyricLine>): List<LyricLine> {
+    return lines.mapNotNull { line ->
+        val lineText = line.timeUnits.joinToString("") { it.text }.trim()
+        if (lineText == "//") {
+            null
+        } else {
+            val cleanedTranslation = if (line.translation.trim() == "//") "" else line.translation
+            line.copy(translation = cleanedTranslation)
+        }
+    }
+}
+
+private fun convertLyricsContentToBatchTargetFormat(
+    lyricsContent: String,
+    targetFormat: BatchLyricsTargetFormat
+): String {
+    val parsedLines = parseLyricsLinesForBatchTargetConversion(lyricsContent)
+    val cleanedLines = removePlaceholderLinesForBatchConversion(parsedLines)
+    val creators = if (targetFormat == BatchLyricsTargetFormat.TTML && detectLyricsFormat(lyricsContent) == 3) {
+        runCatching { LyricParsingUtils.parseSongwritersFromTtml(lyricsContent) }.getOrDefault(emptyList())
+    } else {
+        emptyList()
+    }
+    return LyricSaveEmbedUtils.buildLyricsByFormat(
+        format = targetFormat.exportFormat,
+        lyricLines = cleanedLines,
+        showLineEndTime = false,
+        showDuet = true,
+        creators = creators
+    )
+}
+
+private suspend fun resolveLyricsForExternalExport(
+    audioPath: String,
+    preferSameNameTtml: Boolean
+): String? = withContext(Dispatchers.IO) {
+    val embeddedLyrics = extractEmbeddedLyrics(audioPath)?.takeIf { it.isNotBlank() }
+    if (!preferSameNameTtml) {
+        return@withContext embeddedLyrics
+    }
+    val ttmlLyrics = resolveExternalTtmlFile(audioPath)?.takeIf { it.exists() }?.let { ttmlFile ->
+        runCatching { ttmlFile.readText().takeIf { it.isNotBlank() } }
+            .onFailure { Log.e("BatchLyricsExport", "Error reading external TTML: $audioPath", it) }
+            .getOrNull()
+    }
+    ttmlLyrics ?: embeddedLyrics
+}
+
+private fun writeLyricsFileToTreeDirectory(
+    context: Context,
+    directory: DocumentFile,
+    fileName: String,
+    mimeType: String,
+    content: String
+): Boolean {
+    return try {
+        val existing = directory.findFile(fileName)
+        if (existing != null && !existing.delete()) {
+            return false
+        }
+        val target = directory.createFile(mimeType, fileName) ?: return false
+        context.contentResolver.openOutputStream(target.uri, "w")?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
+            writer.write(content)
+        } ?: return false
+        true
+    } catch (e: Exception) {
+        Log.e("BatchLyricsExport", "Error writing file to tree: $fileName", e)
+        false
+    }
+}
+
+private suspend fun performBatchLyricsFormatConversion(
+    context: Context,
+    audioFiles: List<AudioFile>,
+    targetFormat: BatchLyricsTargetFormat,
+    onProgress: (Int, Int) -> Unit
+): BatchLyricsOperationResult = withContext(Dispatchers.IO) {
+    val failedMessages = mutableListOf<String>()
+    var successCount = 0
+    val total = audioFiles.size
+
+    audioFiles.forEachIndexed { index, audio ->
+        try {
+            val embeddedLyrics = extractEmbeddedLyrics(audio.path)?.takeIf { it.isNotBlank() }
+            if (embeddedLyrics.isNullOrBlank()) {
+                failedMessages.add("${audio.displayTitle}: 未读取到嵌入歌词")
+            } else {
+                val convertedLyrics = convertLyricsContentToBatchTargetFormat(embeddedLyrics, targetFormat)
+                val result = com.example.LyricBox.utils.AudioMetadataReader.writeLyrics(
+                    context,
+                    audio.path,
+                    convertedLyrics
+                )
+                if (result.success) {
+                    successCount++
+                } else {
+                    failedMessages.add("${audio.displayTitle}: ${result.errorMessage.ifBlank { "写入失败" }}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("BatchLyricsConvert", "Error converting lyrics: ${audio.path}", e)
+            failedMessages.add("${audio.displayTitle}: ${e.message ?: "未知错误"}")
+        } finally {
+            withContext(Dispatchers.Main) {
+                onProgress(index + 1, total)
+            }
+        }
+    }
+
+    BatchLyricsOperationResult(
+        total = total,
+        successCount = successCount,
+        failedMessages = failedMessages
+    )
+}
+
+private suspend fun performBatchLyricsExternalExport(
+    context: Context,
+    audioFiles: List<AudioFile>,
+    config: BatchLyricsExternalExportConfig,
+    onProgress: (Int, Int) -> Unit
+): BatchLyricsOperationResult = withContext(Dispatchers.IO) {
+    val failedMessages = mutableListOf<String>()
+    var successCount = 0
+    val total = audioFiles.size
+    val customDirectory = if (config.useCustomDirectory && config.customDirectoryUri != null) {
+        DocumentFile.fromTreeUri(context, config.customDirectoryUri)
+    } else {
+        null
+    }
+
+    audioFiles.forEachIndexed { index, audio ->
+        try {
+            val sourceLyrics = resolveLyricsForExternalExport(audio.path, config.preferSameNameTtml)
+            if (sourceLyrics.isNullOrBlank()) {
+                failedMessages.add("${audio.displayTitle}: 未读取到可导出的歌词")
+                return@forEachIndexed
+            }
+
+            val convertedLyrics = convertLyricsContentToBatchTargetFormat(sourceLyrics, config.targetFormat)
+            val audioFile = File(audio.path)
+            val outputFileName = "${audioFile.nameWithoutExtension}${config.targetFormat.extension}"
+
+            val writeSuccess = if (config.useCustomDirectory) {
+                val targetDirectory = customDirectory
+                if (targetDirectory == null || !targetDirectory.canWrite()) {
+                    false
+                } else {
+                    writeLyricsFileToTreeDirectory(
+                        context = context,
+                        directory = targetDirectory,
+                        fileName = outputFileName,
+                        mimeType = config.targetFormat.mimeType,
+                        content = convertedLyrics
+                    )
+                }
+            } else {
+                val parentDir = audioFile.parentFile
+                if (parentDir == null) {
+                    false
+                } else {
+                    runCatching {
+                        File(parentDir, outputFileName).writeText(convertedLyrics, Charsets.UTF_8)
+                    }.isSuccess
+                }
+            }
+
+            if (writeSuccess) {
+                successCount++
+            } else {
+                failedMessages.add("${audio.displayTitle}: 外挂歌词保存失败")
+            }
+        } catch (e: Exception) {
+            Log.e("BatchLyricsExport", "Error exporting lyrics: ${audio.path}", e)
+            failedMessages.add("${audio.displayTitle}: ${e.message ?: "未知错误"}")
+        } finally {
+            withContext(Dispatchers.Main) {
+                onProgress(index + 1, total)
+            }
+        }
+    }
+
+    BatchLyricsOperationResult(
+        total = total,
+        successCount = successCount,
+        failedMessages = failedMessages
+    )
 }
