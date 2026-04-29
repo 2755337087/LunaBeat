@@ -1091,7 +1091,6 @@ fun MusicLibraryScreen(
     var isBatchMatching by remember { mutableStateOf(false) }
     var isCancelled by remember { mutableStateOf(false) }
     var batchMatchProgress by remember { mutableStateOf(0 to 0) }
-    var showRangeSelectDialog by remember { mutableStateOf(false) }
     
     var showBatchRenameConfig by remember { mutableStateOf(false) }
     var showBatchRenamePreview by remember { mutableStateOf(false) }
@@ -1407,11 +1406,18 @@ fun MusicLibraryScreen(
             MusicLibraryBarSwitch(
                 isMultiSelectMode = isMultiSelectMode,
                 multiSelectActionBar = {
+                    val rangeSelectEnabled = lastSelectedIndices.size >= 2
                     MultiSelectActionBar(
                         onSelectAll = { selectAll() },
                         onInvertSelection = { invertSelection() },
                         onClearSelection = { clearSelection() },
-                        onRangeSelect = { showRangeSelectDialog = true },
+                        onRangeSelect = {
+                            if (rangeSelectEnabled) {
+                                val sorted = lastSelectedIndices.sorted()
+                                selectRange(sorted[0] + 1, sorted[1] + 1)
+                            }
+                        },
+                        rangeSelectEnabled = rangeSelectEnabled,
                         onExit = { exitMultiSelectMode() }
                     )
                 },
@@ -1928,18 +1934,6 @@ fun MusicLibraryScreen(
             onEditMetadata = { path ->
                 onEditMetadata(path)
             }
-        )
-    }
-    
-    if (showRangeSelectDialog) {
-        RangeSelectDialog(
-            maxIndex = displayAudioFiles.size,
-            lastSelectedIndices = lastSelectedIndices,
-            onConfirm = { start, end ->
-                selectRange(start, end)
-                showRangeSelectDialog = false
-            },
-            onDismiss = { showRangeSelectDialog = false }
         )
     }
     
@@ -3777,6 +3771,7 @@ private fun MultiSelectActionBar(
     onInvertSelection: () -> Unit,
     onClearSelection: () -> Unit,
     onRangeSelect: () -> Unit,
+    rangeSelectEnabled: Boolean,
     onExit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -3822,11 +3817,26 @@ private fun MultiSelectActionBar(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(18.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
-                .clickable(onClick = onRangeSelect)
+                .background(
+                    if (rangeSelectEnabled) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    }
+                )
+                .clickable(enabled = rangeSelectEnabled, onClick = onRangeSelect)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text("区间", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(
+                "区间",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (rangeSelectEnabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                }
+            )
         }
         Box(
             modifier = Modifier
@@ -4921,14 +4931,49 @@ private fun BatchMatchLyricsSheet(
     onStartMatch: (BatchLyricMatchConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
-    var selectedSources by remember { mutableStateOf(listOf(Source.QM)) }
-    var matchMode by remember { mutableStateOf(LyricMatchMode.SUPPLEMENT) }
-    var lyricType by remember { mutableStateOf(LyricType.VERBATIM) }
-    var threadCount by remember { mutableStateOf(3) }
-    var filterMetadata by remember { mutableStateOf(false) }
-    var includeTranslation by remember { mutableStateOf(false) }
+    val defaultSources = remember {
+        prefs.getString("batchLyricMatchSources", null)
+            ?.split(",")
+            ?.mapNotNull { raw -> runCatching { Source.valueOf(raw) }.getOrNull() }
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOf(Source.QM)
+    }
+    val defaultMode = remember {
+        runCatching {
+            LyricMatchMode.valueOf(
+                prefs.getString("batchLyricMatchMode", LyricMatchMode.SUPPLEMENT.name)
+                    ?: LyricMatchMode.SUPPLEMENT.name
+            )
+        }.getOrDefault(LyricMatchMode.SUPPLEMENT)
+    }
+    val defaultLyricType = remember {
+        runCatching {
+            LyricType.valueOf(
+                prefs.getString("batchLyricMatchType", LyricType.VERBATIM.name)
+                    ?: LyricType.VERBATIM.name
+            )
+        }.getOrDefault(LyricType.VERBATIM)
+    }
+    val defaultThreadCount = remember {
+        prefs.getInt("batchLyricMatchThreadCount", 3).coerceIn(1, 5)
+    }
+    val defaultFilterMetadata = remember {
+        prefs.getBoolean("batchLyricMatchFilterMetadata", false)
+    }
+    val defaultIncludeTranslation = remember {
+        prefs.getBoolean("batchLyricMatchIncludeTranslation", false)
+    }
+    
+    var selectedSources by remember { mutableStateOf(defaultSources) }
+    var matchMode by remember { mutableStateOf(defaultMode) }
+    var lyricType by remember { mutableStateOf(defaultLyricType) }
+    var threadCount by remember { mutableStateOf(defaultThreadCount) }
+    var filterMetadata by remember { mutableStateOf(defaultFilterMetadata) }
+    var includeTranslation by remember { mutableStateOf(defaultIncludeTranslation) }
     
     LaunchedEffect(Unit) { sheetState.show() }
     
@@ -5272,6 +5317,18 @@ private fun BatchMatchLyricsSheet(
                 }
                 Button(
                     onClick = {
+                        prefs.edit()
+                            .putString(
+                                "batchLyricMatchSources",
+                                selectedSources.joinToString(",") { it.name }
+                            )
+                            .putString("batchLyricMatchMode", matchMode.name)
+                            .putString("batchLyricMatchType", lyricType.name)
+                            .putInt("batchLyricMatchThreadCount", threadCount)
+                            .putBoolean("batchLyricMatchFilterMetadata", filterMetadata)
+                            .putBoolean("batchLyricMatchIncludeTranslation", includeTranslation)
+                            .apply()
+
                         val config = BatchLyricMatchConfig(
                             sources = selectedSources.ifEmpty { listOf(Source.QM, Source.NE, Source.KG) },
                             mode = matchMode,
@@ -7607,20 +7664,18 @@ private fun convertToLineLrc(
     for ((index, line) in lyricsData.withIndex()) {
         if (line.start == null) continue
         if (line.words.isEmpty()) continue
+        val lineText = line.words.joinToString("") { word -> word.text }
+        if (lineText.trim() == "//") continue
         
         val lineStartTime = formatLrcTime(line.start)
-        sb.append("[$lineStartTime]")
-        
-        for (word in line.words) {
-            sb.append(word.text)
-        }
-        
-        sb.append("\n")
+        sb.append("[$lineStartTime]$lineText\n")
         
         if (includeTranslation && translationData.isNotEmpty() && index < translationData.size) {
             val translationLine = translationData[index]
             val translationText = translationLine.words.joinToString("") { word -> word.text }
-            sb.append("[$lineStartTime]$translationText\n")
+            if (translationText.trim() != "//") {
+                sb.append("[$lineStartTime]$translationText\n")
+            }
         }
     }
     return sb.toString()
