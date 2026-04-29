@@ -1331,7 +1331,25 @@ fun LyricPreviewScreen(
         if (!isUserScrolling && processedLyricLines.isNotEmpty()) {
             // 提前400ms计算目标行，这样可以更早地切换到下一行歌词行
             val adjustedTime = currentTime + autoScrollLeadMs
-            val currentLineIndex = lineNavigator.findTargetIndex(adjustedTime)
+            val candidateLineIndex = lineNavigator.findTargetIndex(adjustedTime)
+            val currentLineIndex = if (
+                candidateLineIndex >= 0 &&
+                lastAutoScrolledIndex >= 0 &&
+                candidateLineIndex < lastAutoScrolledIndex
+            ) {
+                logAutoScroll(
+                    "ignore backward target candidate=$candidateLineIndex last=$lastAutoScrolledIndex at=$currentTime"
+                )
+                if (lastSkippedScrollIndex >= 0 && lastSkippedScrollIndex < lastAutoScrolledIndex) {
+                    logAutoScroll(
+                        "drop stale skipped index=$lastSkippedScrollIndex because lastAutoScrolledIndex=$lastAutoScrolledIndex"
+                    )
+                    lastSkippedScrollIndex = -1
+                }
+                lastAutoScrolledIndex
+            } else {
+                candidateLineIndex
+            }
             
             if (currentLineIndex >= 0 && currentLineIndex != lastAutoScrolledIndex) {
                 val targetLine = processedLyricLines[currentLineIndex]
@@ -1413,6 +1431,13 @@ fun LyricPreviewScreen(
             // 检查是否有跳过的行需要补滚动
             if (lastSkippedScrollIndex >= 0 && lastSkippedScrollIndex != lastAutoScrolledIndex) {
                 val skippedLineIndex = lastSkippedScrollIndex
+                if (lastAutoScrolledIndex >= 0 && skippedLineIndex < lastAutoScrolledIndex) {
+                    logAutoScroll(
+                        "drop backward 补滚动 skipped=$skippedLineIndex last=$lastAutoScrolledIndex"
+                    )
+                    lastSkippedScrollIndex = -1
+                    return@LaunchedEffect
+                }
                 if (skippedLineIndex > 0) {
                     // 找到上一句主句歌词（跳过背景歌词）
                     var prevMainLineIndex = skippedLineIndex - 1
