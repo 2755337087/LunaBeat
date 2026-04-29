@@ -571,6 +571,48 @@ fun SongMetadataEditScreen(
     var lyrics by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
+    val cachedLyricsDialogAudio = remember(audioPath) {
+        audioPath?.let { currentPath ->
+            loadMusicLibraryCache(context).firstOrNull { it.path == currentPath }
+        }
+    }
+    val lyricsDialogAudio = remember(
+        audioPath,
+        title,
+        artist,
+        album,
+        year,
+        tagData?.title,
+        tagData?.artist,
+        tagData?.album,
+        tagData?.date,
+        cachedLyricsDialogAudio
+    ) {
+        audioPath?.let { currentPath ->
+            val file = File(currentPath)
+            fun metadataValue(currentValue: String, loadedValue: String?, cachedValue: String): String {
+                return if (currentValue != KEEP) {
+                    currentValue
+                } else {
+                    loadedValue?.takeIf { it.isNotBlank() } ?: cachedValue
+                }
+            }
+
+            AudioFile(
+                path = currentPath,
+                title = metadataValue(title, tagData?.title, cachedLyricsDialogAudio?.title.orEmpty()),
+                artist = metadataValue(artist, tagData?.artist, cachedLyricsDialogAudio?.artist.orEmpty()),
+                album = metadataValue(album, tagData?.album, cachedLyricsDialogAudio?.album.orEmpty()),
+                duration = cachedLyricsDialogAudio?.duration ?: 0L,
+                fileSize = cachedLyricsDialogAudio?.fileSize?.takeIf { it > 0L } ?: file.length(),
+                lastModified = cachedLyricsDialogAudio?.lastModified?.takeIf { it > 0L } ?: file.lastModified(),
+                addedTime = cachedLyricsDialogAudio?.addedTime ?: System.currentTimeMillis(),
+                coverCachePath = cachedLyricsDialogAudio?.coverCachePath?.takeIf { it.isNotBlank() },
+                year = metadataValue(year, tagData?.date, cachedLyricsDialogAudio?.year.orEmpty())
+            )
+        }
+    }
     val fieldConfig = remember { MetadataFieldConfigStore.load(prefs) }
     val visibleFieldKeys = remember { fieldConfig.visibleFieldKeys }
     val enabledFields = remember { fieldConfig.visibleCustomFieldNames }
@@ -2553,14 +2595,16 @@ fun SongMetadataEditScreen(
         )
     }
     
-    if (showLyricsSelectionSheet && audioPath != null) {
-        LyricsSelectionSheet(
-            audioPath = audioPath,
+    if (showLyricsSelectionSheet && lyricsDialogAudio != null) {
+        AudioOptionsDialog(
+            audio = lyricsDialogAudio,
+            autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
             onDismiss = { showLyricsSelectionSheet = false },
-            onStartEdit = { lyricsContent, lyricsFormat ->
+            onEditLyrics = { lyricsContent, lyricsFormat ->
                 showLyricsSelectionSheet = false
                 onOpenLyricTiming(lyricsContent, lyricsFormat)
-            }
+            },
+            showEditMetadataButton = false
         )
     }
     

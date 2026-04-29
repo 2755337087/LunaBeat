@@ -141,6 +141,7 @@ import com.example.LyricBox.lyrics.parser.VerbatimLrcConverter
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -263,6 +264,40 @@ private data class AudioLyricsLoadResult(
 private fun Int.toLyricFormatLabel(): String {
     val safeIndex = coerceIn(0, LYRIC_FORMAT_OPTIONS.lastIndex)
     return LYRIC_FORMAT_OPTIONS[safeIndex]
+}
+
+private fun handleMusicLibraryItemLyricsAction(
+    scope: CoroutineScope,
+    audio: AudioFile,
+    autoDetectEmbeddedLyricsType: Boolean,
+    onShowOptions: (AudioFile) -> Unit,
+    onStartLyricTimingEditor: (AudioFile, String?, String) -> Unit
+) {
+    if (!autoDetectEmbeddedLyricsType) {
+        onShowOptions(audio)
+        return
+    }
+
+    scope.launch {
+        val hasExternalTtml = withContext(Dispatchers.IO) {
+            resolveExternalTtmlFile(audio.path)?.exists() == true
+        }
+        if (hasExternalTtml) {
+            onShowOptions(audio)
+            return@launch
+        }
+
+        val lyricsLoadResult = loadAudioLyricsLoadResult(audio.path)
+        if (lyricsLoadResult.isEmbeddedOnly && lyricsLoadResult.embeddedLyrics != null) {
+            onStartLyricTimingEditor(
+                audio,
+                lyricsLoadResult.embeddedLyrics,
+                lyricsLoadResult.detectedEmbeddedFormat.toLyricFormatLabel()
+            )
+        } else {
+            onShowOptions(audio)
+        }
+    }
 }
 
 private data class PreviewLyricPayload(
@@ -1089,7 +1124,9 @@ fun MusicLibraryScreen(
     LaunchedEffect(Unit) {
         val pathToRefresh = activity.getRefreshMetadataPath()
         if (pathToRefresh != null) {
-            refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles)
+            if (refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles) != null) {
+                saveCachedAudioFiles(context, allAudioFiles)
+            }
             val filtered = if (searchQuery.isEmpty()) {
                 allAudioFiles.toList()
             } else {
@@ -1112,7 +1149,9 @@ fun MusicLibraryScreen(
                 val pathToRefresh = activity.getRefreshMetadataPath()
                 if (pathToRefresh != null) {
                     scope.launch {
-                        refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles)
+                        if (refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles) != null) {
+                            saveCachedAudioFiles(context, allAudioFiles)
+                        }
                         val filtered = if (searchQuery.isEmpty()) {
                             allAudioFiles.toList()
                         } else {
@@ -1562,32 +1601,22 @@ fun MusicLibraryScreen(
                                         if (songClickAction == "editMetadata") {
                                             onEditMetadata(audio.path)
                                         } else {
-                                            if (autoDetectEmbeddedLyricsType) {
-                                                scope.launch {
-                                                    val hasExternalTtml = withContext(Dispatchers.IO) {
-                                                        resolveExternalTtmlFile(audio.path)?.exists() == true
-                                                    }
-                                                    if (hasExternalTtml) {
-                                                        selectedAudio = audio
-                                                        showAudioOptionsDialog = true
-                                                        return@launch
-                                                    }
-                                                    val lyricsLoadResult = loadAudioLyricsLoadResult(audio.path)
-                                                    if (lyricsLoadResult.isEmbeddedOnly && lyricsLoadResult.embeddedLyrics != null) {
-                                                        startLyricTimingEditor(
-                                                            audio = audio,
-                                                            lyricsContent = lyricsLoadResult.embeddedLyrics,
-                                                            format = lyricsLoadResult.detectedEmbeddedFormat.toLyricFormatLabel()
-                                                        )
-                                                    } else {
-                                                        selectedAudio = audio
-                                                        showAudioOptionsDialog = true
-                                                    }
+                                            handleMusicLibraryItemLyricsAction(
+                                                scope = scope,
+                                                audio = audio,
+                                                autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+                                                onShowOptions = {
+                                                    selectedAudio = it
+                                                    showAudioOptionsDialog = true
+                                                },
+                                                onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
+                                                    startLyricTimingEditor(
+                                                        audio = targetAudio,
+                                                        lyricsContent = lyricsContent,
+                                                        format = format
+                                                    )
                                                 }
-                                            } else {
-                                                selectedAudio = audio
-                                                showAudioOptionsDialog = true
-                                            }
+                                            )
                                         }
                                     }
                                 },
@@ -1933,6 +1962,7 @@ fun MusicLibraryScreen(
                                     for (item in result.items.filter { it.matchStatus == MatchStatus.SUCCESS && it.matchedData.isNotEmpty() }) {
                                         refreshAudioFileMetadata(context, item.path, allAudioFiles)
                                     }
+                                    saveCachedAudioFiles(context, allAudioFiles)
                                     updateDisplayFiles()
                                     batchMatchResult = result
                                     showBatchMatchResult = true
@@ -1955,7 +1985,9 @@ fun MusicLibraryScreen(
             onUndoField = { item, fieldKey -> 
                 scope.launch {
                     undoBatchMatchField(context, item, fieldKey)
-                    refreshAudioFileMetadata(context, item.path, allAudioFiles)
+                    if (refreshAudioFileMetadata(context, item.path, allAudioFiles) != null) {
+                        saveCachedAudioFiles(context, allAudioFiles)
+                    }
                     updateDisplayFiles()
                 }
             }
@@ -2278,27 +2310,18 @@ fun AudioFileItem(
                 coverBitmap = cached
             } else {
                 delay(100)
-                withContext(Dispatchers.IO) {
+                val bitmap = withContext(Dispatchers.IO) {
                     try {
-                        val cacheFile = File(cachePath)
-                        if (cacheFile.exists()) {
-                            val bytes = cacheFile.readBytes()
-                            val options = BitmapFactory.Options().apply {
-                                inJustDecodeBounds = true
-                            }
-                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                            val sampleSize = MusicLibraryActivity.calculateInSampleSize(options, targetSizePx, targetSizePx)
-                            options.inJustDecodeBounds = false
-                            options.inSampleSize = sampleSize
-                            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                            bitmap?.let {
-                                MusicLibraryActivity.putCoverToCache(cachePath, it)
-                                coverBitmap = it
-                            }
-                        }
+                        loadCoverBitmapFromCache(cachePath, targetSizePx, targetSizePx)
+                            ?: rebuildCoverCacheBitmap(context, audio, cachePath, targetSizePx)
                     } catch (e: Exception) {
                         Log.e("MusicLibrary", "Error loading cover bitmap", e)
+                        null
                     }
+                }
+                bitmap?.let {
+                    MusicLibraryActivity.putCoverToCache(cachePath, it)
+                    coverBitmap = it
                 }
             }
         }
@@ -2438,7 +2461,8 @@ fun AudioOptionsDialog(
     autoDetectEmbeddedLyricsType: Boolean = false,
     onDismiss: () -> Unit,
     onEditLyrics: (String?, String) -> Unit,
-    onEditMetadata: (String) -> Unit,
+    onEditMetadata: ((String) -> Unit)? = null,
+    showEditMetadataButton: Boolean = onEditMetadata != null,
     modifier: Modifier = Modifier
 ) {
     var embeddedLyrics by remember { mutableStateOf<String?>(null) }
@@ -2796,22 +2820,24 @@ fun AudioOptionsDialog(
                 )
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            OutlinedButton(
-                onClick = {
-                    onDismiss()
-                    onEditMetadata(audio.path)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    text = "编辑歌曲元数据",
-                    fontSize = 16.sp
-                )
+            if (showEditMetadataButton && onEditMetadata != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onEditMetadata(audio.path)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "编辑歌曲元数据",
+                        fontSize = 16.sp
+                    )
+                }
             }
         }
     }
@@ -3090,6 +3116,7 @@ private fun queryNativeMediaAudioEntries(context: Context): List<NativeMediaAudi
 private fun isNativeMediaEntryChanged(existing: AudioFile?, entry: NativeMediaAudioEntry): Boolean {
     if (existing == null) return true
     if (existing.mediaStoreId != entry.mediaStoreId) return true
+    if (!existing.coverCachePath.isNullOrBlank() && !File(existing.coverCachePath).exists()) return true
     if (existing.fileSize != entry.fileSize) return true
     if (kotlin.math.abs(existing.duration - entry.duration) > 1000L) return true
     return kotlin.math.abs(existing.lastModified - entry.lastModified) > 1000L
@@ -3470,15 +3497,61 @@ private suspend fun loadAudioOptionsCoverBitmap(coverCachePath: String?): Bitmap
     withContext(Dispatchers.IO) {
         if (coverCachePath.isNullOrBlank()) return@withContext null
         try {
-            val cacheFile = File(coverCachePath)
-            if (!cacheFile.exists()) return@withContext null
-            val bytes = cacheFile.readBytes()
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            loadCoverBitmapFromCache(coverCachePath, Int.MAX_VALUE, Int.MAX_VALUE)
         } catch (e: Exception) {
             Log.e("MusicLibrary", "Error loading cover bitmap", e)
             null
         }
     }
+
+private fun loadCoverBitmapFromCache(
+    cachePath: String,
+    reqWidth: Int,
+    reqHeight: Int
+): Bitmap? {
+    val cacheFile = File(cachePath)
+    if (!cacheFile.exists()) return null
+    val bytes = cacheFile.readBytes()
+    return decodeCoverBitmap(bytes, reqWidth, reqHeight)
+}
+
+private fun decodeCoverBitmap(
+    bytes: ByteArray,
+    reqWidth: Int,
+    reqHeight: Int
+): Bitmap? {
+    if (bytes.isEmpty()) return null
+    val options = BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+    }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+    options.inJustDecodeBounds = false
+    options.inSampleSize = MusicLibraryActivity.calculateInSampleSize(options, reqWidth, reqHeight)
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+}
+
+private fun rebuildCoverCacheBitmap(
+    context: Context,
+    audio: AudioFile,
+    cachePath: String,
+    targetSizePx: Int
+): Bitmap? {
+    val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+        context = context,
+        filePath = audio.path,
+        mediaStoreId = audio.mediaStoreId
+    )
+    val coverData = metadata.cover ?: return null
+    val cacheFile = File(cachePath)
+    return if (writeCoverThumbnailToFile(cacheFile, coverData)) {
+        MusicLibraryActivity.removeCoverFromCache(cachePath)
+        loadCoverBitmapFromCache(cachePath, targetSizePx, targetSizePx)
+    } else {
+        decodeCoverBitmap(coverData, targetSizePx, targetSizePx)
+    }
+}
 
 private fun getCoverCacheDir(context: Context): File {
     val cacheDir = File(context.cacheDir, "covers")
@@ -3503,22 +3576,38 @@ private fun saveCoverToCache(
             "${baseHash}_${cacheDiscriminator.hashCode()}.jpg"
         }
         val cacheFile = File(cacheDir, fileName)
-        
+
+        if (writeCoverThumbnailToFile(cacheFile, coverData)) {
+            cacheFile.absolutePath
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        Log.e("MusicLibrary", "Error saving cover to cache", e)
+        null
+    }
+}
+
+private fun writeCoverThumbnailToFile(cacheFile: File, coverData: ByteArray): Boolean {
+    return try {
+        cacheFile.parentFile?.mkdirs()
+
         val options = BitmapFactory.Options()
         options.inJustDecodeBounds = true
         BitmapFactory.decodeByteArray(coverData, 0, coverData.size, options)
-        
+
         val targetSize = 100
         var scaleFactor = 1
-        while (options.outWidth / scaleFactor / 2 >= targetSize && 
-               options.outHeight / scaleFactor / 2 >= targetSize) {
+        while (options.outWidth / scaleFactor / 2 >= targetSize &&
+            options.outHeight / scaleFactor / 2 >= targetSize
+        ) {
             scaleFactor *= 2
         }
-        
+
         options.inJustDecodeBounds = false
         options.inSampleSize = scaleFactor
         val scaledBitmap = BitmapFactory.decodeByteArray(coverData, 0, coverData.size, options)
-        
+
         val resizedBitmap = if (scaledBitmap != null) {
             val width = scaledBitmap.width
             val height = scaledBitmap.height
@@ -3526,26 +3615,31 @@ private fun saveCoverToCache(
             val cropX = (width - minSize) / 2
             val cropY = (height - minSize) / 2
             val squareBitmap = Bitmap.createBitmap(scaledBitmap, cropX, cropY, minSize, minSize)
-            Bitmap.createScaledBitmap(squareBitmap, targetSize, targetSize, true)
+            val resized = Bitmap.createScaledBitmap(squareBitmap, targetSize, targetSize, true)
+            if (squareBitmap != scaledBitmap && squareBitmap != resized) {
+                squareBitmap.recycle()
+            }
+            resized
         } else {
             null
         }
-        
+
         if (resizedBitmap != null) {
-            val outputStream = java.io.FileOutputStream(cacheFile)
-            resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-            outputStream.flush()
-            outputStream.close()
+            java.io.FileOutputStream(cacheFile).use { outputStream ->
+                resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+                outputStream.flush()
+            }
             resizedBitmap.recycle()
-            scaledBitmap?.recycle()
-            cacheFile.absolutePath
+            if (scaledBitmap != null && scaledBitmap != resizedBitmap && !scaledBitmap.isRecycled) {
+                scaledBitmap.recycle()
+            }
         } else {
             cacheFile.writeBytes(coverData)
-            cacheFile.absolutePath
         }
+        true
     } catch (e: Exception) {
-        Log.e("MusicLibrary", "Error saving cover to cache", e)
-        null
+        Log.e("MusicLibrary", "Error writing cover thumbnail", e)
+        false
     }
 }
 
