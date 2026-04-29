@@ -739,7 +739,6 @@ fun detectAndInsertInterludeLines(lyricLines: List<NewPreviewLyricLine>): List<N
     }
     
     var i = 0
-    var isFirstMainLineProcessed = false
     while (i < lyricLines.size) {
         val currentLine = lyricLines[i]
         
@@ -772,8 +771,9 @@ fun detectAndInsertInterludeLines(lyricLines: List<NewPreviewLyricLine>): List<N
             // 计算间隙时长
             val gapDuration = nextBegin - currentEnd
             
-            // 如果上一行结束时间为0且不是第一行，则不添加间奏行
-            val shouldAddInterlude = if (currentEnd == 0L && isFirstMainLineProcessed) {
+            // 只要上一行结束时间为0，就不在两句之间插入间奏行
+            // （开头间奏由前面的 openingInterlude 逻辑单独处理）
+            val shouldAddInterlude = if (currentEnd == 0L) {
                 false
             } else {
                 // 否则，如果间隙超过6秒，在背景歌词后面插入间奏行
@@ -789,11 +789,6 @@ fun detectAndInsertInterludeLines(lyricLines: List<NewPreviewLyricLine>): List<N
                 )
                 result.add(interludeLine)
             }
-        }
-        
-        // 标记第一行已处理
-        if (!isFirstMainLineProcessed && !currentLine.isBackground) {
-            isFirstMainLineProcessed = true
         }
         
         // 跳到下一个主歌词

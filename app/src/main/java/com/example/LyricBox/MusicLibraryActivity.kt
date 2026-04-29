@@ -383,12 +383,17 @@ private fun convertToPreviewLyricLines(lines: List<LyricLine>): List<NewPreviewL
             val unit = line.timeUnits.first()
             val beginMs = parseTimeToMs(unit.startTime)
             val endMs = parseTimeToMs(unit.endTime)
-            val safeEndMs = if (endMs >= beginMs) endMs else beginMs
+            // 保留 end=0 的语义（用于预览页抑制间奏行）；仅在其他异常值时做兜底
+            val normalizedEndMs = when {
+                endMs == 0L -> 0L
+                endMs >= beginMs -> endMs
+                else -> beginMs
+            }
             listOf(
                 NewPreviewLyricWord(
                     text = unit.text,
                     begin = beginMs,
-                    end = safeEndMs,
+                    end = normalizedEndMs,
                     transliteration = unit.transliteration,
                     charTransliterations = unit.charTransliterations
                 )
