@@ -95,6 +95,7 @@ private const val TAG = "SongMetadataEdit"
 private const val REQUEST_CODE_SEARCH_METADATA = 1001
 private const val REQUEST_CODE_LYRIC_TIMING = 1002
 private const val REQUEST_CODE_UCROP = 1004
+private val GENRE_SPLIT_REGEX = Regex("""[;；:：、&]+""")
 
 data class BatchEditFieldValues(
     val titles: Set<String> = emptySet(),
@@ -1192,6 +1193,7 @@ fun SongMetadataEditScreen(
                             val pfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
                             val data = AudioTagReader.read(pfd, true)
                             pfd.close()
+                            var normalizedGenre: String? = data.genre?.takeIf { it.isNotEmpty() }
                             
                             data.title?.takeIf { it.isNotEmpty() }?.let { titles.add(it) }
                             data.artist?.takeIf { it.isNotEmpty() }?.let { artists.add(it) }
@@ -1199,7 +1201,6 @@ fun SongMetadataEditScreen(
                             data.date?.takeIf { it.isNotEmpty() }?.let { years.add(it) }
                             data.trackNumber?.takeIf { it.isNotEmpty() }?.let { trackNumbers.add(it) }
                             data.discNumber?.toString()?.takeIf { it.isNotEmpty() }?.let { discNumbers.add(it) }
-                            data.genre?.takeIf { it.isNotEmpty() }?.let { genres.add(it) }
                             data.albumArtist?.takeIf { it.isNotEmpty() }?.let { albumArtists.add(it) }
                             data.composer?.takeIf { it.isNotEmpty() }?.let { composers.add(it) }
                             data.lyricist?.takeIf { it.isNotEmpty() }?.let { lyricists.add(it) }
@@ -1225,8 +1226,24 @@ fun SongMetadataEditScreen(
                                         }
                                         return null
                                     }
+
+                                    fun joinedOf(vararg keys: String): String? {
+                                        for (key in keys) {
+                                            val arr = props[key]
+                                            if (!arr.isNullOrEmpty()) {
+                                                val values = arr
+                                                    .flatMap { item -> item.split(GENRE_SPLIT_REGEX) }
+                                                    .map { it.trim() }
+                                                    .filter { it.isNotEmpty() }
+                                                    .distinct()
+                                                if (values.isNotEmpty()) return values.joinToString("/")
+                                            }
+                                        }
+                                        return null
+                                    }
                                     
                                     firstOf("COPYRIGHT", "COPYRIGHTS", "COPYRIGHTINFO")?.let { copyrightInfos.add(it) }
+                                    normalizedGenre = joinedOf("GENRE") ?: normalizedGenre
                                     
                                     // 读取自定义字段
                                     enabledFields.forEach { field ->
@@ -1238,6 +1255,7 @@ fun SongMetadataEditScreen(
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error reading copyright with TagLib for $path", e)
                             }
+                            normalizedGenre?.let { genres.add(it) }
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error loading metadata for $path", e)
@@ -1272,10 +1290,11 @@ fun SongMetadataEditScreen(
             }
         } else if (audioPath != null) {
             // 普通编辑模式
-            loadMetadata(context, audioPath) { data, cover, copyrightFromTagLib, lyricsFromTagLib, customFieldsFromTagLib ->
+            loadMetadata(context, audioPath) { data, cover, copyrightFromTagLib, lyricsFromTagLib, genreFromTagLib, customFieldsFromTagLib ->
                 tagData = data
                 coverBitmap = cover
                 originalCoverBitmap = cover
+                val resolvedGenre = genreFromTagLib ?: data.genre ?: ""
                 if (!hasInitializedEditableFields) {
                     title = data.title ?: ""
                     artist = data.artist ?: ""
@@ -1283,7 +1302,7 @@ fun SongMetadataEditScreen(
                     year = data.date ?: ""
                     trackNumber = data.trackNumber ?: ""
                     discNumber = data.discNumber?.toString() ?: ""
-                    genre = data.genre ?: ""
+                    genre = resolvedGenre
                     albumArtist = data.albumArtist ?: ""
                     composer = data.composer ?: ""
                     lyricist = data.lyricist ?: ""
@@ -1306,7 +1325,7 @@ fun SongMetadataEditScreen(
                     year = data.date ?: "",
                     trackNumber = data.trackNumber ?: "",
                     discNumber = data.discNumber?.toString() ?: "",
-                    genre = data.genre ?: "",
+                    genre = resolvedGenre,
                     albumArtist = data.albumArtist ?: "",
                     composer = data.composer ?: "",
                     lyricist = data.lyricist ?: "",
@@ -2755,6 +2774,17 @@ fun ModifiableMetadataField(
     onShowDropdown: (() -> Unit)? = null
 ) {
     val focusRequester = remember { FocusRequester() }
+    val fieldContainerColor = if (isModified) {
+        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+    }
+    val fieldTextColor = if (isModified) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    val fieldPlaceholderColor = fieldTextColor.copy(alpha = 0.72f)
     
     Column(modifier = modifier) {
         Row(
@@ -2832,10 +2862,7 @@ fun ModifiableMetadataField(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    color = if (isModified) 
-                        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f) 
-                    else 
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    color = fieldContainerColor,
                     shape = RoundedCornerShape(12.dp)
                 )
                 .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -2858,20 +2885,14 @@ fun ModifiableMetadataField(
                     minLines = minLines,
                     maxLines = maxLines,
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        color = if (isModified) 
-                            MaterialTheme.colorScheme.onTertiaryContainer 
-                        else 
-                            MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = fieldTextColor,
                         fontSize = 16.sp
                     ),
                     decorationBox = { innerTextField ->
                         if (value.isEmpty()) {
                             Text(
                                 text = "请输入$label",
-                                color = if (isModified) 
-                                    MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.5f) 
-                                else 
-                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                color = fieldPlaceholderColor,
                                 fontSize = 16.sp
                             )
                         }
@@ -2892,7 +2913,7 @@ fun ModifiableMetadataField(
                         Icon(
                             painter = painterResource(id = R.drawable.close),
                             contentDescription = "清空",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            tint = fieldTextColor,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -2927,7 +2948,7 @@ suspend fun getVideoCoverPath(context: Context, audioPath: String?, albumName: S
 suspend fun loadMetadata(
     context: Context,
     filePath: String?,
-    onLoaded: (AudioTagData, Bitmap?, String?, String?, Map<String, String>) -> Unit
+    onLoaded: (AudioTagData, Bitmap?, String?, String?, String?, Map<String, String>) -> Unit
 ) {
     withContext(Dispatchers.IO) {
         try {
@@ -2948,6 +2969,7 @@ suspend fun loadMetadata(
             
             var copyrightValue: String? = null
             var lyricsValue: String? = null
+            var genreValue: String? = null
             val customFieldsMap = mutableMapOf<String, String>()
             
             // 从SharedPreferences获取启用的字段
@@ -2973,9 +2995,25 @@ suspend fun loadMetadata(
                         }
                         return null
                     }
+
+                    fun joinedOf(vararg keys: String): String? {
+                        for (key in keys) {
+                            val arr = props[key]
+                            if (!arr.isNullOrEmpty()) {
+                                val values = arr
+                                    .flatMap { item -> item.split(GENRE_SPLIT_REGEX) }
+                                    .map { it.trim() }
+                                    .filter { it.isNotEmpty() }
+                                    .distinct()
+                                if (values.isNotEmpty()) return values.joinToString("/")
+                            }
+                        }
+                        return null
+                    }
                     
                     copyrightValue = firstOf("COPYRIGHT", "COPYRIGHTS", "COPYRIGHTINFO")
                     lyricsValue = firstOf("LYRICS", "UNSYNCED LYRICS", "UNSYNCEDLYRICS", "USLT", "LYRIC", "LYRICSENG")
+                    genreValue = joinedOf("GENRE")
 
                     if (coverBitmap == null) {
                         try {
@@ -3000,7 +3038,7 @@ suspend fun loadMetadata(
             }
             
             withContext(Dispatchers.Main) {
-                onLoaded(data, coverBitmap, copyrightValue, lyricsValue, customFieldsMap)
+                onLoaded(data, coverBitmap, copyrightValue, lyricsValue, genreValue, customFieldsMap)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading metadata", e)
