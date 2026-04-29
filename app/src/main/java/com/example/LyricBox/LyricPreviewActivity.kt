@@ -329,10 +329,12 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_INTERLUDE_ANIMATION_TYPE = "interlude_animation_type"
         const val KEY_FONT_WEIGHT = "font_weight"
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
+        const val KEY_LYRIC_BLUR = "lyric_blur"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_FONT_WEIGHT = 400 // Normal
         const val DEFAULT_SHOW_TRANSLITERATION = true
+        const val DEFAULT_LYRIC_BLUR = true
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
@@ -991,6 +993,7 @@ fun LyricPreviewScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE) }
     val appPrefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
+    val supportsLyricBlur = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
     
     var isPlaying by remember(initialIsPlaying) { mutableStateOf(initialIsPlaying) }
     var currentTime by remember { mutableStateOf(initialPosition) }
@@ -1002,6 +1005,15 @@ fun LyricPreviewScreen(
     var fontWeight by remember { mutableIntStateOf(prefs.getInt(LyricPreviewActivity.KEY_FONT_WEIGHT, LyricPreviewActivity.DEFAULT_FONT_WEIGHT)) }
     var showTransliteration by remember { 
         mutableStateOf(prefs.getBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, LyricPreviewActivity.DEFAULT_SHOW_TRANSLITERATION)) 
+    }
+    var lyricBlurPreferenceEnabled by remember {
+        mutableStateOf(
+            if (supportsLyricBlur) {
+                prefs.getBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, LyricPreviewActivity.DEFAULT_LYRIC_BLUR)
+            } else {
+                false
+            }
+        )
     }
     var showFontSizeDialog by remember { mutableStateOf(false) }
     var showFontWeightDialog by remember { mutableStateOf(false) }
@@ -1146,7 +1158,7 @@ fun LyricPreviewScreen(
     var lastAutoScrollWallTime by remember { mutableLongStateOf(0L) }
     var lastAutoScrolledIndex by remember { mutableIntStateOf(-1) }
     var currentLineIndex by remember { mutableIntStateOf(-1) }
-    var isLyricBlurEnabled by remember { mutableStateOf(true) }
+    var isLyricBlurEnabled by remember { mutableStateOf(lyricBlurPreferenceEnabled) }
     // seek 重置触发器 - 使用计数器确保每次 seek 都能被唯一识别
     var seekResetCounter by remember { mutableStateOf(0L) }
     // 记录最后一次尝试滚动但被跳过的行索引
@@ -1160,7 +1172,7 @@ fun LyricPreviewScreen(
 
     fun requestAutoScroll(targetIndex: Int) {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
-        if (!isLyricBlurEnabled) {
+        if (lyricBlurPreferenceEnabled && !isLyricBlurEnabled) {
             isLyricBlurEnabled = true
             logAutoScroll("restore lyric blur at auto-scroll target=$targetIndex")
         }
@@ -1236,7 +1248,7 @@ fun LyricPreviewScreen(
             when (interaction) {
                 is PressInteraction.Press, is DragInteraction.Start -> {
                     isUserScrolling = true
-                    if (interaction is DragInteraction.Start && isLyricBlurEnabled) {
+                    if (interaction is DragInteraction.Start && lyricBlurPreferenceEnabled && isLyricBlurEnabled) {
                         isLyricBlurEnabled = false
                         logAutoScroll("disable lyric blur while user dragging list")
                     }
@@ -1285,6 +1297,12 @@ fun LyricPreviewScreen(
     fun saveShowTransliteration(show: Boolean) {
         showTransliteration = show
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, show).apply()
+    }
+
+    fun saveLyricBlurEnabled(enabled: Boolean) {
+        lyricBlurPreferenceEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, enabled).apply()
+        isLyricBlurEnabled = enabled
     }
     
     // 更新当前时间
@@ -1614,7 +1632,7 @@ fun LyricPreviewScreen(
                                 lineIndex = index,
                                 currentPlayingIndex = currentLineIndex,
                                 currentTime = currentTime,
-                                isBlurEnabled = isLyricBlurEnabled
+                                isBlurEnabled = lyricBlurPreferenceEnabled && isLyricBlurEnabled
                             )
                             
                             // 判断背景歌词是否应该显示
@@ -1742,28 +1760,46 @@ fun LyricPreviewScreen(
                     CustomDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
-                        items = listOf(
-                    MenuItem(
-                        title = if (showTranslation) "关闭翻译" else "开启翻译",
-                        onClick = { saveShowTranslation(!showTranslation) }
-                    ),
-                    MenuItem(
-                        title = if (showTransliteration) "关闭注音" else "开启注音",
-                        onClick = { saveShowTransliteration(!showTransliteration) }
-                    ),
-                            MenuItem(
-                                title = "字体大小 (${fontSize.toInt()}sp)",
-                                onClick = { showFontSizeDialog = true }
-                            ),
-                            MenuItem(
-                                title = "字体粗细 (${getFontWeightLabel(fontWeight)})",
-                                onClick = { showFontWeightDialog = true }
-                            ),
-                            MenuItem(
-                                title = if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) "间奏动画：恐龙" else "间奏动画：默认",
-                                onClick = { showAnimationTypeDialog = true }
+                        items = buildList {
+                            add(
+                                MenuItem(
+                                    title = if (showTranslation) "关闭翻译" else "开启翻译",
+                                    onClick = { saveShowTranslation(!showTranslation) }
+                                )
                             )
-                        ),
+                            add(
+                                MenuItem(
+                                    title = if (showTransliteration) "关闭注音" else "开启注音",
+                                    onClick = { saveShowTransliteration(!showTransliteration) }
+                                )
+                            )
+                            if (supportsLyricBlur) {
+                                add(
+                                    MenuItem(
+                                        title = if (lyricBlurPreferenceEnabled) "关闭歌词模糊" else "开启歌词模糊",
+                                        onClick = { saveLyricBlurEnabled(!lyricBlurPreferenceEnabled) }
+                                    )
+                                )
+                            }
+                            add(
+                                MenuItem(
+                                    title = "字体大小 (${fontSize.toInt()}sp)",
+                                    onClick = { showFontSizeDialog = true }
+                                )
+                            )
+                            add(
+                                MenuItem(
+                                    title = "字体粗细 (${getFontWeightLabel(fontWeight)})",
+                                    onClick = { showFontWeightDialog = true }
+                                )
+                            )
+                            add(
+                                MenuItem(
+                                    title = if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) "间奏动画：恐龙" else "间奏动画：默认",
+                                    onClick = { showAnimationTypeDialog = true }
+                                )
+                            )
+                        },
                         anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
                         containerColor = menuSurfaceColor,
                         contentColor = menuContentColor,

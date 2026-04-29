@@ -1,5 +1,6 @@
 package com.example.LyricBox.ui.modifier
 
+import android.os.SystemClock
 import androidx.compose.animation.core.DeferredTargetAnimation
 import androidx.compose.animation.core.ExperimentalAnimatableApi
 import androidx.compose.animation.core.VectorConverter
@@ -29,9 +30,18 @@ class SpringPlacementModifierNode(
     var forceReset: Long
 ) : ApproachLayoutModifierNode, Modifier.Node() {
     private var offsetAnimation = DeferredTargetAnimation(IntOffset.VectorConverter)
+    private val manualReleaseSnapHoldMs = 180L
 
     private var isFirstFrame = true
     private var lastForceReset = forceReset
+    private var wasManualScrolling = isManualScrolling
+    private var manualScrollReleasedAtMs = 0L
+
+    private fun shouldUseSnapSpec(): Boolean {
+        if (isFirstFrame || isManualScrolling) return true
+        if (manualScrollReleasedAtMs <= 0L) return false
+        return (SystemClock.elapsedRealtime() - manualScrollReleasedAtMs) < manualReleaseSnapHoldMs
+    }
 
     override fun isMeasurementApproachInProgress(lookaheadSize: IntSize): Boolean = false
 
@@ -41,7 +51,11 @@ class SpringPlacementModifierNode(
         val target = with(lookaheadScope) {
             lookaheadScopeCoordinates.localLookaheadPositionOf(lookaheadCoordinates).round()
         }
-        -offsetAnimation.updateTarget(target, coroutineScope, if (isFirstFrame || isManualScrolling) snap() else spring(dampingRatio = 0.95f, stiffness = stiffness))
+        -offsetAnimation.updateTarget(
+            target,
+            coroutineScope,
+            if (shouldUseSnapSpec()) snap<IntOffset>() else spring(dampingRatio = 0.95f, stiffness = stiffness)
+        )
         return !offsetAnimation.isIdle
     }
 
@@ -60,7 +74,7 @@ class SpringPlacementModifierNode(
                 val animatedOffset = offsetAnimation.updateTarget(
                     target,
                     coroutineScope,
-                    if (isFirstFrame || isManualScrolling) snap() else spring(dampingRatio = 0.95f, stiffness = stiffness)
+                    if (shouldUseSnapSpec()) snap<IntOffset>() else spring(dampingRatio = 0.95f, stiffness = stiffness)
                 )
 
                 isFirstFrame = false
@@ -79,17 +93,25 @@ class SpringPlacementModifierNode(
 
     fun updateState(newScope: LookaheadScope, newKey: Any, newIsManualScrolling: Boolean, newStiffness: Float, newForceReset: Long) {
         lookaheadScope = newScope
-        isManualScrolling = newIsManualScrolling
         stiffness = newStiffness
+        if (wasManualScrolling && !newIsManualScrolling) {
+            manualScrollReleasedAtMs = SystemClock.elapsedRealtime()
+        } else if (!wasManualScrolling && newIsManualScrolling) {
+            manualScrollReleasedAtMs = 0L
+        }
+        isManualScrolling = newIsManualScrolling
+        wasManualScrolling = newIsManualScrolling
         if (itemKey != newKey) {
             itemKey = newKey
             offsetAnimation = DeferredTargetAnimation(IntOffset.VectorConverter)
             isFirstFrame = true
+            manualScrollReleasedAtMs = 0L
         }
         if (lastForceReset != newForceReset) {
             lastForceReset = newForceReset
             offsetAnimation = DeferredTargetAnimation(IntOffset.VectorConverter)
             isFirstFrame = true
+            manualScrollReleasedAtMs = 0L
         }
     }
 }
