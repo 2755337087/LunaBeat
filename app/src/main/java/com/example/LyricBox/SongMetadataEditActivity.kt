@@ -60,8 +60,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -80,7 +83,13 @@ import com.lonx.audiotag.TagLib
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.example.LyricBox.R
+import com.example.LyricBox.ui.components.CustomDropdownMenu
+import com.example.LyricBox.ui.components.MenuAnchorPosition
+import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.example.LyricBox.utils.LyricBatchEditUtils
+import com.example.LyricBox.utils.LyricExportFormat
+import com.example.LyricBox.utils.LyricSaveEmbedUtils
 import com.lonx.audiotag.model.AudioPicture
 import com.lonx.audiotag.model.AudioTagData
 import com.lonx.audiotag.rw.AudioTagReader
@@ -299,6 +308,7 @@ class SongMetadataEditActivity : ComponentActivity() {
     private var hasUnsavedChangesState by mutableStateOf(false)
     private var showExitConfirmDialog by mutableStateOf(false)
     private var importedLyrics by mutableStateOf<String?>(null)
+    private var lyricTimingReturnNonce by mutableStateOf(0L)
     private var croppedBitmap by mutableStateOf<Bitmap?>(null)
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -359,8 +369,7 @@ class SongMetadataEditActivity : ComponentActivity() {
                                 putExtra("sourceArtist", "")
                                 putExtra("lyricsFormat", lyricsFormat)
                             }
-                            startActivity(intent)
-                            finish()
+                            startActivityForResult(intent, REQUEST_CODE_LYRIC_TIMING)
                         },
                         onOpenVerbatimLyricsSearch = { keyword ->
                             val intent = Intent(this, VerbatimLyricsActivity::class.java).apply {
@@ -378,6 +387,7 @@ class SongMetadataEditActivity : ComponentActivity() {
                         onSearchResultConsumed = { searchResultData = null },
                         importedLyrics = importedLyrics,
                         onImportedLyricsConsumed = { importedLyrics = null },
+                        lyricTimingReturnNonce = lyricTimingReturnNonce,
                         modifier = Modifier.padding(paddingValues)
                     )
                     
@@ -412,6 +422,8 @@ class SongMetadataEditActivity : ComponentActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_CODE_SEARCH_METADATA && resultCode == RESULT_OK) {
             searchResultData = data
+        } else if (requestCode == REQUEST_CODE_LYRIC_TIMING) {
+            lyricTimingReturnNonce = System.currentTimeMillis()
         } else if (requestCode == REQUEST_CODE_VERBATIM_LYRICS && resultCode == RESULT_OK) {
             val lyricsContent = data?.getStringExtra("lyricsContent")
             if (lyricsContent != null) {
@@ -487,6 +499,7 @@ fun SongMetadataEditScreen(
     onSearchResultConsumed: () -> Unit,
     importedLyrics: String?,
     onImportedLyricsConsumed: () -> Unit,
+    lyricTimingReturnNonce: Long,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -510,6 +523,10 @@ fun SongMetadataEditScreen(
     
     var showLyricsEditConfirmDialog by remember { mutableStateOf(false) }
     var showLyricsSelectionSheet by remember { mutableStateOf(false) }
+    var showLyricsMoreMenu by remember { mutableStateOf(false) }
+    var lyricsMoreMenuAnchor by remember { mutableStateOf<MenuAnchorPosition?>(null) }
+    var showShiftTimestampDialog by remember { mutableStateOf(false) }
+    var shiftTimestampInput by remember { mutableStateOf("0") }
     var showCoverSelectionSheet by remember { mutableStateOf(false) }
     var showMusicLibraryCoverSheet by remember { mutableStateOf(false) }
     var musicLibraryAudioFiles by remember { mutableStateOf<List<Any>?>(null) }
@@ -643,6 +660,169 @@ fun SongMetadataEditScreen(
                modifiedField.genre || modifiedField.albumArtist || modifiedField.composer || 
                modifiedField.lyricist || modifiedField.comment || modifiedField.copyrightInfo || 
                modifiedField.lyrics || modifiedField.cover || hasCustomChanges
+    }
+
+    fun updateLyricsWithModifiedState(newLyrics: String) {
+        lyrics = newLyrics
+        modifiedField = if (isBatchEdit) {
+            modifiedField.copy(lyrics = newLyrics != KEEP, canRedoLyrics = false)
+        } else {
+            modifiedField.copy(lyrics = newLyrics != originalData?.lyrics, canRedoLyrics = false)
+        }
+    }
+
+    fun buildLyricsSearchKeyword(): String {
+        return if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
+            "$title $artist"
+        } else if (title.isNotEmpty() && title != KEEP) {
+            title
+        } else if (artist.isNotEmpty() && artist != KEEP) {
+            artist
+        } else {
+            ""
+        }
+    }
+
+    fun openLyricTimingByPreference() {
+        if (autoDetectEmbeddedLyricsType) {
+            val lyricsContent = lyrics.takeIf { it.isNotBlank() && it != KEEP }
+            val detectedFormat = detectLyricsFormat(lyricsContent ?: "")
+            val formatLabel = when (detectedFormat) {
+                3 -> "TTML歌词"
+                2 -> "增强LRC/ELRC歌词"
+                1 -> "LRC逐行/逐字歌词"
+                else -> "纯文本歌词"
+            }
+            onOpenLyricTiming(lyricsContent, formatLabel)
+        } else {
+            showLyricsSelectionSheet = true
+        }
+    }
+
+    fun parseLyricsForTools(): Pair<Int, List<LyricLine>>? {
+        if (lyrics.isBlank()) {
+            errorMessage = "歌词为空，无法执行此操作"
+            showErrorDialog = true
+            return null
+        }
+        val detectedFormat = detectLyricsFormat(lyrics)
+        if (detectedFormat == 0) {
+            errorMessage = "当前为纯文本歌词，无法执行此时间轴相关操作"
+            showErrorDialog = true
+            return null
+        }
+        return try {
+            val parsedLines = when (detectedFormat) {
+                1 -> LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, lyrics).lyricLines
+                2 -> LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, lyrics).lyricLines
+                3 -> LyricParsingUtils.parseByType(LyricParseType.TTML, lyrics).lyricLines
+                else -> emptyList()
+            }
+            if (parsedLines.isEmpty()) {
+                errorMessage = "歌词解析失败，无法执行此操作"
+                showErrorDialog = true
+                null
+            } else {
+                detectedFormat to parsedLines
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse lyrics for tools", e)
+            errorMessage = "歌词解析失败：${e.message ?: "未知错误"}"
+            showErrorDialog = true
+            null
+        }
+    }
+
+    fun sourceLyricsExportFormat(): LyricExportFormat {
+        val hasMultipleTimestampsInLine = lyrics.lines().any { line ->
+            Regex("""\[\d{2}:\d{2}\.\d{2,3}\]""").findAll(line).count() > 1
+        }
+        return if (hasMultipleTimestampsInLine) {
+            LyricExportFormat.LRC_WORD
+        } else {
+            LyricExportFormat.LRC_LINE
+        }
+    }
+
+    fun saveLyricsInFormat(
+        lyricLines: List<LyricLine>,
+        targetFormat: LyricExportFormat
+    ): String {
+        return LyricSaveEmbedUtils.buildLyricsByFormat(
+            format = targetFormat,
+            lyricLines = lyricLines,
+            showLineEndTime = false,
+            showDuet = true,
+            creators = emptyList()
+        )
+    }
+
+    fun convertLyricsFormat(targetFormat: LyricExportFormat) {
+        val parsed = parseLyricsForTools() ?: return
+        val converted = saveLyricsInFormat(parsed.second, targetFormat)
+        updateLyricsWithModifiedState(converted)
+    }
+
+    fun shiftLyricsTimestamps(shiftMs: Long) {
+        val parsed = parseLyricsForTools() ?: return
+        val shifted = LyricBatchEditUtils.shiftTimestamps(
+            parsed.second,
+            parsed.second.indices.toSet(),
+            shiftMs
+        )
+        val sourceFormat = if (parsed.first == 1) sourceLyricsExportFormat() else when (parsed.first) {
+            2 -> LyricExportFormat.ENHANCED_LRC
+            3 -> LyricExportFormat.TTML
+            else -> LyricExportFormat.LRC_WORD
+        }
+        updateLyricsWithModifiedState(saveLyricsInFormat(shifted, sourceFormat))
+    }
+
+    fun convertLyricsToSimplified() {
+        val detectedFormat = detectLyricsFormat(lyrics)
+        if (detectedFormat == 0) {
+            updateLyricsWithModifiedState(LyricBatchEditUtils.toSimplifiedText(lyrics))
+            return
+        }
+        val parsed = parseLyricsForTools() ?: return
+        val converted = LyricBatchEditUtils.convertToSimplified(
+            parsed.second,
+            parsed.second.indices.toSet()
+        )
+        val sourceFormat = if (parsed.first == 1) sourceLyricsExportFormat() else when (parsed.first) {
+            2 -> LyricExportFormat.ENHANCED_LRC
+            3 -> LyricExportFormat.TTML
+            else -> LyricExportFormat.LRC_WORD
+        }
+        updateLyricsWithModifiedState(saveLyricsInFormat(converted, sourceFormat))
+    }
+
+    fun deleteLyricsEmptyLines() {
+        val detectedFormat = detectLyricsFormat(lyrics)
+        if (detectedFormat == 0) {
+            val cleaned = lyrics.lines().filter { it.isNotBlank() }.joinToString("\n")
+            updateLyricsWithModifiedState(cleaned)
+            return
+        }
+        val parsed = parseLyricsForTools() ?: return
+        val cleaned = LyricBatchEditUtils.removeEmptyLines(parsed.second)
+        val sourceFormat = if (parsed.first == 1) sourceLyricsExportFormat() else when (parsed.first) {
+            2 -> LyricExportFormat.ENHANCED_LRC
+            3 -> LyricExportFormat.TTML
+            else -> LyricExportFormat.LRC_WORD
+        }
+        updateLyricsWithModifiedState(saveLyricsInFormat(cleaned, sourceFormat))
+    }
+
+    fun formatLyricsTimeline() {
+        val parsed = parseLyricsForTools() ?: return
+        val formatted = LyricBatchEditUtils.formatTimeline(parsed.second)
+        val sourceFormat = if (parsed.first == 1) sourceLyricsExportFormat() else when (parsed.first) {
+            2 -> LyricExportFormat.ENHANCED_LRC
+            3 -> LyricExportFormat.TTML
+            else -> LyricExportFormat.LRC_WORD
+        }
+        updateLyricsWithModifiedState(saveLyricsInFormat(formatted, sourceFormat))
     }
     
     fun saveAllData() {
@@ -1156,6 +1336,17 @@ fun SongMetadataEditScreen(
             modifiedField = modifiedField.copy(lyrics = true, canRedoLyrics = false)
             onImportedLyricsConsumed()
         }
+    }
+
+    LaunchedEffect(lyricTimingReturnNonce) {
+        if (lyricTimingReturnNonce == 0L || audioPath.isNullOrBlank() || isBatchEdit) return@LaunchedEffect
+        val refreshed = withContext(Dispatchers.IO) {
+            com.example.LyricBox.utils.AudioMetadataReader.readLyrics(context, audioPath!!)
+        } ?: ""
+        lyrics = refreshed
+        originalData = originalData?.copy(lyrics = refreshed)
+        modifiedField = modifiedField.copy(lyrics = false, canRedoLyrics = false)
+        redoHistory = redoHistory.copy(lyrics = null)
     }
     
     LaunchedEffect(modifiedField) {
@@ -2132,12 +2323,7 @@ fun SongMetadataEditScreen(
                                 label = "歌词",
                                 value = lyrics,
                                 onValueChange = {
-                                    lyrics = it
-                                    if (isBatchEdit) {
-                                        modifiedField = modifiedField.copy(lyrics = it != KEEP, canRedoLyrics = false)
-                                    } else {
-                                        modifiedField = modifiedField.copy(lyrics = it != originalData?.lyrics, canRedoLyrics = false)
-                                    }
+                                    updateLyricsWithModifiedState(it)
                                 },
                                 isModified = modifiedField.lyrics,
                                 canRedo = modifiedField.canRedoLyrics,
@@ -2149,51 +2335,64 @@ fun SongMetadataEditScreen(
                                     }
                                 },
                                 minLines = 1,
-                                maxLines = 7,
+                                maxLines = 10,
                                 isBatchEdit = isBatchEdit,
                                 showDropdown = false,
+                                showMoreButton = !isBatchEdit,
+                                onMoreClick = { showLyricsMoreMenu = true },
+                                onMoreButtonPositioned = { anchor -> lyricsMoreMenuAnchor = anchor },
                                 onShowDropdown = {
                                     currentSelectionField = "lyrics"
                                     showFieldSelectionSheet = true
                                 }
                             )
-
                             if (!isBatchEdit) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (hasUnsavedChanges()) {
-                                                showLyricsEditConfirmDialog = true
-                                            } else {
-                                                showLyricsSelectionSheet = true
+                                CustomDropdownMenu(
+                                    expanded = showLyricsMoreMenu,
+                                    onDismissRequest = { showLyricsMoreMenu = false },
+                                    items = listOf(
+                                        MenuItem(
+                                            title = "去打轴界面编辑",
+                                            onClick = {
+                                                if (hasUnsavedChanges()) {
+                                                    showLyricsEditConfirmDialog = true
+                                                } else {
+                                                    openLyricTimingByPreference()
+                                                }
                                             }
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("去打轴界面编辑")
-                                    }
-                                    OutlinedButton(
-                                        onClick = {
-                                            val keyword = if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
-                                                "$title $artist"
-                                            } else if (title.isNotEmpty() && title != KEEP) {
-                                                title
-                                            } else if (artist.isNotEmpty() && artist != KEEP) {
-                                                artist
-                                            } else {
-                                                ""
-                                            }
-                                            onOpenVerbatimLyricsSearch(keyword)
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("获取歌词")
-                                    }
-                                }
+                                        ),
+                                        MenuItem(
+                                            title = "获取歌词",
+                                            onClick = { onOpenVerbatimLyricsSearch(buildLyricsSearchKeyword()) }
+                                        ),
+                                        MenuItem(
+                                            title = "平移时间戳",
+                                            onClick = { showShiftTimestampDialog = true }
+                                        ),
+                                        MenuItem(
+                                            title = "转换为简体",
+                                            onClick = { convertLyricsToSimplified() }
+                                        ),
+                                        MenuItem(
+                                            title = "删除空行",
+                                            onClick = { deleteLyricsEmptyLines() }
+                                        ),
+                                        MenuItem(
+                                            title = "格式化时间戳",
+                                            onClick = { formatLyricsTimeline() }
+                                        ),
+                                        MenuItem(
+                                            title = "转换歌词格式",
+                                            subItems = listOf(
+                                                MenuItem(title = "LRC逐字", onClick = { convertLyricsFormat(LyricExportFormat.LRC_WORD) }),
+                                                MenuItem(title = "LRC逐行", onClick = { convertLyricsFormat(LyricExportFormat.LRC_LINE) }),
+                                                MenuItem(title = "ELRC", onClick = { convertLyricsFormat(LyricExportFormat.ENHANCED_LRC) }),
+                                                MenuItem(title = "TTML", onClick = { convertLyricsFormat(LyricExportFormat.TTML) })
+                                            )
+                                        )
+                                    ),
+                                    anchorPosition = lyricsMoreMenuAnchor ?: MenuAnchorPosition(0f, 0f)
+                                )
                             }
                         }
 
@@ -2400,7 +2599,7 @@ fun SongMetadataEditScreen(
                 TextButton(
                     onClick = {
                         showLyricsEditConfirmDialog = false
-                        showLyricsSelectionSheet = true
+                        openLyricTimingByPreference()
                     }
                 ) {
                     Text("继续前往")
@@ -2408,6 +2607,78 @@ fun SongMetadataEditScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showLyricsEditConfirmDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showShiftTimestampDialog) {
+        val shiftInputFocusRequester = remember { FocusRequester() }
+        AlertDialog(
+            onDismissRequest = { showShiftTimestampDialog = false },
+            title = { Text("平移时间戳") },
+            text = {
+                Column {
+                    Text(
+                        text = "请输入平移毫秒数，正数后移，负数前移。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { shiftInputFocusRequester.requestFocus() }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        BasicTextField(
+                            value = shiftTimestampInput,
+                            onValueChange = { shiftTimestampInput = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(shiftInputFocusRequester),
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 16.sp
+                            ),
+                            decorationBox = { innerTextField ->
+                                if (shiftTimestampInput.isBlank()) {
+                                    Text(
+                                        text = "请输入毫秒数",
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                        fontSize = 16.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val shiftMs = shiftTimestampInput.trim().toLongOrNull()
+                        if (shiftMs == null) {
+                            errorMessage = "请输入有效的毫秒数"
+                            showErrorDialog = true
+                        } else {
+                            shiftLyricsTimestamps(shiftMs)
+                            showShiftTimestampDialog = false
+                        }
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showShiftTimestampDialog = false }) {
                     Text("取消")
                 }
             }
@@ -2771,9 +3042,13 @@ fun ModifiableMetadataField(
     maxLines: Int = 1,
     isBatchEdit: Boolean = false,
     showDropdown: Boolean = true,
+    showMoreButton: Boolean = false,
+    onMoreClick: (() -> Unit)? = null,
+    onMoreButtonPositioned: ((MenuAnchorPosition) -> Unit)? = null,
     onShowDropdown: (() -> Unit)? = null
 ) {
     val focusRequester = remember { FocusRequester() }
+    val density = LocalDensity.current
     val fieldContainerColor = if (isModified) {
         MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
     } else {
@@ -2851,8 +3126,34 @@ fun ModifiableMetadataField(
                             )
                         }
                     }
-                    if (!isModified && !canRedo) {
+                    if (!isModified && !canRedo && !showMoreButton) {
                         Spacer(modifier = Modifier.size(48.dp))
+                    }
+                    if (showMoreButton) {
+                        Box(
+                            modifier = Modifier.size(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.baseline_more_vert_24),
+                                contentDescription = "更多",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .onGloballyPositioned { coordinates ->
+                                        val bounds = coordinates.boundsInRoot()
+                                        val centerX = bounds.center.x
+                                        val centerY = bounds.center.y
+                                        onMoreButtonPositioned?.invoke(
+                                            MenuAnchorPosition(
+                                                x = with(density) { centerX.toDp().value },
+                                                y = with(density) { centerY.toDp().value }
+                                            )
+                                        )
+                                    }
+                                    .clickable { onMoreClick?.invoke() }
+                            )
+                        }
                     }
                 }
             }

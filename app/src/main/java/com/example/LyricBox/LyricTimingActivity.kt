@@ -629,7 +629,7 @@ class LyricTimingActivity : ComponentActivity() {
                 if (hasLyrics) {
                     showConfirmDialog = true
                 } else {
-                    finish()
+                    finishWithLyricsResult()
                 }
             }
         }
@@ -642,7 +642,7 @@ class LyricTimingActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets(0, 0, 0, 0)
                 ) { _ ->
                     LyricTimingScreen(
-                        onBack = { finish() },
+                        onBack = { finishWithLyricsResult() },
                         onImportAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
                         onPlayPause = { play ->
                             if (play) {
@@ -720,6 +720,35 @@ class LyricTimingActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun buildReturnLyricsContent(): String? {
+        val lyricLines = currentLyricLinesSnapshot
+        if (lyricLines.isEmpty()) {
+            return importedLyricsContent.takeIf { it.isNotBlank() }
+        }
+        return when (importedLyricsFormat) {
+            3 -> buildTtmlContent(lyricLines, pendingLyricsCreators)
+            2 -> toEnhancedLrc(lyricLines, showDuet = true)
+            else -> buildSavedLyricFromLines(lyricLines)
+        }.trimEnd()
+    }
+
+    private fun buildReturnLyricsFormat(): String {
+        return when (importedLyricsFormat) {
+            3 -> "TTML歌词"
+            2 -> "增强LRC/ELRC歌词"
+            else -> "LRC逐行/逐字歌词"
+        }
+    }
+
+    private fun finishWithLyricsResult() {
+        val resultIntent = Intent().apply {
+            buildReturnLyricsContent()?.let { putExtra("lyricsContent", it) }
+            putExtra("lyricsFormat", buildReturnLyricsFormat())
+        }
+        setResult(RESULT_OK, resultIntent)
+        finish()
     }
     
     override fun onDestroy() {
