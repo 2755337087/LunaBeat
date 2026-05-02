@@ -14,6 +14,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.LinearEasing
@@ -539,6 +540,20 @@ class LyricTimingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // 进入打轴页时统一暂停系统媒体播放，避免双播放源并行。
+        lifecycleScope.launch {
+            val playbackController = MusicPlaybackController(applicationContext).also { it.connect() }
+            repeat(80) {
+                if (playbackController.isReady) {
+                    playbackController.pause()
+                    playbackController.release()
+                    return@launch
+                }
+                delay(50L)
+            }
+            playbackController.release()
+        }
         
         val checkResult = PiracyChecker.checkAll(this)
         if (checkResult.isPirated) {

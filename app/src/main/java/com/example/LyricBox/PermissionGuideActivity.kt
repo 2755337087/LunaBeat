@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -61,6 +62,7 @@ class PermissionGuideActivity : ComponentActivity() {
     
     private var hasStoragePermission by mutableStateOf(false)
     private var hasAudioPermission by mutableStateOf(false)
+    private var hasNotificationPermission by mutableStateOf(false)
     private var isCheckingPermissions by mutableStateOf(true)
     
     private val storagePermissionLauncher = registerForActivityResult(
@@ -72,6 +74,12 @@ class PermissionGuideActivity : ComponentActivity() {
     private val audioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        checkPermissions()
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
         checkPermissions()
     }
     
@@ -94,9 +102,11 @@ class PermissionGuideActivity : ComponentActivity() {
                     PermissionGuideScreen(
                         hasStoragePermission = hasStoragePermission,
                         hasAudioPermission = hasAudioPermission,
+                        hasNotificationPermission = hasNotificationPermission,
                         isCheckingPermissions = isCheckingPermissions,
                         onRequestStoragePermission = { requestStoragePermission() },
-                        onRequestAudioPermission = { requestAudioPermission() }
+                        onRequestAudioPermission = { requestAudioPermission() },
+                        onRequestNotificationPermission = { requestNotificationPermission() }
                     )
                 }
             }
@@ -130,11 +140,20 @@ class PermissionGuideActivity : ComponentActivity() {
         } else {
             true
         }
+
+        hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
         
         isCheckingPermissions = false
         
         val shouldNavigate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            hasStoragePermission && hasAudioPermission
+            hasStoragePermission && hasAudioPermission && hasNotificationPermission
         } else {
             hasStoragePermission
         }
@@ -165,6 +184,12 @@ class PermissionGuideActivity : ComponentActivity() {
             audioPermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_AUDIO))
         }
     }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     
     private fun navigateToMainActivity() {
         val intent = Intent(this, MainActivity::class.java)
@@ -177,9 +202,11 @@ class PermissionGuideActivity : ComponentActivity() {
 fun PermissionGuideScreen(
     hasStoragePermission: Boolean,
     hasAudioPermission: Boolean,
+    hasNotificationPermission: Boolean,
     isCheckingPermissions: Boolean,
     onRequestStoragePermission: () -> Unit,
-    onRequestAudioPermission: () -> Unit
+    onRequestAudioPermission: () -> Unit,
+    onRequestNotificationPermission: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -246,6 +273,17 @@ fun PermissionGuideScreen(
                 onRequestPermission = onRequestAudioPermission
             )
             
+            Spacer(modifier = Modifier.height(16.dp))
+
+            PermissionCard(
+                icon = Icons.Filled.Notifications,
+                title = "通知权限",
+                description = "用于显示系统媒体通知并支持后台控制播放",
+                isGranted = hasNotificationPermission,
+                isRequired = true,
+                onRequestPermission = onRequestNotificationPermission
+            )
+
             Spacer(modifier = Modifier.height(16.dp))
         }
         

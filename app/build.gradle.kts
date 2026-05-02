@@ -16,8 +16,8 @@ android {
         applicationId = "com.example.LyricBox"
         minSdk = 24
         targetSdk = 36
-        versionCode = 22
-        versionName = "1.8.1"
+        versionCode = 23
+        versionName = "1.8.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -80,6 +80,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(project(":audiotag"))
     implementation(libs.media3.exoplayer)
+    implementation("androidx.media3:media3-session:1.10.0")
     implementation(libs.markdown)
     implementation(libs.coil.compose)
     implementation(libs.androidx.security.crypto)
