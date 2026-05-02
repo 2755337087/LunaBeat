@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaExtractor
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
@@ -13,6 +14,8 @@ import android.util.Log
 import com.lonx.audiotag.rw.AudioTagReader
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -309,6 +312,8 @@ class WordLiftAnimator {
 
 class LyricPreviewActivity : ComponentActivity() {
     private var mediaPlayer: MediaPlayer? = null
+    private var sharedPlaybackController: MusicPlaybackController? = null
+    private var useSharedPlayback: Boolean = false
     private var currentPlaybackPosition: Long = 0L
     private var playbackCompleted by mutableStateOf(false)
     private var previewAudioDuration by mutableLongStateOf(0L)
@@ -323,6 +328,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val EXTRA_INITIAL_POSITION = "initial_position"
         const val EXTRA_RETURN_POSITION = "return_position"
         const val EXTRA_CREATORS = "creators"
+        const val EXTRA_USE_SHARED_PLAYBACK = "use_shared_playback"
+        const val EXTRA_SHARED_PLAYBACK_USED = "shared_playback_used"
         const val PREFS_NAME = "LyricPreviewSettings"
         const val KEY_FONT_SIZE = "font_size"
         const val KEY_SHOW_TRANSLATION = "show_translation"
@@ -340,13 +347,23 @@ class LyricPreviewActivity : ComponentActivity() {
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
         private const val STATE_IS_PLAYING = "state_is_playing"
         
-        fun start(context: Context, audioPath: String, lyricLines: List<NewPreviewLyricLine>, title: String = "歌词预览", initialPosition: Long = 0L, creators: List<String> = emptyList(), sourceAudioPath: String = "") {
-            val intent = Intent(context, LyricPreviewActivity::class.java).apply {
+        fun createIntent(
+            context: Context,
+            audioPath: String,
+            lyricLines: List<NewPreviewLyricLine>,
+            title: String = "歌词预览",
+            initialPosition: Long = 0L,
+            creators: List<String> = emptyList(),
+            sourceAudioPath: String = "",
+            useSharedPlayback: Boolean = false
+        ): Intent {
+            return Intent(context, LyricPreviewActivity::class.java).apply {
                 putExtra(EXTRA_AUDIO_PATH, audioPath)
                 putExtra(EXTRA_SOURCE_AUDIO_PATH, sourceAudioPath)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_INITIAL_POSITION, initialPosition)
                 putExtra(EXTRA_CREATORS, creators.toTypedArray())
+                putExtra(EXTRA_USE_SHARED_PLAYBACK, useSharedPlayback)
                 // 传递行数
                 putExtra("line_count", lyricLines.size)
                 // 每行的单词数
@@ -375,22 +392,67 @@ class LyricPreviewActivity : ComponentActivity() {
                 putExtra("is_duets", isDuets)
                 putExtra("is_backgrounds", isBackgrounds)
             }
+        }
+
+        fun start(
+            context: Context,
+            audioPath: String,
+            lyricLines: List<NewPreviewLyricLine>,
+            title: String = "歌词预览",
+            initialPosition: Long = 0L,
+            creators: List<String> = emptyList(),
+            sourceAudioPath: String = "",
+            useSharedPlayback: Boolean = false
+        ) {
+            val intent = createIntent(
+                context = context,
+                audioPath = audioPath,
+                lyricLines = lyricLines,
+                title = title,
+                initialPosition = initialPosition,
+                creators = creators,
+                sourceAudioPath = sourceAudioPath,
+                useSharedPlayback = useSharedPlayback
+            )
             context.startActivity(intent)
         }
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         
         val audioPath = intent.getStringExtra(EXTRA_AUDIO_PATH) ?: ""
         val sourceAudioPath = intent.getStringExtra(EXTRA_SOURCE_AUDIO_PATH) ?: audioPath
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "歌词预览"
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
+        useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, false)
         val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
         val restorePlaying = savedInstanceState?.getBoolean(STATE_IS_PLAYING, false) ?: false
         val shouldAutoPlayOnLoad = if (savedInstanceState == null) true else restorePlaying
         currentPlaybackPosition = restoredPosition
         val creators = intent.getStringArrayExtra(EXTRA_CREATORS)?.toList() ?: emptyList()
+
+        if (useSharedPlayback) {
+            sharedPlaybackController = MusicPlaybackController(applicationContext).apply { connect() }
+            if (savedInstanceState != null && restoredPosition > 0L) {
+                lifecycleScope.launch {
+                    repeat(80) {
+                        val controller = sharedPlaybackController
+                        if (controller != null && controller.isReady) {
+                            controller.seekTo(restoredPosition)
+                            return@launch
+                        }
+                        delay(50L)
+                    }
+                }
+            }
+        }
         
         // 恢复歌词数据
         val lineCount = intent.getIntExtra("line_count", 0)
@@ -453,42 +515,135 @@ class LyricPreviewActivity : ComponentActivity() {
         
         // 重新组织歌词，在主句上下插入背景歌词
         val reorganizedLines = reorganizeLyricsWithBackground(lines)
+        val previewAudioPathState = mutableStateOf(audioPath)
+        val previewSourceAudioPathState = mutableStateOf(sourceAudioPath)
+        val previewTitleState = mutableStateOf(title)
+        val previewCreatorsState = mutableStateOf(creators)
+        val previewLyricLinesState = mutableStateOf(reorganizedLines)
+        val previewLyricsLoadingState = mutableStateOf(useSharedPlayback && reorganizedLines.isEmpty())
         
-        if (audioPath.isNotEmpty()) {
+        if (!useSharedPlayback && audioPath.isNotEmpty()) {
             loadAudio(audioPath, restoredPosition, shouldAutoPlayOnLoad)
+        }
+
+        if (useSharedPlayback) {
+            lifecycleScope.launch {
+                var lastResolvedPath: String? = if (previewLyricLinesState.value.isNotEmpty()) {
+                    previewAudioPathState.value
+                } else {
+                    null
+                }
+                while (true) {
+                    val controller = sharedPlaybackController ?: break
+                    if (controller.isReady) {
+                        controller.refreshProgress()
+                        val nowPath = controller.currentAudioPath
+                        val shouldRebuildLyrics = !nowPath.isNullOrBlank() && nowPath != lastResolvedPath
+                        if (shouldRebuildLyrics) {
+                            val resolvedNowPath = nowPath ?: ""
+                            previewLyricsLoadingState.value = true
+                            val payload = withContext(Dispatchers.IO) {
+                                buildPlayerLyricPreviewPayload(resolvedNowPath)
+                            }
+                            val rebuiltLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
+                            previewAudioPathState.value = resolvedNowPath
+                            previewSourceAudioPathState.value = resolvedNowPath
+                            previewTitleState.value = controller.currentTitle.ifBlank {
+                                File(resolvedNowPath).nameWithoutExtension
+                            }
+                            previewCreatorsState.value = payload?.creators ?: emptyList()
+                            previewLyricLinesState.value = rebuiltLines
+                            previewLyricsLoadingState.value = false
+                            currentPlaybackPosition = controller.positionMs
+                            playbackCompleted = false
+                            lastResolvedPath = resolvedNowPath
+                        }
+                    }
+                    delay(180L)
+                }
+            }
         }
         
         setContent {
             歌词转换Theme {
                 LyricPreviewScreen(
-                    title = title,
-                    audioPath = audioPath,
-                    sourceAudioPath = sourceAudioPath,
-                    lyricLines = reorganizedLines,
-                    creators = creators,
+                    title = previewTitleState.value,
+                    audioPath = previewAudioPathState.value,
+                    sourceAudioPath = previewSourceAudioPathState.value,
+                    lyricLines = previewLyricLinesState.value,
+                    isLyricLoading = previewLyricsLoadingState.value,
+                    applyInitialSeek = !useSharedPlayback,
+                    creators = previewCreatorsState.value,
                     audioDuration = previewAudioDuration,
                     initialPosition = restoredPosition,
-                    initialIsPlaying = shouldAutoPlayOnLoad,
+                    initialIsPlaying = if (useSharedPlayback) {
+                        sharedPlaybackController?.isPlaying == true
+                    } else {
+                        shouldAutoPlayOnLoad
+                    },
                     onBack = { 
                         // 返回时传递当前播放进度
                         returnWithPosition()
                     },
                     onPlayPause = { playing ->
-                        if (playing) {
-                            mediaPlayer?.start()
-                            playbackCompleted = false
+                        if (useSharedPlayback) {
+                            val controller = sharedPlaybackController
+                            if (playing) {
+                                controller?.play()
+                            } else {
+                                controller?.pause()
+                            }
                         } else {
-                            mediaPlayer?.pause()
+                            if (playing) {
+                                mediaPlayer?.start()
+                                playbackCompleted = false
+                            } else {
+                                mediaPlayer?.pause()
+                            }
                         }
                     },
                     onSeekTo = { position -> 
-                        mediaPlayer?.seekTo(position.toInt())
+                        if (useSharedPlayback) {
+                            sharedPlaybackController?.seekTo(position)
+                        } else {
+                            mediaPlayer?.seekTo(position.toInt())
+                        }
                         currentPlaybackPosition = position
                     },
                     getCurrentPosition = { 
-                        val pos = mediaPlayer?.currentPosition?.toLong() ?: 0L
+                        val pos = if (useSharedPlayback) {
+                            val controller = sharedPlaybackController
+                            if (controller != null && controller.isReady) {
+                                controller.refreshProgress()
+                                controller.positionMs
+                            } else {
+                                currentPlaybackPosition
+                            }
+                        } else {
+                            mediaPlayer?.currentPosition?.toLong() ?: 0L
+                        }
                         currentPlaybackPosition = pos
                         pos
+                    },
+                    getIsPlayingState = {
+                        if (useSharedPlayback) {
+                            sharedPlaybackController?.isPlaying == true
+                        } else {
+                            mediaPlayer?.isPlaying == true
+                        }
+                    },
+                    getAudioDuration = {
+                        if (useSharedPlayback) {
+                            val controller = sharedPlaybackController
+                            if (controller != null && controller.isReady) {
+                                controller.refreshProgress()
+                                controller.durationMs.coerceAtLeast(0L)
+                            } else {
+                                previewAudioDuration.coerceAtLeast(0L)
+                            }
+                        } else {
+                            previewAudioDuration.coerceAtLeast(0L)
+                        }
                     },
                     playbackCompleted = playbackCompleted,
                     onPlaybackCompletedHandled = { playbackCompleted = false }
@@ -501,9 +656,12 @@ class LyricPreviewActivity : ComponentActivity() {
         // 返回时传递当前播放进度
         val returnIntent = Intent().apply {
             putExtra(EXTRA_RETURN_POSITION, currentPlaybackPosition)
+            putExtra(EXTRA_SHARED_PLAYBACK_USED, useSharedPlayback)
         }
         setResult(RESULT_OK, returnIntent)
-        cleanupPreviewConvertCache()
+        if (!useSharedPlayback) {
+            cleanupPreviewConvertCache()
+        }
         finish()
     }
     
@@ -572,6 +730,24 @@ class LyricPreviewActivity : ComponentActivity() {
         if (!file.exists() || !file.name.lowercase().endsWith(".m4a")) {
             return false
         }
+        val extractorDetected = runCatching {
+            val extractor = MediaExtractor()
+            try {
+                extractor.setDataSource(path)
+                for (index in 0 until extractor.trackCount) {
+                    val format = extractor.getTrackFormat(index)
+                    val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                    if (mime.contains("alac", ignoreCase = true)) {
+                        return@runCatching true
+                    }
+                }
+                false
+            } finally {
+                extractor.release()
+            }
+        }.getOrDefault(false)
+        if (extractorDetected) return true
+
         return try {
             FileInputStream(file).use { input ->
                 val maxProbeBytes = min(1024 * 1024, file.length().toInt().coerceAtLeast(0))
@@ -615,6 +791,7 @@ class LyricPreviewActivity : ComponentActivity() {
         previewAudioDuration = 0L
         mediaPlayer?.release()
         mediaPlayer = null
+        cleanupPreviewConvertCacheFiles()
 
         val outputFile = File(
             getPreviewConvertCacheDir(),
@@ -656,6 +833,7 @@ class LyricPreviewActivity : ComponentActivity() {
                             autoPlay = autoPlay,
                             allowFallback = false
                         )
+                        cleanupPreviewConvertCacheFiles(excludePath = outputFile.absolutePath)
                         if (!loaded) {
                             Log.e("LyricPreview", "Failed to play transcoded output: ${outputFile.absolutePath}")
                         }
@@ -685,30 +863,49 @@ class LyricPreviewActivity : ComponentActivity() {
             }
         }
         isFallbackTranscoding = false
+        cleanupPreviewConvertCacheFiles()
+        previewConvertedAudioPath = null
+    }
 
+    private fun cleanupPreviewConvertCacheFiles(excludePath: String? = null) {
         val dir = getPreviewConvertCacheDir()
         dir.listFiles()?.forEach { file ->
+            if (excludePath != null && file.absolutePath == excludePath) return@forEach
             if (file.name.startsWith("preview_transcoded_") || file.name.startsWith("temp_")) {
                 if (!file.delete()) {
                     Log.w("LyricPreview", "Failed to delete preview cache file: ${file.absolutePath}")
                 }
             }
         }
-        previewConvertedAudioPath = null
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        val currentPos = mediaPlayer?.currentPosition?.toLong() ?: currentPlaybackPosition
+        val currentPos = if (useSharedPlayback) {
+            val controller = sharedPlaybackController
+            if (controller != null && controller.isReady) {
+                controller.refreshProgress()
+                controller.positionMs
+            } else {
+                currentPlaybackPosition
+            }
+        } else {
+            mediaPlayer?.currentPosition?.toLong() ?: currentPlaybackPosition
+        }
         outState.putLong(STATE_PLAYBACK_POSITION, currentPos)
-        outState.putBoolean(STATE_IS_PLAYING, mediaPlayer?.isPlaying == true)
+        outState.putBoolean(
+            STATE_IS_PLAYING,
+            if (useSharedPlayback) sharedPlaybackController?.isPlaying == true else mediaPlayer?.isPlaying == true
+        )
         currentPlaybackPosition = currentPos
     }
     
     override fun onDestroy() {
         mediaPlayer?.release()
         mediaPlayer = null
-        if (isFinishing) {
+        sharedPlaybackController?.release()
+        sharedPlaybackController = null
+        if (isFinishing && !useSharedPlayback) {
             cleanupPreviewConvertCache()
         }
         super.onDestroy()
@@ -969,6 +1166,8 @@ fun LyricPreviewScreen(
     audioPath: String,
     sourceAudioPath: String,
     lyricLines: List<NewPreviewLyricLine>,
+    isLyricLoading: Boolean = false,
+    applyInitialSeek: Boolean = true,
     creators: List<String> = emptyList(),
     audioDuration: Long,
     initialPosition: Long = 0L,
@@ -977,6 +1176,8 @@ fun LyricPreviewScreen(
     onPlayPause: (Boolean) -> Unit,
     onSeekTo: (Long) -> Unit,
     getCurrentPosition: () -> Long,
+    getIsPlayingState: () -> Boolean,
+    getAudioDuration: () -> Long,
     playbackCompleted: Boolean = false,
     onPlaybackCompletedHandled: () -> Unit = {}
 ) {
@@ -992,6 +1193,7 @@ fun LyricPreviewScreen(
     
     var isPlaying by remember(initialIsPlaying) { mutableStateOf(initialIsPlaying) }
     var currentTime by remember { mutableStateOf(initialPosition) }
+    var dynamicDuration by remember(audioDuration) { mutableLongStateOf(audioDuration.coerceAtLeast(0L)) }
     var showTranslation by remember { 
         mutableStateOf(prefs.getBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLATION, LyricPreviewActivity.DEFAULT_SHOW_TRANSLATION)) 
     }
@@ -1015,12 +1217,13 @@ fun LyricPreviewScreen(
     var showAnimationTypeDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf(PreviewAudioMetadata(title, "未知艺术家", null)) }
-    var lightVibrantColor by remember { mutableStateOf<Color?>(null) }
-    var darkVibrantColor by remember { mutableStateOf<Color?>(null) }
-    var lightMutedColor by remember { mutableStateOf<Color?>(null) }
-    var darkMutedColor by remember { mutableStateOf<Color?>(null) }
-    var mutedColor by remember { mutableStateOf<Color?>(null) }
+    var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     val scope = rememberCoroutineScope()
+    
+    // 获取深浅模式设置
+    val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    val settingsDarkMode = com.example.LyricBox.ui.theme.getDarkModeFromSettings(context)
+    val isDarkTheme = settingsDarkMode ?: systemDarkTheme
     
     // 加载音频元数据
     LaunchedEffect(sourceAudioPath, title) {
@@ -1030,87 +1233,14 @@ fun LyricPreviewScreen(
     }
     
     // 提取封面颜色
-    LaunchedEffect(metadata.coverBitmap) {
+    LaunchedEffect(metadata.coverBitmap, isDarkTheme) {
         val cover = metadata.coverBitmap
         if (cover == null) {
-            lightVibrantColor = null
-            darkVibrantColor = null
-            lightMutedColor = null
-            darkMutedColor = null
-            mutedColor = null
+            coverThemeColor = null
             return@LaunchedEffect
         }
-
-        scope.launch(Dispatchers.IO) {
-            // 1. 优先提取中心区域主体；尺寸过小时回退原图，避免裁剪越界
-            val source = if (cover.width >= 4 && cover.height >= 4) {
-                Bitmap.createBitmap(
-                    cover,
-                    cover.width / 4,
-                    cover.height / 4,
-                    (cover.width / 2).coerceAtLeast(1),
-                    (cover.height / 2).coerceAtLeast(1)
-                )
-            } else {
-                cover
-            }
-
-            // 2. 降采样保证性能
-            val small = Bitmap.createScaledBitmap(source, 120, 120, true)
-            val palette = androidx.palette.graphics.Palette.from(small)
-                .maximumColorCount(24)
-                .clearFilters()
-                .generate()
-            val swatches = palette.swatches
-
-            // 鲜艳色优先饱和度 + 中等明度 + 像素占比
-            val vibrantFallback = pickBestPaletteSwatch(swatches) { swatch, maxPopulation ->
-                val hsl = swatch.hsl
-                val saturation = hsl[1]
-                val lightness = hsl[2]
-                val populationScore = swatch.population.toFloat() / maxPopulation
-                val satScore = saturation
-                val lightnessScore = 1f - kotlin.math.abs(lightness - 0.52f)
-                satScore * 1.45f + lightnessScore * 0.45f + populationScore * 0.25f
-            }
-
-            // 柔和色优先中低饱和 + 中等明度 + 像素占比
-            val mutedFallback = pickBestPaletteSwatch(swatches) { swatch, maxPopulation ->
-                val hsl = swatch.hsl
-                val saturation = hsl[1]
-                val lightness = hsl[2]
-                val populationScore = swatch.population.toFloat() / maxPopulation
-                val satTargetScore = 1f - kotlin.math.abs(saturation - 0.28f)
-                val lightnessScore = 1f - kotlin.math.abs(lightness - 0.52f)
-                satTargetScore * 1.2f + lightnessScore * 0.45f + populationScore * 0.35f
-            }
-
-            val finalLightVibrant = palette.lightVibrantSwatch
-                ?: palette.vibrantSwatch
-                ?: vibrantFallback
-                ?: palette.dominantSwatch
-            val finalDarkVibrant = palette.darkVibrantSwatch
-                ?: palette.vibrantSwatch
-                ?: vibrantFallback
-                ?: palette.dominantSwatch
-            val finalLightMuted = palette.lightMutedSwatch
-                ?: palette.mutedSwatch
-                ?: mutedFallback
-                ?: palette.dominantSwatch
-            val finalDarkMuted = palette.darkMutedSwatch
-                ?: palette.mutedSwatch
-                ?: mutedFallback
-                ?: palette.dominantSwatch
-            val finalMuted = palette.mutedSwatch
-                ?: mutedFallback
-                ?: palette.dominantSwatch
-                ?: vibrantFallback
-
-            lightVibrantColor = finalLightVibrant?.rgb?.let { Color(it) }
-            darkVibrantColor = finalDarkVibrant?.rgb?.let { Color(it) }
-            lightMutedColor = finalLightMuted?.rgb?.let { Color(it) }
-            darkMutedColor = finalDarkMuted?.rgb?.let { Color(it) }
-            mutedColor = finalMuted?.rgb?.let { Color(it) }
+        coverThemeColor = withContext(Dispatchers.IO) {
+            extractMutedCoverColor(cover, preferDark = isDarkTheme)
         }
     }
     
@@ -1124,11 +1254,6 @@ fun LyricPreviewScreen(
     // 读取打轴界面的快进快退设置
     val seekTimeSeconds by remember { mutableFloatStateOf(appPrefs.getFloat("seekTimeSeconds", 2f)) }
     val seekTimeMs = (seekTimeSeconds * 1000).toLong()
-    
-    // 获取深浅模式设置
-    val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
-    val settingsDarkMode = com.example.LyricBox.ui.theme.getDarkModeFromSettings(context)
-    val isDarkTheme = settingsDarkMode ?: systemDarkTheme
     
     // 处理歌词：检测并插入间奏行
     val processedLyricLines = remember(lyricLines) {
@@ -1159,6 +1284,14 @@ fun LyricPreviewScreen(
     // 记录最后一次尝试滚动但被跳过的行索引
     var lastSkippedScrollIndex by remember { mutableIntStateOf(-1) }
     var closeNextSkipStreak by remember { mutableIntStateOf(0) }
+    var previousObservedTime by remember { mutableLongStateOf(initialPosition) }
+    var hidePlayedLinesDuringInitialBuild by remember(processedLyricLines, initialPosition) {
+        mutableStateOf(initialPosition > 0L && processedLyricLines.isNotEmpty())
+    }
+    var initialBuildTargetIndex by remember(processedLyricLines, initialPosition) { mutableIntStateOf(-1) }
+    var lyricsContentReady by remember(processedLyricLines, isLyricLoading) {
+        mutableStateOf(processedLyricLines.isEmpty() && !isLyricLoading)
+    }
     val maxCloseNextConsecutiveSkips = 2
     val autoScrollMinIntervalMs = 700L
     fun logAutoScroll(message: String) {
@@ -1230,11 +1363,47 @@ fun LyricPreviewScreen(
         }
     }
 
-    // 初始化时跳转到初始位置
-    LaunchedEffect(Unit) {
-        if (initialPosition > 0) {
-            onSeekTo(initialPosition)
+    // 初始化歌词列表定位：共享播放模式只跟随当前进度，不做强制 seek，避免回退与中断。
+    LaunchedEffect(processedLyricLines, initialPosition, applyInitialSeek, isLyricLoading) {
+        if (isLyricLoading) {
+            lyricsContentReady = false
+            hidePlayedLinesDuringInitialBuild = false
+            initialBuildTargetIndex = -1
+            return@LaunchedEffect
         }
+
+        if (processedLyricLines.isEmpty()) {
+            initialBuildTargetIndex = -1
+            hidePlayedLinesDuringInitialBuild = false
+            lyricsContentReady = true
+            return@LaunchedEffect
+        }
+
+        lyricsContentReady = false
+        val anchorPosition = if (applyInitialSeek) {
+            initialPosition.coerceAtLeast(0L)
+        } else {
+            getCurrentPosition().coerceAtLeast(0L)
+        }
+
+        if (applyInitialSeek && anchorPosition > 0L) {
+            onSeekTo(anchorPosition)
+        }
+
+        currentTime = anchorPosition
+        hidePlayedLinesDuringInitialBuild = anchorPosition > 0L
+        val targetIndex = lineNavigator.findTargetIndex(anchorPosition)
+        initialBuildTargetIndex = targetIndex
+        if (targetIndex >= 0) {
+            lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+            lastAutoScrolledIndex = targetIndex
+        }
+
+        withFrameNanos { }
+        withFrameNanos { }
+        delay(120L)
+        hidePlayedLinesDuringInitialBuild = false
+        lyricsContentReady = true
     }
 
     // 监听用户滑动交互
@@ -1265,9 +1434,32 @@ fun LyricPreviewScreen(
 
     // 更新当前播放行索引
     LaunchedEffect(currentTime, processedLyricLines) {
+        val isExternalBackwardSeek = currentTime + 800L < previousObservedTime
+        if (isExternalBackwardSeek) {
+            isUserScrolling = false
+            scrollJob?.cancel()
+            autoScrollJob?.cancel()
+            pendingAutoScrollIndex = -1
+            autoScrollRunningTarget = -1
+            lastAutoScrolledIndex = -1
+            lastSkippedScrollIndex = -1
+            closeNextSkipStreak = 0
+            seekResetCounter += 1
+            if (processedLyricLines.isNotEmpty()) {
+                val targetIndex = lineNavigator.findTargetIndex(currentTime)
+                if (targetIndex >= 0) {
+                    coroutineScope.launch {
+                        lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+                    }
+                }
+            }
+            logAutoScroll("detected external backward seek from=$previousObservedTime to=$currentTime, reset auto-scroll state")
+        }
+
         if (processedLyricLines.isNotEmpty()) {
             currentLineIndex = lineNavigator.findTargetIndex(currentTime)
         }
+        previousObservedTime = currentTime
     }
     
     // 保存字体大小设置
@@ -1304,6 +1496,8 @@ fun LyricPreviewScreen(
     LaunchedEffect(Unit) {
         while (true) {
             currentTime = getCurrentPosition()
+            isPlaying = getIsPlayingState()
+            dynamicDuration = getAudioDuration().coerceAtLeast(0L)
             delay(16)
         }
     }
@@ -1490,15 +1684,12 @@ fun LyricPreviewScreen(
         }
     }
     
-    val backgroundColor = if (isDarkTheme) {
-        darkMutedColor ?: MaterialTheme.colorScheme.background
-    } else {
-        lightMutedColor ?: MaterialTheme.colorScheme.background
-    }
+    val rawBackgroundColor = coverThemeColor ?: MaterialTheme.colorScheme.background
+    val backgroundColor = normalizeCoverThemeBackground(rawBackgroundColor, isDarkTheme)
     val accentColor = if (isDarkTheme) {
-        lightMutedColor ?: mutedColor ?: MaterialTheme.colorScheme.primary
+        blendColorForUi(backgroundColor, Color.White, 0.42f)
     } else {
-        darkMutedColor ?: mutedColor ?: MaterialTheme.colorScheme.primary
+        blendColorForUi(backgroundColor, Color.Black, 0.42f)
     }
     val baseForegroundColor = getHighContrastBlackOrWhite(backgroundColor)
     val menuSurfaceColor = ensureReadableColor(
@@ -1562,12 +1753,21 @@ fun LyricPreviewScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
             ) {
+                val showLoadingOverlay = isLyricLoading || !lyricsContentReady
+                val lyricContentAlpha by animateFloatAsState(
+                    targetValue = if (showLoadingOverlay) 0f else 1f,
+                    animationSpec = tween(durationMillis = 320),
+                    label = "lyricContentRevealAlpha"
+                )
+
                 if (processedLyricLines.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("暂无歌词", color = if (isDarkTheme) Color.Gray else Color.DarkGray)
+                    if (!showLoadingOverlay) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("暂无歌词", color = if (isDarkTheme) Color.Gray else Color.DarkGray)
+                        }
                     }
                 } else {
                     // 计算屏幕高度的1/4作为顶部padding
@@ -1603,19 +1803,20 @@ fun LyricPreviewScreen(
                         }
                     }
                     
-                    LazyColumn(
-                        state = lazyListState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clipToBounds() // 裁剪超出边界的内容
-                            .then(extendedViewportModifier), // 延长视口高度，让更多歌词行保持活跃
-                        contentPadding = PaddingValues(
-                            top = topPadding + keepAlivePadding,
-                            bottom = bottomPadding + keepAlivePadding
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        itemsIndexed(processedLyricLines) { index, line ->
+                    Box(modifier = Modifier.alpha(lyricContentAlpha)) {
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clipToBounds() // 裁剪超出边界的内容
+                                .then(extendedViewportModifier), // 延长视口高度，让更多歌词行保持活跃
+                            contentPadding = PaddingValues(
+                                top = topPadding + keepAlivePadding,
+                                bottom = bottomPadding + keepAlivePadding
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            itemsIndexed(processedLyricLines) { index, line ->
                             val nextLine = if (index < processedLyricLines.size - 1) processedLyricLines[index + 1] else null
                             // 计算动态 stiffness - 距离当前行越近，stiffness 越大，动画越快
                             val distance = if (currentLineIndex >= 0) kotlin.math.abs(index - currentLineIndex) else 0
@@ -1650,93 +1851,127 @@ fun LyricPreviewScreen(
                                 line.isDuet
                             }
                             
-                            LyricLineView(
-                                line = line,
-                                nextLine = nextLine,
-                                lineIndex = index,
-                                currentPlayingIndex = currentLineIndex,
-                                currentTime = currentTime,
-                                showTranslation = showTranslation,
-                                isDarkTheme = isDarkTheme,
-                                fontSize = fontSize.sp,
-                                fontWeight = fontWeight, // 新增
-                                showTransliteration = showTransliteration, // 新增
-                                lookaheadScope = this@LookaheadScope,
-                                itemKey = "${line.begin}-${line.end}-$index",
-                                isManualScrolling = isUserScrolling,
-                                stiffness = dynamicStiffness,
-                                forceReset = seekResetCounter,
-                                shouldShowBackgroundLine = shouldShowBackground,
-                                isAboveMain = isAboveMain,
-                                backgroundColor = backgroundColor,
-                                themeAccentColor = accentColor,
-                                effectiveIsDuet = effectiveIsDuet,
-                                nextLineIsDuet = getNextLineIsDuet(processedLyricLines, index), // 新增
-                                isPlaying = isPlaying, // 新增
-                                animationType = animationType, // 新增
-                                blurRadius = lyricLineBlurRadius,
-                                onClick = {
-                                    // 点击歌词行跳转到该行开始播放
-                                    onSeekTo(line.begin)
-                                    currentTime = line.begin
-                                    lastAutoScrolledIndex = index // 更新最后滚动索引
-                                    // 重置跳过的索引状态
-                                    lastSkippedScrollIndex = -1
-                                    if (!isPlaying) {
-                                        isPlaying = true
-                                        onPlayPause(true)
-                                    }
-                                    
-                                    // 先确保用户滚动标志关闭，延迟一小段时间再滚动
-                                    isUserScrolling = false
-                                    scrollJob?.cancel()
-                                    
-                                    // 延迟滚动，给弹簧动画准备时间
-                                    coroutineScope.launch {
-                                        delay(50) // 短暂延迟确保动画准备好
-                                        lazyListState.animateScrollToItem(
-                                            index = index,
-                                            scrollOffset = -100
-                                        )
-                                    }
-                                }
+                            val shouldHideInitially = hidePlayedLinesDuringInitialBuild &&
+                                initialBuildTargetIndex >= 0 &&
+                                index < initialBuildTargetIndex
+                            val lineAlpha by animateFloatAsState(
+                                targetValue = if (shouldHideInitially) 0f else 1f,
+                                animationSpec = tween(durationMillis = 300),
+                                label = "initialPlayedLineReveal"
                             )
+
+                            Box(modifier = Modifier.alpha(lineAlpha)) {
+                                LyricLineView(
+                                    line = line,
+                                    nextLine = nextLine,
+                                    lineIndex = index,
+                                    currentPlayingIndex = currentLineIndex,
+                                    currentTime = currentTime,
+                                    showTranslation = showTranslation,
+                                    isDarkTheme = isDarkTheme,
+                                    fontSize = fontSize.sp,
+                                    fontWeight = fontWeight, // 新增
+                                    showTransliteration = showTransliteration, // 新增
+                                    lookaheadScope = this@LookaheadScope,
+                                    itemKey = "${line.begin}-${line.end}-$index",
+                                    isManualScrolling = isUserScrolling,
+                                    stiffness = dynamicStiffness,
+                                    forceReset = seekResetCounter,
+                                    shouldShowBackgroundLine = shouldShowBackground,
+                                    isAboveMain = isAboveMain,
+                                    backgroundColor = backgroundColor,
+                                    themeAccentColor = accentColor,
+                                    effectiveIsDuet = effectiveIsDuet,
+                                    nextLineIsDuet = getNextLineIsDuet(processedLyricLines, index), // 新增
+                                    isPlaying = isPlaying, // 新增
+                                    animationType = animationType, // 新增
+                                    blurRadius = lyricLineBlurRadius,
+                                    onClick = {
+                                        // 点击歌词行跳转到该行开始播放
+                                        onSeekTo(line.begin)
+                                        currentTime = line.begin
+                                        lastAutoScrolledIndex = index // 更新最后滚动索引
+                                        // 重置跳过的索引状态
+                                        lastSkippedScrollIndex = -1
+                                        if (!isPlaying) {
+                                            isPlaying = true
+                                            onPlayPause(true)
+                                        }
+                                        
+                                        // 先确保用户滚动标志关闭，延迟一小段时间再滚动
+                                        isUserScrolling = false
+                                        scrollJob?.cancel()
+                                        
+                                        // 延迟滚动，给弹簧动画准备时间
+                                        coroutineScope.launch {
+                                            delay(50) // 短暂延迟确保动画准备好
+                                            lazyListState.animateScrollToItem(
+                                                index = index,
+                                                scrollOffset = -100
+                                            )
+                                        }
+                                    }
+                                )
+                            }
                         }
                         
-                        // 创作者信息显示区域，跟随歌词一起滚动
-                        if (creators.isNotEmpty()) {
-                            val creatorFontSize = maxOf(18f, fontSize - 10f).sp
-                            val creatorItemKey = "creators-section-${seekResetCounter}"
-                            val distance = if (currentLineIndex >= 0) kotlin.math.abs(processedLyricLines.size - currentLineIndex) else 0
-                            val dynamicStiffness = (120f - (distance * 20f)).coerceAtLeast(20f)
-                            
-                            item(key = creatorItemKey) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .springPlacement(this@LookaheadScope, creatorItemKey, isUserScrolling, dynamicStiffness, seekResetCounter)
-                                ) {
-                                    Column(
+                            // 创作者信息显示区域，跟随歌词一起滚动
+                            if (creators.isNotEmpty()) {
+                                val creatorFontSize = maxOf(18f, fontSize - 10f).sp
+                                val creatorItemKey = "creators-section-${seekResetCounter}"
+                                val distance = if (currentLineIndex >= 0) kotlin.math.abs(processedLyricLines.size - currentLineIndex) else 0
+                                val dynamicStiffness = (120f - (distance * 20f)).coerceAtLeast(20f)
+                                
+                                item(key = creatorItemKey) {
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 16.dp),
-                                        horizontalAlignment = Alignment.Start
+                                            .springPlacement(this@LookaheadScope, creatorItemKey, isUserScrolling, dynamicStiffness, seekResetCounter)
                                     ) {
-                                        Text(
-                                            text = buildAnnotatedString {
-                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                                    append("创作者：")
-                                                }
-                                                append(creators.joinToString("、"))
-                                            },
-                                            fontSize = creatorFontSize,
-                                            color = creatorLyricColor,
-                                            modifier = Modifier.alpha(0.8f),
-                                            textAlign = TextAlign.Start
-                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 16.dp),
+                                            horizontalAlignment = Alignment.Start
+                                        ) {
+                                            Text(
+                                                text = buildAnnotatedString {
+                                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                        append("创作者：")
+                                                    }
+                                                    append(creators.joinToString("、"))
+                                                },
+                                                fontSize = creatorFontSize,
+                                                color = creatorLyricColor,
+                                                modifier = Modifier.alpha(0.8f),
+                                                textAlign = TextAlign.Start
+                                            )
+                                        }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = showLoadingOverlay,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 160)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 280))
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(color = accentColor)
+                            Text(
+                                text = "歌词构建中...",
+                                color = if (isDarkTheme) Color.LightGray else Color.DarkGray
+                            )
                         }
                     }
                 }
@@ -1841,7 +2076,7 @@ fun LyricPreviewScreen(
             
             PlaybackControls(
                 currentTime = currentTime,
-                duration = audioDuration,
+                duration = dynamicDuration,
                 isPlaying = isPlaying,
                 isDarkTheme = isDarkTheme,
                 seekTimeMs = seekTimeMs,

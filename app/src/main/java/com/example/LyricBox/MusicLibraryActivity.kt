@@ -78,6 +78,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ripple
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.AlertDialog
@@ -136,6 +137,7 @@ import androidx.documentfile.provider.DocumentFile
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
+import com.example.LyricBox.ui.components.GlobalMiniPlayerBar
 import com.example.LyricBox.lyrics.LyricsService
 import com.example.LyricBox.lyrics.models.SongInfo
 import com.example.LyricBox.lyrics.models.Source
@@ -1094,6 +1096,10 @@ fun MusicLibraryScreen(
     val songClickAction = remember { prefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
     val scope = rememberCoroutineScope()
+    val playbackController = rememberMusicPlaybackController()
+    val miniPlayerVisible = playbackController.hasCurrentItem
+    val miniPlayerHeight = 72.dp
+    val miniPlayerExtraBottomPadding = if (miniPlayerVisible) miniPlayerHeight + 12.dp else 0.dp
     
     val allAudioFiles = remember { mutableStateListOf<AudioFile>() }
     val displayAudioFiles = remember { mutableStateListOf<AudioFile>() }
@@ -1540,7 +1546,7 @@ fun MusicLibraryScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 8.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp + miniPlayerExtraBottomPadding
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1619,7 +1625,7 @@ fun MusicLibraryScreen(
                 
                 Box(modifier = Modifier.fillMaxSize()) {
                     val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
-                    val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 8.dp
+                    val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 8.dp + miniPlayerExtraBottomPadding
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = listState,
@@ -1698,24 +1704,7 @@ fun MusicLibraryScreen(
                                     null
                                 } else {
                                     {
-                                        scope.launch {
-                                            val payload = withContext(Dispatchers.IO) {
-                                                buildPreviewLyricPayload(audio.path)
-                                            }
-                                            if (payload == null) {
-                                                Toast.makeText(context, "未读取到可预览歌词", Toast.LENGTH_SHORT).show()
-                                                return@launch
-                                            }
-                                            LyricPreviewActivity.start(
-                                                context = context,
-                                                audioPath = audio.path,
-                                                lyricLines = payload.lines,
-                                                title = audio.displayTitle,
-                                                initialPosition = 0L,
-                                                creators = payload.creators,
-                                                sourceAudioPath = audio.path
-                                            )
-                                        }
+                                        playbackController.playQueue(displayAudioFiles.toList(), audio.path)
                                     }
                                 }
                             )
@@ -1955,6 +1944,24 @@ fun MusicLibraryScreen(
                     }
                 }
             }
+        }
+        AnimatedVisibility(
+            visible = miniPlayerVisible && !isMultiSelectMode,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    bottom = if (isScanning || showScanComplete) 76.dp else 8.dp
+                ),
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(180))
+        ) {
+            GlobalMiniPlayerBar(
+                controller = playbackController,
+                onExpand = { MusicPlayerActivity.start(context) }
+            )
         }
     }
     
@@ -2455,6 +2462,7 @@ fun AudioFileItem(
                 }
             }
         }
+
     }
     
     DisposableEffect(Unit) {
@@ -2580,6 +2588,133 @@ fun AudioFileItem(
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MusicLibraryMiniPlayerBar(
+    controller: MusicPlaybackController,
+    onExpand: () -> Unit
+) {
+    var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var coverPanelColor by remember { mutableStateOf<Color?>(null) }
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    val isDarkTheme = colorLuminance(MaterialTheme.colorScheme.background) < 0.5f
+
+    LaunchedEffect(controller.currentCoverCachePath) {
+        coverBitmap = withContext(Dispatchers.IO) {
+            controller.currentCoverCachePath
+                ?.takeIf { File(it).exists() }
+                ?.let { loadCoverBitmapFromCache(it, 112, 112) }
+        }
+    }
+    LaunchedEffect(coverBitmap, isDarkTheme) {
+        coverPanelColor = withContext(Dispatchers.IO) {
+            coverBitmap?.let { extractMutedCoverColor(it, preferDark = isDarkTheme) }
+        }
+    }
+
+    val baseColor = coverPanelColor
+        ?.let { blendColorForUi(it, if (isDarkTheme) Color.Black else Color.White, if (isDarkTheme) 0.12f else 0.16f) }
+        ?: MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.96f)
+    val onBaseColor = if (colorLuminance(baseColor) > 0.52f) Color(0xFF151515) else Color.White
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(baseColor)
+            .pointerInput(controller.currentMediaId) {
+                detectDragGestures(
+                    onDragEnd = {
+                        if (dragOffsetY < -56f) {
+                            onExpand()
+                        }
+                        dragOffsetY = 0f
+                    },
+                    onDragCancel = { dragOffsetY = 0f }
+                ) { change, dragAmount ->
+                    change.consume()
+                    dragOffsetY += dragAmount.y
+                }
+            }
+            .clickable { onExpand() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (coverBitmap != null) {
+            Image(
+                bitmap = coverBitmap!!.asImageBitmap(),
+                contentDescription = "当前歌曲封面",
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        } else {
+            Icon(
+                painter = painterResource(id = android.R.drawable.ic_media_play),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(44.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = controller.currentTitle.ifBlank { "未选择歌曲" },
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = onBaseColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = controller.currentArtist.ifBlank { "未知艺术家" },
+                fontSize = 12.sp,
+                color = onBaseColor.copy(alpha = 0.75f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        IconButton(
+            onClick = { controller.skipToPrevious() },
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.prel),
+                contentDescription = "上一首",
+                tint = onBaseColor,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        IconButton(
+            onClick = { controller.togglePlayPause() },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = if (controller.isPlaying) R.drawable.pause else R.drawable.play),
+                contentDescription = if (controller.isPlaying) "暂停" else "播放",
+                tint = onBaseColor,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        IconButton(
+            onClick = { controller.skipToNext() },
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.nextl),
+                contentDescription = "下一首",
+                tint = onBaseColor,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -2970,6 +3105,7 @@ fun AudioOptionsDialog(
                 }
             }
         }
+
     }
     
     if (showLyricsPreview) {
@@ -4490,6 +4626,7 @@ private fun BatchLyricsConvertSheet(
                 }
             }
         }
+
     }
 }
 
