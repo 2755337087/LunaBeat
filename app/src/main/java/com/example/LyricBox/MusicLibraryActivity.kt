@@ -99,6 +99,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -1147,6 +1148,9 @@ fun MusicLibraryScreen(
     var isFromCache by remember { mutableStateOf(false) }
     var showScanComplete by remember { mutableStateOf(false) }
     var isLoadingCache by remember { mutableStateOf(true) }
+    var isPreparingInitialCovers by remember { mutableStateOf(false) }
+    var isInitialListFadeReady by remember { mutableStateOf(false) }
+    var hasTriggeredInitialReveal by remember { mutableStateOf(false) }
     var showScanProgressPopup by remember { mutableStateOf(false) }
     var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
     
@@ -1211,6 +1215,8 @@ fun MusicLibraryScreen(
     }
     
     val activity = context as MusicLibraryActivity
+    val density = LocalDensity.current
+    val coverPreloadSizePx = with(density) { 56.dp.toPx().toInt().coerceAtLeast(56) }
 
     fun resolveTrackSortValue(audio: AudioFile): Int {
         val cached = albumTrackSortCache[audio.path]
@@ -1298,6 +1304,31 @@ fun MusicLibraryScreen(
                 saveCachedAudioFiles(context, allAudioFiles)
             }
             updateDisplayFiles()
+        }
+    }
+
+    LaunchedEffect(isLoadingCache, isScanning, displayAudioFiles.size) {
+        if (hasTriggeredInitialReveal) return@LaunchedEffect
+        if (isLoadingCache) return@LaunchedEffect
+        if (displayAudioFiles.isEmpty() && isScanning) return@LaunchedEffect
+
+        hasTriggeredInitialReveal = true
+        isPreparingInitialCovers = true
+        val initialSnapshot = displayAudioFiles.toList()
+        try {
+            withContext(Dispatchers.IO) {
+                initialSnapshot.forEach { audio ->
+                    val cachePath = audio.coverCachePath ?: return@forEach
+                    val bitmap = runCatching {
+                        loadCoverBitmapFromCache(cachePath, coverPreloadSizePx, coverPreloadSizePx)
+                            ?: rebuildCoverCacheBitmap(context, audio, cachePath, coverPreloadSizePx)
+                    }.getOrNull()
+                    bitmap?.let { MusicLibraryActivity.putCoverToCache(cachePath, it) }
+                }
+            }
+        } finally {
+            isPreparingInitialCovers = false
+            isInitialListFadeReady = true
         }
     }
     
@@ -1647,296 +1678,295 @@ fun MusicLibraryScreen(
                 }
             )
             
-            if (isLoadingCache) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    state = listState,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp + miniPlayerExtraBottomPadding
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(10) { index ->
-                        androidx.compose.runtime.key(index) {
-                            AudioFileItemPlaceholder()
-                        }
-                    }
-                }
-            } else if (displayAudioFiles.isEmpty() && !isScanning) {
+            val shouldShowLibraryLoading = isLoadingCache || isPreparingInitialCovers || !isInitialListFadeReady
+
+            if (shouldShowLibraryLoading) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.baseline_folder_open_24),
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "未找到匹配的歌曲" else "未找到音频文件",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (searchQuery.isEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "请检查设置中的目录配置",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
+                    LoadingIndicator(modifier = Modifier.size(56.dp))
                 }
-            } else if (displayAudioFiles.isNotEmpty() || isScanning) {
-                var isDragging by remember { mutableStateOf(false) }
-                var dragProgress by remember { mutableStateOf(0f) }
-                var targetScrollbarAlpha by remember { mutableStateOf(1f) }
-                val animatedScrollbarAlpha by animateFloatAsState(
-                    targetValue = targetScrollbarAlpha,
-                    animationSpec = tween(durationMillis = 300),
-                    label = "scrollbarAlpha"
-                )
-                var hideTimerJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-                
-                fun resetHideTimer() {
-                    hideTimerJob?.cancel()
-                    targetScrollbarAlpha = 1f
-                    hideTimerJob = scope.launch {
-                        delay(1000)
-                        targetScrollbarAlpha = 0.2f
-                    }
-                }
-                
-                LaunchedEffect(Unit) {
-                    resetHideTimer()
-                }
-                
-                LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
-                    resetHideTimer()
-                    if (!isDragging) {
-                        val totalItems = displayAudioFiles.size
-                        val viewportHeight = listState.layoutInfo.viewportSize.height
-                        val itemHeight = 80
-                        val maxScrollIndex = (totalItems - (viewportHeight / itemHeight)).coerceAtLeast(0)
-                        if (maxScrollIndex > 0) {
-                            dragProgress = listState.firstVisibleItemIndex.toFloat() / maxScrollIndex.toFloat()
-                        }
-                    }
-                }
-                
-                Box(modifier = Modifier.fillMaxSize()) {
-                    val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
-                    val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 8.dp + miniPlayerExtraBottomPadding
-                    LazyColumn(
+            }
+
+            AnimatedVisibility(
+                visible = !shouldShowLibraryLoading,
+                enter = fadeIn(animationSpec = tween(durationMillis = 320)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 120))
+            ) {
+                if (displayAudioFiles.isEmpty() && !isScanning) {
+                    Box(
                         modifier = Modifier.fillMaxSize(),
-                        state = listState,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 8.dp,
-                            bottom = bottomPadding
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        contentAlignment = Alignment.Center
                     ) {
-                        items(displayAudioFiles, key = { it.path }) { audio ->
-                            val index = displayAudioFiles.indexOf(audio) + 1
-                            val isSelected = selectedPaths.contains(audio.path)
-                            AudioFileItem(
-                                audio = audio,
-                                isInMultiSelectMode = isMultiSelectMode,
-                                isSelected = isSelected,
-                                sequenceNumber = if (isMultiSelectMode) index else null,
-                                onClick = {
-                                    if (isMultiSelectMode) {
-                                        if (selectedPaths.contains(audio.path)) {
-                                            selectedPaths.remove(audio.path)
-                                            lastSelectedIndices.remove(index)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.baseline_folder_open_24),
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = if (searchQuery.isNotEmpty()) "未找到匹配的歌曲" else "未找到音频文件",
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (searchQuery.isEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "请检查设置中的目录配置",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                } else if (displayAudioFiles.isNotEmpty() || isScanning) {
+                    var isDragging by remember { mutableStateOf(false) }
+                    var dragProgress by remember { mutableStateOf(0f) }
+                    var targetScrollbarAlpha by remember { mutableStateOf(1f) }
+                    val animatedScrollbarAlpha by animateFloatAsState(
+                        targetValue = targetScrollbarAlpha,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "scrollbarAlpha"
+                    )
+                    var hideTimerJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                    
+                    fun resetHideTimer() {
+                        hideTimerJob?.cancel()
+                        targetScrollbarAlpha = 1f
+                        hideTimerJob = scope.launch {
+                            delay(1000)
+                            targetScrollbarAlpha = 0.2f
+                        }
+                    }
+                    
+                    LaunchedEffect(Unit) {
+                        resetHideTimer()
+                    }
+                    
+                    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+                        resetHideTimer()
+                        if (!isDragging) {
+                            val totalItems = displayAudioFiles.size
+                            val viewportHeight = listState.layoutInfo.viewportSize.height
+                            val itemHeight = 80
+                            val maxScrollIndex = (totalItems - (viewportHeight / itemHeight)).coerceAtLeast(0)
+                            if (maxScrollIndex > 0) {
+                                dragProgress = listState.firstVisibleItemIndex.toFloat() / maxScrollIndex.toFloat()
+                            }
+                        }
+                    }
+                    
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
+                        val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 8.dp + miniPlayerExtraBottomPadding
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            state = listState,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 8.dp,
+                                bottom = bottomPadding
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(displayAudioFiles, key = { it.path }) { audio ->
+                                val index = displayAudioFiles.indexOf(audio) + 1
+                                val isSelected = selectedPaths.contains(audio.path)
+                                AudioFileItem(
+                                    audio = audio,
+                                    isInMultiSelectMode = isMultiSelectMode,
+                                    isSelected = isSelected,
+                                    sequenceNumber = if (isMultiSelectMode) index else null,
+                                    onClick = {
+                                        if (isMultiSelectMode) {
+                                            if (selectedPaths.contains(audio.path)) {
+                                                selectedPaths.remove(audio.path)
+                                                lastSelectedIndices.remove(index)
+                                            } else {
+                                                selectedPaths.add(audio.path)
+                                                lastSelectedIndices.add(index)
+                                                if (lastSelectedIndices.size > 2) {
+                                                    lastSelectedIndices.removeAt(0)
+                                                }
+                                            }
                                         } else {
+                                            if (songClickAction == "editMetadata") {
+                                                onEditMetadata(audio.path)
+                                            } else {
+                                                handleMusicLibraryItemLyricsAction(
+                                                    scope = scope,
+                                                    audio = audio,
+                                                    autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+                                                    onShowOptions = {
+                                                        selectedAudio = it
+                                                        showAudioOptionsDialog = true
+                                                    },
+                                                    onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
+                                                        startLyricTimingEditor(
+                                                            audio = targetAudio,
+                                                            lyricsContent = lyricsContent,
+                                                            format = format
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (!isMultiSelectMode) {
+                                            isMultiSelectMode = true
+                                            selectedPaths.add(audio.path)
+                                            lastSelectedIndices.clear()
+                                            lastSelectedIndices.add(index)
+                                        }
+                                    },
+                                    onSelectionChange = { selected ->
+                                        if (selected) {
                                             selectedPaths.add(audio.path)
                                             lastSelectedIndices.add(index)
                                             if (lastSelectedIndices.size > 2) {
                                                 lastSelectedIndices.removeAt(0)
                                             }
-                                        }
-                                    } else {
-                                        if (songClickAction == "editMetadata") {
-                                            onEditMetadata(audio.path)
                                         } else {
-                                            handleMusicLibraryItemLyricsAction(
-                                                scope = scope,
-                                                audio = audio,
-                                                autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
-                                                onShowOptions = {
-                                                    selectedAudio = it
-                                                    showAudioOptionsDialog = true
-                                                },
-                                                onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
-                                                    startLyricTimingEditor(
-                                                        audio = targetAudio,
-                                                        lyricsContent = lyricsContent,
-                                                        format = format
-                                                    )
-                                                }
-                                            )
+                                            selectedPaths.remove(audio.path)
+                                            lastSelectedIndices.remove(index)
                                         }
-                                    }
-                                },
-                                onLongClick = {
-                                    if (!isMultiSelectMode) {
-                                        isMultiSelectMode = true
-                                        selectedPaths.add(audio.path)
-                                        lastSelectedIndices.clear()
-                                        lastSelectedIndices.add(index)
-                                    }
-                                },
-                                onSelectionChange = { selected ->
-                                    if (selected) {
-                                        selectedPaths.add(audio.path)
-                                        lastSelectedIndices.add(index)
-                                        if (lastSelectedIndices.size > 2) {
-                                            lastSelectedIndices.removeAt(0)
-                                        }
+                                    },
+                                    onPlayClick = if (isMultiSelectMode) {
+                                        null
                                     } else {
-                                        selectedPaths.remove(audio.path)
-                                        lastSelectedIndices.remove(index)
-                                    }
-                                },
-                                onPlayClick = if (isMultiSelectMode) {
-                                    null
-                                } else {
-                                    {
-                                        playbackController.playQueue(displayAudioFiles.toList(), audio.path)
-                                    }
-                                },
-                                onMoreClick = if (isMultiSelectMode) {
-                                    null
-                                } else {
-                                    {
-                                        selectedSongInfoAudio = audio
-                                        showSongInfoSheet = true
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    
-                    val totalItems = displayAudioFiles.size
-                    if (totalItems > 0) {
-                        val viewportHeight = listState.layoutInfo.viewportSize.height
-                        val itemHeight = 80
-                        val totalContentHeight = totalItems * itemHeight
-                        val thumbHeightRatio = viewportHeight.toFloat() / totalContentHeight.coerceAtLeast(viewportHeight)
-                        val thumbHeightPx = (viewportHeight * thumbHeightRatio).coerceAtLeast(80f)
-                        
-                        val maxScrollIndex = (totalItems - (viewportHeight / itemHeight)).coerceAtLeast(0)
-                        
-                        val density = LocalDensity.current
-                        val scrollbarHeightPx = viewportHeight - 16 - with(density) { 48.dp.toPx() }.toInt()
-                        val thumbOffsetY = dragProgress.coerceIn(0f, 1f) * (scrollbarHeightPx - thumbHeightPx)
-                        
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .padding(end = 4.dp, top = 8.dp, bottom = 48.dp)
-                                .width(24.dp)
-                                .height(with(density) { scrollbarHeightPx.toDp() })
-                                .graphicsLayer {
-                                    alpha = animatedScrollbarAlpha
-                                }
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(y = with(density) { thumbOffsetY.toDp() })
-                                    .width(24.dp)
-                                    .height(with(density) { thumbHeightPx.toDp() })
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterEnd)
-                                        .width(8.dp)
-                                        .height(with(density) { thumbHeightPx.toDp() })
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(
-                                            if (isDragging) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                            }
-                                        )
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .pointerInput(maxScrollIndex, scrollbarHeightPx, thumbHeightPx) {
-                                            detectDragGestures(
-                                                onDragStart = {
-                                                    resetHideTimer()
-                                                    isDragging = true
-                                                },
-                                                onDragEnd = {
-                                                    isDragging = false
-                                                    resetHideTimer()
-                                                },
-                                                onDragCancel = {
-                                                    isDragging = false
-                                                    resetHideTimer()
-                                                }
-                                            ) { change, dragAmount ->
-                                                change.consume()
-                                                resetHideTimer()
-                                                val delta = dragAmount.y / (scrollbarHeightPx - thumbHeightPx)
-                                                dragProgress = (dragProgress + delta).coerceIn(0f, 1f)
-                                                val targetIndex = (dragProgress * maxScrollIndex).toInt()
-                                                scope.launch {
-                                                    listState.scrollToItem(targetIndex)
-                                                }
-                                            }
+                                        {
+                                            playbackController.playQueue(displayAudioFiles.toList(), audio.path)
                                         }
+                                    },
+                                    onMoreClick = if (isMultiSelectMode) {
+                                        null
+                                    } else {
+                                        {
+                                            selectedSongInfoAudio = audio
+                                            showSongInfoSheet = true
+                                        }
+                                    }
                                 )
                             }
                         }
-                    }
-                    
-                    // EdgeTranslucent 顶部渐变效果
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .height(10.dp)
-                            .background(
-                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.surface,
-                                        androidx.compose.ui.graphics.Color.Transparent
+                        
+                        val totalItems = displayAudioFiles.size
+                        if (totalItems > 0) {
+                            val viewportHeight = listState.layoutInfo.viewportSize.height
+                            val itemHeight = 80
+                            val totalContentHeight = totalItems * itemHeight
+                            val thumbHeightRatio = viewportHeight.toFloat() / totalContentHeight.coerceAtLeast(viewportHeight)
+                            val thumbHeightPx = (viewportHeight * thumbHeightRatio).coerceAtLeast(80f)
+                            
+                            val maxScrollIndex = (totalItems - (viewportHeight / itemHeight)).coerceAtLeast(0)
+                            
+                            val density = LocalDensity.current
+                            val scrollbarHeightPx = viewportHeight - 16 - with(density) { 48.dp.toPx() }.toInt()
+                            val thumbOffsetY = dragProgress.coerceIn(0f, 1f) * (scrollbarHeightPx - thumbHeightPx)
+                            
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(end = 4.dp, top = 8.dp, bottom = 48.dp)
+                                    .width(24.dp)
+                                    .height(with(density) { scrollbarHeightPx.toDp() })
+                                    .graphicsLayer {
+                                        alpha = animatedScrollbarAlpha
+                                    }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(y = with(density) { thumbOffsetY.toDp() })
+                                        .width(24.dp)
+                                        .height(with(density) { thumbHeightPx.toDp() })
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.CenterEnd)
+                                            .width(8.dp)
+                                            .height(with(density) { thumbHeightPx.toDp() })
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(
+                                                if (isDragging) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                                }
+                                            )
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .pointerInput(maxScrollIndex, scrollbarHeightPx, thumbHeightPx) {
+                                                detectDragGestures(
+                                                    onDragStart = {
+                                                        resetHideTimer()
+                                                        isDragging = true
+                                                    },
+                                                    onDragEnd = {
+                                                        isDragging = false
+                                                        resetHideTimer()
+                                                    },
+                                                    onDragCancel = {
+                                                        isDragging = false
+                                                        resetHideTimer()
+                                                    }
+                                                ) { change, dragAmount ->
+                                                    change.consume()
+                                                    resetHideTimer()
+                                                    val delta = dragAmount.y / (scrollbarHeightPx - thumbHeightPx)
+                                                    dragProgress = (dragProgress + delta).coerceIn(0f, 1f)
+                                                    val targetIndex = (dragProgress * maxScrollIndex).toInt()
+                                                    scope.launch {
+                                                        listState.scrollToItem(targetIndex)
+                                                    }
+                                                }
+                                            }
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // EdgeTranslucent 顶部渐变效果
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .height(10.dp)
+                                .background(
+                                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.surface,
+                                            androidx.compose.ui.graphics.Color.Transparent
+                                        )
                                     )
                                 )
-                            )
-                    )
-                    
-                    BatchOperationFAB(
-                        isVisible = isMultiSelectMode && selectedPaths.isNotEmpty(),
-                        showSheet = showBatchMenu,
-                        onShowSheetChange = { showBatchMenu = it },
-                        onBatchMatch = { showBatchMatchConfig = true },
-                        onBatchLyricMatch = { showBatchLyricMatchConfig = true },
-                        onBatchRename = { showBatchRenameConfig = true },
-                        onBatchLyricsEdit = { showBatchLyricsEditSheet = true },
-                        selectedPaths = selectedPaths,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp)
-                            .navigationBarsPadding()
-                            .padding(bottom = 8.dp)
-                    )
+                        )
+                        
+                        BatchOperationFAB(
+                            isVisible = isMultiSelectMode && selectedPaths.isNotEmpty(),
+                            showSheet = showBatchMenu,
+                            onShowSheetChange = { showBatchMenu = it },
+                            onBatchMatch = { showBatchMatchConfig = true },
+                            onBatchLyricMatch = { showBatchLyricMatchConfig = true },
+                            onBatchRename = { showBatchRenameConfig = true },
+                            onBatchLyricsEdit = { showBatchLyricsEditSheet = true },
+                            selectedPaths = selectedPaths,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 16.dp)
+                                .navigationBarsPadding()
+                                .padding(bottom = 8.dp)
+                        )
+                    }
                 }
             }
         }
