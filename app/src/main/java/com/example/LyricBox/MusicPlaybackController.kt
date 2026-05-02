@@ -191,6 +191,49 @@ class MusicPlaybackController(private val context: Context) {
         controller?.seekTo(position.coerceAtLeast(0L))
     }
 
+    fun handleAudioRenamed(oldPath: String, newPath: String) {
+        if (oldPath.isBlank() || newPath.isBlank() || oldPath == newPath) return
+        val player = controller
+        if (player != null && player.mediaItemCount > 0) {
+            val currentIdx = player.currentMediaItemIndex
+            val resumePosition = player.currentPosition.coerceAtLeast(0L)
+            val resumePlayWhenReady = player.playWhenReady
+            var replacedAny = false
+            var replacedCurrent = false
+
+            for (idx in 0 until player.mediaItemCount) {
+                val mediaItem = player.getMediaItemAt(idx)
+                val itemPath = mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+                    ?: mediaItem.mediaId.takeIf { it.isNotBlank() }
+                if (itemPath == oldPath) {
+                    val updatedItem = buildMediaItemForRenamedPath(newPath, preferOriginalCover = idx == currentIdx)
+                    if (updatedItem != null) {
+                        player.replaceMediaItem(idx, updatedItem)
+                        replacedAny = true
+                        if (idx == currentIdx) replacedCurrent = true
+                    }
+                }
+            }
+
+            if (replacedAny) {
+                if (replacedCurrent && currentIdx >= 0) {
+                    player.seekTo(currentIdx, resumePosition)
+                }
+                player.playWhenReady = resumePlayWhenReady
+                syncFromPlayer(player)
+                return
+            }
+        }
+
+        migratePersistedQueuePath(oldPath = oldPath, newPath = newPath)
+        if (currentAudioPath == oldPath) {
+            currentAudioPath = newPath
+            currentMediaId = newPath
+            currentTitle = File(newPath).nameWithoutExtension
+            persistSnapshotState()
+        }
+    }
+
     fun refreshProgress() {
         val player = controller ?: return
         positionMs = player.currentPosition.coerceAtLeast(0L)
@@ -307,6 +350,53 @@ class MusicPlaybackController(private val context: Context) {
     private fun resolveExistingCoverCachePath(audioPath: String): String? {
         val cacheFile = File(File(context.cacheDir, "covers"), "${audioPath.hashCode()}.jpg")
         return cacheFile.absolutePath.takeIf { cacheFile.exists() }
+    }
+
+    private fun buildMediaItemForRenamedPath(path: String, preferOriginalCover: Boolean): MediaItem? {
+        val file = File(path)
+        if (!file.exists()) return null
+        val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
+        val audio = AudioFile(
+            path = path,
+            title = metadata?.title.orEmpty(),
+            artist = metadata?.artist.orEmpty(),
+            album = metadata?.album.orEmpty(),
+            duration = metadata?.duration ?: 0L,
+            fileSize = file.length(),
+            lastModified = file.lastModified(),
+            addedTime = file.lastModified(),
+            coverCachePath = resolveExistingCoverCachePath(path),
+            year = metadata?.year.orEmpty(),
+            mediaStoreId = -1L
+        )
+        return audio.toPlayableMediaItem(context, preferOriginalCover = preferOriginalCover)
+    }
+
+    private fun migratePersistedQueuePath(oldPath: String, newPath: String) {
+        val savedPaths = LocalPlaylistStore.loadPlaybackQueuePaths(context)
+        if (savedPaths.isEmpty()) return
+        var changed = false
+        val replacedPaths = savedPaths.map { path ->
+            if (path == oldPath) {
+                changed = true
+                newPath
+            } else {
+                path
+            }
+        }
+        if (!changed) return
+
+        val entries = replacedPaths.map { path ->
+            val file = File(path)
+            val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
+            LocalPlaylistEntry(
+                path = path,
+                title = metadata?.title?.takeIf { it.isNotBlank() } ?: file.nameWithoutExtension,
+                artist = metadata?.artist.orEmpty(),
+                durationSeconds = ((metadata?.duration ?: 0L) / 1000L).coerceAtLeast(-1L)
+            )
+        }
+        LocalPlaylistStore.savePlaybackQueue(context, entries)
     }
 }
 

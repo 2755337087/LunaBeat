@@ -2,7 +2,6 @@ package com.example.LyricBox
 
 import android.content.Context
 import android.content.Intent
-import android.content.ContentUris
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -263,14 +262,6 @@ private fun parseTrackNumberValue(trackRaw: String): Int {
     return firstPart.toIntOrNull()
         ?: Regex("""\d+""").find(firstPart)?.value?.toIntOrNull()
         ?: Int.MAX_VALUE
-}
-
-private fun buildShareableAudioUri(audio: AudioFile): Uri {
-    return if (audio.mediaStoreId > 0L) {
-        ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, audio.mediaStoreId)
-    } else {
-        Uri.fromFile(File(audio.path))
-    }
 }
 
 private val LYRIC_FORMAT_OPTIONS = listOf(
@@ -748,9 +739,11 @@ class MusicLibraryActivity : ComponentActivity() {
     private var externalAudioFile by mutableStateOf<AudioFile?>(null)
     private var editingMetadataPath by mutableStateOf<String?>(null)
     private var _refreshMetadataPath by mutableStateOf<String?>(null)
+    private var initialSearchQueryState by mutableStateOf("")
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
+        const val EXTRA_INITIAL_SEARCH_QUERY = "initial_search_query"
         const val REQUEST_CODE_EDIT_METADATA = 200
         
         private val coverCache = LruCache<String, Bitmap>(50).apply {
@@ -803,6 +796,7 @@ class MusicLibraryActivity : ComponentActivity() {
         val externalPath = handleExternalIntent(intent)
         
         val prefs = getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE)
+        initialSearchQueryState = intent.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
         val hasSetup = prefs.getBoolean("hasSetup", false)
         
         // 如果是第三方调用且没有设置过，直接加载音频文件
@@ -846,6 +840,7 @@ class MusicLibraryActivity : ComponentActivity() {
                         )
                     } else {
                         MusicLibraryScreen(
+                            initialSearchQuery = initialSearchQueryState,
                             onBack = { finish() },
                             onOpenSettings = {
                                 startActivityForResult(Intent(this, MusicLibrarySettingsActivity::class.java), 100)
@@ -877,6 +872,10 @@ class MusicLibraryActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         intent?.let {
+            val incomingSearch = it.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
+            if (incomingSearch.isNotBlank()) {
+                initialSearchQueryState = incomingSearch
+            }
             val externalPath = handleExternalIntent(it)
             if (externalPath != null) {
                 loadExternalAudioFile(externalPath)
@@ -1112,6 +1111,7 @@ class MusicLibraryActivity : ComponentActivity() {
 
 @Composable
 fun MusicLibraryScreen(
+    initialSearchQuery: String = "",
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditMetadata: (String) -> Unit,
@@ -1154,7 +1154,7 @@ fun MusicLibraryScreen(
     var showScanProgressPopup by remember { mutableStateOf(false) }
     var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
     
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by remember(initialSearchQuery) { mutableStateOf(initialSearchQuery) }
     var isSearching by remember { mutableStateOf(false) }
     val favoritePaths = remember { mutableStateSetOf<String>() }
     val albumTrackSortCache = remember { mutableMapOf<String, Int>() }
@@ -2172,15 +2172,6 @@ fun MusicLibraryScreen(
                 persistFavoritesPlaylist()
                 updateDisplayFiles()
             },
-            onShareFile = {
-                val shareUri = buildShareableAudioUri(infoAudio)
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "audio/*"
-                    putExtra(Intent.EXTRA_STREAM, shareUri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "分享音频"))
-            },
             onRenameFile = {
                 val sourceFile = File(infoAudio.path)
                 renameInputValue = sourceFile.nameWithoutExtension
@@ -2305,6 +2296,10 @@ fun MusicLibraryScreen(
                             favoritePaths.add(newFile.absolutePath)
                             persistFavoritesPlaylist()
                         }
+                        playbackController.handleAudioRenamed(
+                            oldPath = sourceAudio.path,
+                            newPath = newFile.absolutePath
+                        )
                         selectedPaths.remove(sourceAudio.path)
                         selectedPaths.add(newFile.absolutePath)
                         albumTrackSortCache.remove(sourceAudio.path)

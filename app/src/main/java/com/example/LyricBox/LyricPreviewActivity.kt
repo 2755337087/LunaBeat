@@ -547,6 +547,7 @@ class LyricPreviewActivity : ComponentActivity() {
                         if (shouldRebuildLyrics) {
                             val resolvedNowPath = nowPath ?: ""
                             previewLyricsLoadingState.value = true
+                            previewLyricLinesState.value = emptyList()
                             val payload = withContext(Dispatchers.IO) {
                                 buildPlayerLyricPreviewPayload(resolvedNowPath)
                             }
@@ -1229,10 +1230,9 @@ fun LyricPreviewScreen(
             }
         )
     }
-    var showFontSizeDialog by remember { mutableStateOf(false) }
-    var showFontWeightDialog by remember { mutableStateOf(false) }
-    var showAnimationTypeDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showLyricSettingsSheet by remember { mutableStateOf(false) }
+    var showSongInfoSheet by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf(PreviewAudioMetadata(title, "未知艺术家", null)) }
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     val scope = rememberCoroutineScope()
@@ -1301,6 +1301,10 @@ fun LyricPreviewScreen(
     // 记录最后一次尝试滚动但被跳过的行索引
     var lastSkippedScrollIndex by remember { mutableIntStateOf(-1) }
     var closeNextSkipStreak by remember { mutableIntStateOf(0) }
+    var isManualLyricJumping by remember { mutableStateOf(false) }
+    var manualLyricJumpGuardJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var manualTapAnchorIndex by remember { mutableIntStateOf(-1) }
+    var manualTapSuppressUntilMs by remember { mutableLongStateOf(0L) }
     var previousObservedTime by remember { mutableLongStateOf(initialPosition) }
     var hidePlayedLinesDuringInitialBuild by remember(processedLyricLines, initialPosition) {
         mutableStateOf(initialPosition > 0L && processedLyricLines.isNotEmpty())
@@ -1311,6 +1315,7 @@ fun LyricPreviewScreen(
     }
     var appWentBackground by remember { mutableStateOf(false) }
     var resumeRebuildRequest by remember { mutableIntStateOf(0) }
+    var lyricSettingsReloadRequest by remember { mutableIntStateOf(0) }
     val maxCloseNextConsecutiveSkips = 2
     val autoScrollMinIntervalMs = 700L
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1496,7 +1501,7 @@ fun LyricPreviewScreen(
     // 更新当前播放行索引
     LaunchedEffect(currentTime, processedLyricLines) {
         val isExternalBackwardSeek = currentTime + 800L < previousObservedTime
-        if (isExternalBackwardSeek) {
+        if (isExternalBackwardSeek && !isManualLyricJumping) {
             isUserScrolling = false
             scrollJob?.cancel()
             autoScrollJob?.cancel()
@@ -1515,6 +1520,8 @@ fun LyricPreviewScreen(
                 }
             }
             logAutoScroll("detected external backward seek from=$previousObservedTime to=$currentTime, reset auto-scroll state")
+        } else if (isExternalBackwardSeek) {
+            logAutoScroll("ignore external-backward-reset because manual lyric tap seek is active")
         }
 
         if (processedLyricLines.isNotEmpty()) {
@@ -1527,12 +1534,14 @@ fun LyricPreviewScreen(
     fun saveFontSize(size: Float) {
         fontSize = size
         prefs.edit().putFloat(LyricPreviewActivity.KEY_FONT_SIZE, size).apply()
+        lyricSettingsReloadRequest += 1
     }
     
     // 保存翻译显示设置
     fun saveShowTranslation(show: Boolean) {
         showTranslation = show
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLATION, show).apply()
+        lyricSettingsReloadRequest += 1
     }
     
     // 保存字体粗细设置
@@ -1545,6 +1554,7 @@ fun LyricPreviewScreen(
     fun saveShowTransliteration(show: Boolean) {
         showTransliteration = show
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, show).apply()
+        lyricSettingsReloadRequest += 1
     }
 
     fun saveLyricBlurEnabled(enabled: Boolean) {
@@ -1562,7 +1572,13 @@ fun LyricPreviewScreen(
             delay(16)
         }
     }
-    
+
+    LaunchedEffect(lyricSettingsReloadRequest) {
+        if (lyricSettingsReloadRequest <= 0) return@LaunchedEffect
+        val anchorPosition = getCurrentPosition().coerceAtLeast(0L)
+        rebuildLyricPresentation(anchorPositionRaw = anchorPosition, allowSeek = false)
+    }
+
     val autoScrollLeadMs = 400L
     val autoScrollConflictWindowMs = 1000L
 
@@ -1595,8 +1611,33 @@ fun LyricPreviewScreen(
     }
 
     // 自动滚动到当前播放行（屏幕1/4位置）
-    LaunchedEffect(currentTime, isUserScrolling) {
-        if (!isUserScrolling && processedLyricLines.isNotEmpty()) {
+    LaunchedEffect(currentTime, isUserScrolling, isManualLyricJumping, lyricsContentReady, manualTapAnchorIndex, manualTapSuppressUntilMs) {
+        if (!isUserScrolling && !isManualLyricJumping && lyricsContentReady && processedLyricLines.isNotEmpty()) {
+            val nowWallTime = SystemClock.elapsedRealtime()
+            if (manualTapAnchorIndex >= 0) {
+                val observedIndex = lineNavigator.findTargetIndex(currentTime)
+                val nextStarted = observedIndex > manualTapAnchorIndex
+                if (!nextStarted && nowWallTime < manualTapSuppressUntilMs) {
+                    logAutoScroll(
+                        "manual tap hold index=$manualTapAnchorIndex wait=${manualTapSuppressUntilMs - nowWallTime}ms current=$observedIndex"
+                    )
+                    return@LaunchedEffect
+                }
+                if (!nextStarted && nowWallTime >= manualTapSuppressUntilMs) {
+                    // 2 秒内下一句未开始，允许当前句触发一次自动滚动
+                    if (lastAutoScrolledIndex == manualTapAnchorIndex) {
+                        lastAutoScrolledIndex = -1
+                    }
+                    logAutoScroll("manual tap timeout -> allow current line auto-scroll index=$manualTapAnchorIndex")
+                    manualTapAnchorIndex = -1
+                    manualTapSuppressUntilMs = 0L
+                } else if (nextStarted) {
+                    logAutoScroll("manual tap released by next line start anchor=$manualTapAnchorIndex current=$observedIndex")
+                    manualTapAnchorIndex = -1
+                    manualTapSuppressUntilMs = 0L
+                }
+            }
+
             // 提前400ms计算目标行，这样可以更早地切换到下一行歌词行
             val adjustedTime = currentTime + autoScrollLeadMs
             val candidateLineIndex = lineNavigator.findTargetIndex(adjustedTime)
@@ -1817,7 +1858,7 @@ fun LyricPreviewScreen(
                 val showLoadingOverlay = isLyricLoading || !lyricsContentReady
                 val lyricContentAlpha by animateFloatAsState(
                     targetValue = if (showLoadingOverlay) 0f else 1f,
-                    animationSpec = tween(durationMillis = 320),
+                    animationSpec = if (showLoadingOverlay) snap() else tween(durationMillis = 320),
                     label = "lyricContentRevealAlpha"
                 )
 
@@ -1948,29 +1989,27 @@ fun LyricPreviewScreen(
                                     animationType = animationType, // 新增
                                     blurRadius = lyricLineBlurRadius,
                                     onClick = {
-                                        // 点击歌词行跳转到该行开始播放
-                                        onSeekTo(line.begin)
-                                        currentTime = line.begin
-                                        lastAutoScrolledIndex = index // 更新最后滚动索引
-                                        // 重置跳过的索引状态
-                                        lastSkippedScrollIndex = -1
                                         if (!isPlaying) {
                                             isPlaying = true
                                             onPlayPause(true)
                                         }
-                                        
-                                        // 先确保用户滚动标志关闭，延迟一小段时间再滚动
+                                        manualTapAnchorIndex = index
+                                        manualTapSuppressUntilMs = SystemClock.elapsedRealtime() + 2000L
+                                        isManualLyricJumping = true
+                                        manualLyricJumpGuardJob?.cancel()
+                                        manualLyricJumpGuardJob = coroutineScope.launch {
+                                            // seek 是异步，给播放器时间同步，避免旧时间触发一次错误自动滚动
+                                            delay(420L)
+                                            isManualLyricJumping = false
+                                        }
                                         isUserScrolling = false
                                         scrollJob?.cancel()
-                                        
-                                        // 延迟滚动，给弹簧动画准备时间
-                                        coroutineScope.launch {
-                                            delay(50) // 短暂延迟确保动画准备好
-                                            lazyListState.animateScrollToItem(
-                                                index = index,
-                                                scrollOffset = -100
-                                            )
-                                        }
+                                        // 点击选择时保持当前列表位置，不触发当前行自动滚动；从下一行开始再按规则自动滚动
+                                        lastAutoScrolledIndex = index
+                                        lastSkippedScrollIndex = -1
+                                        closeNextSkipStreak = 0
+                                        onSeekTo(line.begin)
+                                        currentTime = line.begin
                                     }
                                 )
                             }
@@ -1979,7 +2018,7 @@ fun LyricPreviewScreen(
                             // 创作者信息显示区域，跟随歌词一起滚动
                             if (creators.isNotEmpty()) {
                                 val creatorFontSize = maxOf(18f, fontSize - 10f).sp
-                                val creatorItemKey = "creators-section-${seekResetCounter}"
+                                val creatorItemKey = "creators-section"
                                 val distance = if (currentLineIndex >= 0) kotlin.math.abs(processedLyricLines.size - currentLineIndex) else 0
                                 val dynamicStiffness = (120f - (distance * 20f)).coerceAtLeast(20f)
                                 
@@ -2040,51 +2079,21 @@ fun LyricPreviewScreen(
                 artist = metadata.artist,
                 coverBitmap = metadata.coverBitmap,
                 onBackClick = onBack,
+                onHeaderClick = { showSongInfoSheet = true },
                 onMenuClick = { menuExpanded = true },
                 menuContent = { menuButtonPosition ->
                     CustomDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
-                        items = buildList {
-                            add(
-                                MenuItem(
-                                    title = if (showTranslation) "关闭翻译" else "开启翻译",
-                                    onClick = { saveShowTranslation(!showTranslation) }
-                                )
+                        items = listOf(
+                            MenuItem(
+                                title = "歌词设置",
+                                onClick = {
+                                    menuExpanded = false
+                                    showLyricSettingsSheet = true
+                                }
                             )
-                            add(
-                                MenuItem(
-                                    title = if (showTransliteration) "关闭注音" else "开启注音",
-                                    onClick = { saveShowTransliteration(!showTransliteration) }
-                                )
-                            )
-                            if (supportsLyricBlur) {
-                                add(
-                                    MenuItem(
-                                        title = if (lyricBlurPreferenceEnabled) "关闭歌词模糊" else "开启歌词模糊",
-                                        onClick = { saveLyricBlurEnabled(!lyricBlurPreferenceEnabled) }
-                                    )
-                                )
-                            }
-                            add(
-                                MenuItem(
-                                    title = "字体大小 (${fontSize.toInt()}sp)",
-                                    onClick = { showFontSizeDialog = true }
-                                )
-                            )
-                            add(
-                                MenuItem(
-                                    title = "字体粗细 (${getFontWeightLabel(fontWeight)})",
-                                    onClick = { showFontWeightDialog = true }
-                                )
-                            )
-                            add(
-                                MenuItem(
-                                    title = if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) "间奏动画：恐龙" else "间奏动画：默认",
-                                    onClick = { showAnimationTypeDialog = true }
-                                )
-                            )
-                        },
+                        ),
                         anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
                         containerColor = menuSurfaceColor,
                         contentColor = menuContentColor,
@@ -2101,11 +2110,10 @@ fun LyricPreviewScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(80.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {}
+                    .height(48.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { })
+                    }
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -2122,11 +2130,10 @@ fun LyricPreviewScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(80.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {}
+                    .height(48.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { })
+                    }
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -2184,207 +2191,51 @@ fun LyricPreviewScreen(
                 )
             }
         }
-        
-        // 字体大小设置对话框
-        if (showFontSizeDialog) {
-            var tempFontSize by remember { mutableFloatStateOf(fontSize) }
-            AlertDialog(
-                onDismissRequest = { showFontSizeDialog = false },
-                containerColor = dialogContainerColor,
-                titleContentColor = dialogContentColor,
-                textContentColor = dialogContentColor,
-                title = { Text("字体大小设置") },
-                text = {
-                    Column {
-                        Text(
-                            text = "当前大小: ${tempFontSize.toInt()}sp",
-                            color = dialogContentColor,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        Slider(
-                            value = tempFontSize,
-                            onValueChange = { tempFontSize = it },
-                            valueRange = 18f..40f,
-                            steps = 21,
-                            colors = SliderDefaults.colors(
-                                thumbColor = dialogAccentColor,
-                                activeTrackColor = dialogAccentColor,
-                                inactiveTrackColor = dialogContentColor.copy(alpha = 0.25f)
-                            )
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("18sp", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                            Text("29sp", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                            Text("40sp", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = dialogAccentColor),
-                        onClick = {
-                        saveFontSize(tempFontSize)
-                        showFontSizeDialog = false
-                    }) {
-                        Text("确定")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = dialogContentColor.copy(alpha = 0.88f)),
-                        onClick = { showFontSizeDialog = false }
-                    ) {
-                        Text("取消")
-                    }
-                }
+
+        val previewSongInfoAudio = remember(audioPath, metadata.title, metadata.artist, audioDuration) {
+            val file = File(audioPath)
+            AudioFile(
+                path = audioPath,
+                title = metadata.title,
+                artist = metadata.artist,
+                album = "",
+                duration = audioDuration.coerceAtLeast(0L),
+                fileSize = if (file.exists()) file.length() else 0L,
+                lastModified = if (file.exists()) file.lastModified() else 0L
             )
         }
-        
-        // 字体粗细设置对话框
-        if (showFontWeightDialog) {
-            var tempFontWeight by remember { mutableFloatStateOf(fontWeight.toFloat()) }
-            AlertDialog(
-                onDismissRequest = { showFontWeightDialog = false },
+
+        if (showLyricSettingsSheet) {
+            LyricSettingsBottomSheet(
+                onDismissRequest = { showLyricSettingsSheet = false },
+                showTranslation = showTranslation,
+                showTransliteration = showTransliteration,
+                supportsLyricBlur = supportsLyricBlur,
+                lyricBlurEnabled = lyricBlurPreferenceEnabled,
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                animationType = animationType,
+                onShowTranslationChange = { saveShowTranslation(it) },
+                onShowTransliterationChange = { saveShowTransliteration(it) },
+                onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
+                onFontSizeChange = { saveFontSize(it) },
+                onFontWeightChange = { saveFontWeight(it) },
+                onAnimationTypeChange = {
+                    animationType = it
+                    prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it).apply()
+                },
                 containerColor = dialogContainerColor,
-                titleContentColor = dialogContentColor,
-                textContentColor = dialogContentColor,
-                title = { Text("字体粗细设置") },
-                text = {
-                    Column {
-                        Text(
-                            text = "当前粗细: ${getFontWeightLabel(tempFontWeight.toInt())}",
-                            color = dialogContentColor,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        Slider(
-                            value = tempFontWeight,
-                            onValueChange = { tempFontWeight = it },
-                            valueRange = 300f..700f,
-                            steps = 3,
-                            colors = SliderDefaults.colors(
-                                thumbColor = dialogAccentColor,
-                                activeTrackColor = dialogAccentColor,
-                                inactiveTrackColor = dialogContentColor.copy(alpha = 0.25f)
-                            ),
-                            onValueChangeFinished = {
-                                // 将值调整为100的倍数
-                                tempFontWeight = (tempFontWeight.toInt() / 100 * 100).toFloat()
-                            }
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("细", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                            Text("正常", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                            Text("中", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                            Text("半粗", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                            Text("粗", fontSize = 12.sp, color = dialogContentColor.copy(alpha = 0.82f))
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = dialogAccentColor),
-                        onClick = {
-                        saveFontWeight(tempFontWeight.toInt() / 100 * 100)
-                        showFontWeightDialog = false
-                    }) {
-                        Text("确定")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = dialogContentColor.copy(alpha = 0.88f)),
-                        onClick = { showFontWeightDialog = false }
-                    ) {
-                        Text("取消")
-                    }
-                }
+                contentColor = dialogContentColor,
+                accentColor = dialogAccentColor
             )
         }
-        
-        if (showAnimationTypeDialog) {
-            var tempAnimationType by remember { mutableIntStateOf(animationType) }
-            AlertDialog(
-                onDismissRequest = { showAnimationTypeDialog = false },
-                containerColor = dialogContainerColor,
-                titleContentColor = dialogContentColor,
-                textContentColor = dialogContentColor,
-                title = { Text("间奏动画设置") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DEFAULT) {
-                                        dialogAccentColor.copy(alpha = 0.16f)
-                                    } else Color.Transparent
-                                )
-                                .clickable { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DEFAULT,
-                                onClick = { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT },
-                                colors = RadioButtonDefaults.colors(
-                                    selectedColor = dialogAccentColor,
-                                    unselectedColor = dialogContentColor.copy(alpha = 0.65f)
-                                )
-                            )
-                            Text("默认（圆点）", color = dialogContentColor)
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) {
-                                        dialogAccentColor.copy(alpha = 0.16f)
-                                    } else Color.Transparent
-                                )
-                                .clickable { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR,
-                                onClick = { tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR },
-                                colors = RadioButtonDefaults.colors(
-                                    selectedColor = dialogAccentColor,
-                                    unselectedColor = dialogContentColor.copy(alpha = 0.65f)
-                                )
-                            )
-                            Text("恐龙", color = dialogContentColor)
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = dialogAccentColor),
-                        onClick = {
-                            animationType = tempAnimationType
-                            prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, tempAnimationType).apply()
-                            showAnimationTypeDialog = false
-                        }
-                    ) {
-                        Text("确定")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = dialogContentColor.copy(alpha = 0.88f)),
-                        onClick = { showAnimationTypeDialog = false }
-                    ) {
-                        Text("取消")
-                    }
-                }
+
+        if (showSongInfoSheet) {
+            SongInfoBottomSheet(
+                audio = previewSongInfoAudio,
+                isFavorite = false,
+                renameSuccessSignal = 0L,
+                onDismiss = { showSongInfoSheet = false }
             )
         }
     }
@@ -4206,6 +4057,7 @@ fun LyricPreviewHeader(
     artist: String,
     coverBitmap: Bitmap?,
     onBackClick: () -> Unit = {},
+    onHeaderClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {},
     mutedColor: Color? = null,
@@ -4253,57 +4105,69 @@ fun LyricPreviewHeader(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // 封面
-            if (coverBitmap != null) {
-                Image(
-                    bitmap = coverBitmap.asImageBitmap(),
-                    contentDescription = "封面",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(75.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(75.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.search),
-                        contentDescription = "音乐",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        onHeaderClick()
+                    },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 封面
+                if (coverBitmap != null) {
+                    Image(
+                        bitmap = coverBitmap.asImageBitmap(),
+                        contentDescription = "封面",
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(36.dp)
-                            .align(Alignment.Center)
+                            .size(75.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(75.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.search),
+                            contentDescription = "音乐",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .align(Alignment.Center)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // 标题和艺术家
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = artist,
+                        fontSize = 16.sp,
+                        color = artistColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // 标题和艺术家
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = textColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = artist,
-                    fontSize = 16.sp,
-                    color = artistColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
 
             Spacer(modifier = Modifier.width(8.dp))

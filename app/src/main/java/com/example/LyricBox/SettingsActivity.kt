@@ -3,6 +3,7 @@ package com.example.LyricBox
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.os.Process
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -179,6 +180,10 @@ fun SettingsScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE) }
     val musicLibraryPrefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val lyricPreviewPrefs = remember {
+        context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    val supportsLyricBlur = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
     
     val savedDarkModeType = remember {
         try {
@@ -255,6 +260,55 @@ fun SettingsScreen(
     var showArtistSeparatorDialog by remember { mutableStateOf(false) }
     
     var autoScan by remember { mutableStateOf(musicLibraryPrefs.getBoolean("autoScan", false)) }
+    var showLyricSettingsSheet by remember { mutableStateOf(false) }
+    var lyricShowTranslation by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_SHOW_TRANSLATION,
+                LyricPreviewActivity.DEFAULT_SHOW_TRANSLATION
+            )
+        )
+    }
+    var lyricShowTransliteration by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_SHOW_TRANSLITERATION,
+                LyricPreviewActivity.DEFAULT_SHOW_TRANSLITERATION
+            )
+        )
+    }
+    var lyricBlurEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_LYRIC_BLUR,
+                LyricPreviewActivity.DEFAULT_LYRIC_BLUR
+            )
+        )
+    }
+    var lyricFontSize by remember {
+        mutableFloatStateOf(
+            lyricPreviewPrefs.getFloat(
+                LyricPreviewActivity.KEY_FONT_SIZE,
+                LyricPreviewActivity.DEFAULT_FONT_SIZE
+            )
+        )
+    }
+    var lyricFontWeight by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getInt(
+                LyricPreviewActivity.KEY_FONT_WEIGHT,
+                LyricPreviewActivity.DEFAULT_FONT_WEIGHT
+            )
+        )
+    }
+    var lyricAnimationType by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getInt(
+                LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE,
+                LyricPreviewActivity.ANIMATION_TYPE_DEFAULT
+            )
+        )
+    }
     
     Column(modifier = modifier.fillMaxSize()) {
         CommonHeadBar(
@@ -416,6 +470,18 @@ fun SettingsScreen(
                         tempAutoDetectEmbeddedLyricsType = currentAutoDetectEmbeddedLyricsType.value
                         showSongClickActionDialog = true
                     }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "歌词设置",
+                    summary = "翻译、注音、字体、间奏动画",
+                    onClick = { showLyricSettingsSheet = true }
                 )
             }
             
@@ -714,6 +780,58 @@ fun SettingsScreen(
                 prefs.edit().putString("vibrationIntensity", tempVibrationIntensity).apply()
                 showVibrationIntensityDialog = false
             }
+        )
+    }
+
+    if (showLyricSettingsSheet) {
+        LyricSettingsBottomSheet(
+            onDismissRequest = { showLyricSettingsSheet = false },
+            showTranslation = lyricShowTranslation,
+            showTransliteration = lyricShowTransliteration,
+            supportsLyricBlur = supportsLyricBlur,
+            lyricBlurEnabled = lyricBlurEnabled,
+            fontSize = lyricFontSize,
+            fontWeight = lyricFontWeight,
+            animationType = lyricAnimationType,
+            onShowTranslationChange = {
+                lyricShowTranslation = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLATION, it)
+                    .apply()
+            },
+            onShowTransliterationChange = {
+                lyricShowTransliteration = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, it)
+                    .apply()
+            },
+            onLyricBlurEnabledChange = {
+                lyricBlurEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, it)
+                    .apply()
+            },
+            onFontSizeChange = {
+                lyricFontSize = it
+                lyricPreviewPrefs.edit()
+                    .putFloat(LyricPreviewActivity.KEY_FONT_SIZE, it)
+                    .apply()
+            },
+            onFontWeightChange = {
+                lyricFontWeight = it
+                lyricPreviewPrefs.edit()
+                    .putInt(LyricPreviewActivity.KEY_FONT_WEIGHT, it)
+                    .apply()
+            },
+            onAnimationTypeChange = {
+                lyricAnimationType = it
+                lyricPreviewPrefs.edit()
+                    .putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it)
+                    .apply()
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            accentColor = MaterialTheme.colorScheme.primary
         )
     }
 }
