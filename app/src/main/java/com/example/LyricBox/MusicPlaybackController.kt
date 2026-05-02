@@ -35,6 +35,8 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var isPlaying by mutableStateOf(false)
         private set
+    var playWhenReadyRequested by mutableStateOf(false)
+        private set
     var playbackState by mutableStateOf(Player.STATE_IDLE)
         private set
     var positionMs by mutableStateOf(0L)
@@ -152,6 +154,7 @@ class MusicPlaybackController(private val context: Context) {
 
     private fun syncFromPlayer(player: Player) {
         isPlaying = player.isPlaying
+        playWhenReadyRequested = player.playWhenReady
         playbackState = player.playbackState
         positionMs = player.currentPosition.coerceAtLeast(0L)
         durationMs = player.duration.takeIf { it > 0L } ?: 0L

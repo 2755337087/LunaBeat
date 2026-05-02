@@ -16,6 +16,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -23,6 +26,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableIntStateOf
@@ -602,6 +607,16 @@ class LyricPreviewActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onSkipPreviousTrack = if (useSharedPlayback) {
+                        { sharedPlaybackController?.skipToPrevious() }
+                    } else {
+                        null
+                    },
+                    onSkipNextTrack = if (useSharedPlayback) {
+                        { sharedPlaybackController?.skipToNext() }
+                    } else {
+                        null
+                    },
                     onSeekTo = { position -> 
                         if (useSharedPlayback) {
                             sharedPlaybackController?.seekTo(position)
@@ -1159,7 +1174,7 @@ private fun rememberLyricLineBlurModifier(blurRadius: Float): Modifier {
 
 // ==================== 预览界面 ====================
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LyricPreviewScreen(
     title: String,
@@ -1174,6 +1189,8 @@ fun LyricPreviewScreen(
     initialIsPlaying: Boolean = false,
     onBack: () -> Unit,
     onPlayPause: (Boolean) -> Unit,
+    onSkipPreviousTrack: (() -> Unit)? = null,
+    onSkipNextTrack: (() -> Unit)? = null,
     onSeekTo: (Long) -> Unit,
     getCurrentPosition: () -> Long,
     getIsPlayingState: () -> Boolean,
@@ -1292,10 +1309,35 @@ fun LyricPreviewScreen(
     var lyricsContentReady by remember(processedLyricLines, isLyricLoading) {
         mutableStateOf(processedLyricLines.isEmpty() && !isLyricLoading)
     }
+    var appWentBackground by remember { mutableStateOf(false) }
+    var resumeRebuildRequest by remember { mutableIntStateOf(0) }
     val maxCloseNextConsecutiveSkips = 2
     val autoScrollMinIntervalMs = 700L
+    val lifecycleOwner = LocalLifecycleOwner.current
     fun logAutoScroll(message: String) {
         Log.d(AUTO_SCROLL_LOG_TAG, message)
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    appWentBackground = true
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    if (appWentBackground) {
+                        appWentBackground = false
+                        resumeRebuildRequest += 1
+                    }
+                }
+                Lifecycle.Event.ON_DESTROY -> {
+                    appWentBackground = false
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     fun requestAutoScroll(targetIndex: Int) {
@@ -1363,30 +1405,31 @@ fun LyricPreviewScreen(
         }
     }
 
-    // 初始化歌词列表定位：共享播放模式只跟随当前进度，不做强制 seek，避免回退与中断。
-    LaunchedEffect(processedLyricLines, initialPosition, applyInitialSeek, isLyricLoading) {
+    suspend fun rebuildLyricPresentation(anchorPositionRaw: Long, allowSeek: Boolean) {
         if (isLyricLoading) {
             lyricsContentReady = false
             hidePlayedLinesDuringInitialBuild = false
             initialBuildTargetIndex = -1
-            return@LaunchedEffect
+            return
         }
 
         if (processedLyricLines.isEmpty()) {
             initialBuildTargetIndex = -1
             hidePlayedLinesDuringInitialBuild = false
             lyricsContentReady = true
-            return@LaunchedEffect
+            return
         }
+
+        isUserScrolling = false
+        scrollJob?.cancel()
+        autoScrollJob?.cancel()
+        pendingAutoScrollIndex = -1
+        autoScrollRunningTarget = -1
 
         lyricsContentReady = false
-        val anchorPosition = if (applyInitialSeek) {
-            initialPosition.coerceAtLeast(0L)
-        } else {
-            getCurrentPosition().coerceAtLeast(0L)
-        }
+        val anchorPosition = anchorPositionRaw.coerceAtLeast(0L)
 
-        if (applyInitialSeek && anchorPosition > 0L) {
+        if (allowSeek && anchorPosition > 0L) {
             onSeekTo(anchorPosition)
         }
 
@@ -1401,9 +1444,27 @@ fun LyricPreviewScreen(
 
         withFrameNanos { }
         withFrameNanos { }
-        delay(120L)
+        delay(180L)
         hidePlayedLinesDuringInitialBuild = false
         lyricsContentReady = true
+    }
+
+    // 初始化歌词列表定位：共享播放模式只跟随当前进度，不做强制 seek，避免回退与中断。
+    LaunchedEffect(processedLyricLines, initialPosition, applyInitialSeek, isLyricLoading) {
+        val anchorPosition = if (applyInitialSeek) {
+            initialPosition.coerceAtLeast(0L)
+        } else {
+            getCurrentPosition().coerceAtLeast(0L)
+        }
+        rebuildLyricPresentation(anchorPositionRaw = anchorPosition, allowSeek = applyInitialSeek)
+    }
+
+    // 应用从后台恢复时，触发一次重建并渐变显示歌词。
+    LaunchedEffect(resumeRebuildRequest, isLyricLoading, processedLyricLines) {
+        if (resumeRebuildRequest <= 0) return@LaunchedEffect
+        if (isLyricLoading) return@LaunchedEffect
+        val anchorPosition = getCurrentPosition().coerceAtLeast(0L)
+        rebuildLyricPresentation(anchorPositionRaw = anchorPosition, allowSeek = false)
     }
 
     // 监听用户滑动交互
@@ -1963,16 +2024,10 @@ fun LyricPreviewScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            CircularProgressIndicator(color = accentColor)
-                            Text(
-                                text = "歌词构建中...",
-                                color = if (isDarkTheme) Color.LightGray else Color.DarkGray
-                            )
-                        }
+                        LoadingIndicator(
+                            modifier = Modifier.size(56.dp),
+                            color = accentColor
+                        )
                     }
                 }
             }
@@ -2047,6 +2102,10 @@ fun LyricPreviewScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(80.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -2064,6 +2123,10 @@ fun LyricPreviewScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(80.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -2074,42 +2137,52 @@ fun LyricPreviewScreen(
                     )
             )
             
-            PlaybackControls(
-                currentTime = currentTime,
-                duration = dynamicDuration,
-                isPlaying = isPlaying,
-                isDarkTheme = isDarkTheme,
-                seekTimeMs = seekTimeMs,
-                seekTimeSeconds = seekTimeSeconds,
-                onPlayPauseClick = { 
-                    isPlaying = !isPlaying
-                    onPlayPause(isPlaying)
-                },
-                onSeek = { position ->
-                    onSeekTo(position)
-                    currentTime = position
-                    // 拖动进度条后重置用户滚动状态，立即滚动到对应位置
-                    isUserScrolling = false
-                    scrollJob?.cancel()
-                    // 只有在非0秒处才触发歌词动画重置
-                    if (position > 0) {
-                        seekResetCounter += 1
-                    }
-                    // 强制重新计算自动滚动索引
-                    lastAutoScrolledIndex = -1
-                    // 重置跳过的索引状态
-                    lastSkippedScrollIndex = -1
-                    // 立即滚动到当前歌词位置，不使用动画
-                    coroutineScope.launch {
-                        val targetIndex = lineNavigator.findTargetIndex(position)
-                        if (targetIndex >= 0) {
-                            lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+            ) {
+                PlaybackControls(
+                    currentTime = currentTime,
+                    duration = dynamicDuration,
+                    isPlaying = isPlaying,
+                    isDarkTheme = isDarkTheme,
+                    seekTimeMs = seekTimeMs,
+                    seekTimeSeconds = seekTimeSeconds,
+                    onPlayPauseClick = {
+                        onPlayPause(!isPlaying)
+                    },
+                    onSkipPreviousClick = { onSkipPreviousTrack?.invoke() },
+                    onSkipNextClick = { onSkipNextTrack?.invoke() },
+                    onSeek = { position ->
+                        onSeekTo(position)
+                        currentTime = position
+                        // 拖动进度条后重置用户滚动状态，立即滚动到对应位置
+                        isUserScrolling = false
+                        scrollJob?.cancel()
+                        // 只有在非0秒处才触发歌词动画重置
+                        if (position > 0) {
+                            seekResetCounter += 1
                         }
-                    }
-                },
-                vibrantColor = accentColor,
-                backgroundColor = backgroundColor
-            )
+                        // 强制重新计算自动滚动索引
+                        lastAutoScrolledIndex = -1
+                        // 重置跳过的索引状态
+                        lastSkippedScrollIndex = -1
+                        // 立即滚动到当前歌词位置，不使用动画
+                        coroutineScope.launch {
+                            val targetIndex = lineNavigator.findTargetIndex(position)
+                            if (targetIndex >= 0) {
+                                lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+                            }
+                        }
+                    },
+                    vibrantColor = coverThemeColor ?: accentColor,
+                    backgroundColor = backgroundColor
+                )
+            }
         }
         
         // 字体大小设置对话框
@@ -3899,6 +3972,7 @@ private fun createGradientShader(
 // ==================== 播放控制 ====================
 
 @Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 fun PlaybackControls(
     currentTime: Long,
     duration: Long,
@@ -3907,6 +3981,8 @@ fun PlaybackControls(
     seekTimeMs: Long,
     seekTimeSeconds: Float,
     onPlayPauseClick: () -> Unit,
+    onSkipPreviousClick: (() -> Unit)? = null,
+    onSkipNextClick: (() -> Unit)? = null,
     onSeek: (Long) -> Unit,
     vibrantColor: Color? = null,
     backgroundColor: Color? = null
@@ -3926,73 +4002,40 @@ fun PlaybackControls(
     }
     
     val controlBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
-    val controlOnBackground = getHighContrastBlackOrWhite(controlBackground)
-    val themePrimaryColor = vibrantColor ?: MaterialTheme.colorScheme.primary
-    val buttonColor = ensureReadableColor(
-        candidate = blendColors(themePrimaryColor, controlOnBackground, 0.16f),
-        background = controlBackground,
-        fallback = blendColors(controlBackground, controlOnBackground, 0.22f),
-        minContrast = 2.2f
-    )
-    val onPrimaryColor = getHighContrastBlackOrWhite(buttonColor)
-    val outlineColor = ensureReadableColor(
-        candidate = blendColors(controlBackground, controlOnBackground, 0.18f),
-        background = controlBackground,
-        fallback = controlOnBackground.copy(alpha = 0.24f),
-        minContrast = 1.2f
-    )
-    val progressColor = ensureReadableColor(
-        candidate = blendColors(themePrimaryColor, onPrimaryColor, 0.12f),
-        background = controlBackground,
-        fallback = controlOnBackground,
-        minContrast = 2.8f
-    )
-    val progressTrackColor = ensureReadableColor(
-        candidate = blendColors(controlBackground, controlOnBackground, 0.32f),
-        background = controlBackground,
-        fallback = controlOnBackground.copy(alpha = 0.30f),
-        minContrast = 1.3f
-    )
+    val controlAccentBase = vibrantColor ?: MaterialTheme.colorScheme.primary
+    val controlAccentColor = if (isDarkTheme) {
+        blendColorForUi(controlAccentBase, Color.White, 0.7f)
+    } else {
+        blendColorForUi(controlAccentBase, Color.Black, 0.7f)
+    }
+    val onControlAccentColor = if (colorLuminance(controlAccentColor) > 0.52f) Color(0xFF101010) else Color.White
+    val oppositeControlColor = if (isDarkTheme) {
+        blendColorForUi(controlAccentBase, Color.Black, 0.7f)
+    } else {
+        blendColorForUi(controlAccentBase, Color.White, 0.7f)
+    }
+    val onOppositeControlColor = if (colorLuminance(oppositeControlColor) > 0.52f) Color(0xFF101010) else Color.White
+    val progressColor = controlAccentColor
+    val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
     
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(controlBackground)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {}
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .navigationBarsPadding(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 播放/暂停按钮
-        IconButton(
-            onClick = onPlayPauseClick,
-            modifier = Modifier
-                .size(56.dp)
-                .background(
-                    buttonColor,
-                    CircleShape
-                )
-        ) {
-            Icon(
-                painter = painterResource(
-                    id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
-                ),
-                contentDescription = if (isPlaying) "暂停" else "播放",
-                tint = onPrimaryColor,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-        
-        // 进度条，外圈有高对比度的颜色
+        // 进度条（上行）
         Box(
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
                 .height(32.dp)
-                .background(
-                    color = outlineColor,
-                    shape = RoundedCornerShape(24.dp)
-                )
-                .padding(6.dp)
+                .padding(vertical = 6.dp)
         ) {
             // 计算显示用的进度，用于LinearProgressIndicator
             val displayProgress = if (safeDuration > 0L) {
@@ -4032,6 +4075,85 @@ fun PlaybackControls(
                     inactiveTrackColor = Color.Transparent
                 )
             )
+        }
+
+        // 控制按钮（下行）
+        val sideButtonColors = ToggleButtonDefaults.toggleButtonColors(
+            containerColor = oppositeControlColor,
+            contentColor = onOppositeControlColor,
+            checkedContainerColor = oppositeControlColor,
+            checkedContentColor = onOppositeControlColor
+        )
+        val middleButtonColors = ToggleButtonDefaults.toggleButtonColors(
+            containerColor = controlAccentColor,
+            contentColor = onControlAccentColor,
+            checkedContainerColor = controlAccentColor,
+            checkedContentColor = onControlAccentColor
+        )
+        ButtonGroup(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+        ) {
+            ToggleButton(
+                checked = false,
+                onCheckedChange = {
+                    if (onSkipPreviousClick != null) {
+                        onSkipPreviousClick()
+                    } else {
+                        val target = (clampedCurrentTime - seekTimeMs).coerceAtLeast(0L)
+                        onSeek(target)
+                    }
+                },
+                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize(),
+                colors = sideButtonColors
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipPrevious,
+                    contentDescription = if (onSkipPreviousClick != null) "上一首" else "后退${seekTimeSeconds}秒"
+                )
+            }
+            ToggleButton(
+                checked = isPlaying,
+                onCheckedChange = { onPlayPauseClick() },
+                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+                modifier = Modifier
+                    .weight(1.15f)
+                    .fillMaxSize(),
+                colors = middleButtonColors
+            ) {
+                Icon(
+                    painter = painterResource(
+                        id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
+                    ),
+                    contentDescription = if (isPlaying) "暂停" else "播放"
+                )
+            }
+            ToggleButton(
+                checked = false,
+                onCheckedChange = {
+                    if (onSkipNextClick != null) {
+                        onSkipNextClick()
+                    } else {
+                        val target = (clampedCurrentTime + seekTimeMs).coerceAtMost(safeDuration)
+                        onSeek(target)
+                    }
+                },
+                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize(),
+                colors = sideButtonColors
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒"
+                )
+            }
         }
     }
 }

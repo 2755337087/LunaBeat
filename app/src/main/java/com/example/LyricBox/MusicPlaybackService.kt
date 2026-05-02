@@ -15,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.example.LyricBox.utils.AudioMetadataReader
@@ -33,6 +34,8 @@ class MusicPlaybackService : MediaSessionService() {
     @Volatile
     private var isTranscodingCurrentItem = false
     @Volatile
+    private var pendingPlayAfterTranscode = false
+    @Volatile
     private var isUpdatingArtwork = false
     private var lastFailedAlacPath: String? = null
     private var lastFailedAlacAtMs: Long = 0L
@@ -40,6 +43,10 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        val notificationProvider = DefaultMediaNotificationProvider.Builder(this).build().apply {
+            setSmallIcon(R.mipmap.ic_launcher_foreground)
+        }
+        setMediaNotificationProvider(notificationProvider)
 
         val sessionActivityIntent = Intent(this, MusicPlayerActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -117,6 +124,7 @@ class MusicPlaybackService : MediaSessionService() {
 
         if (!PlaybackAlacTranscodeManager.isAlacEncodedM4a(sourcePath)) {
             lastFailedAlacPath = null
+            pendingPlayAfterTranscode = false
             PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
             return
         }
@@ -143,7 +151,10 @@ class MusicPlaybackService : MediaSessionService() {
         }
 
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
-        val shouldPlay = player.playWhenReady
+        val requestedPlayAtStart = player.playWhenReady || player.isPlaying
+        if (requestedPlayAtStart) {
+            pendingPlayAfterTranscode = true
+        }
         isTranscodingCurrentItem = true
 
         transcodeExecutor.execute {
@@ -153,12 +164,14 @@ class MusicPlaybackService : MediaSessionService() {
                 if (transcodedPath.isNullOrBlank()) {
                     lastFailedAlacPath = sourcePath
                     lastFailedAlacAtMs = SystemClock.elapsedRealtime()
+                    pendingPlayAfterTranscode = false
                     return@post
                 }
 
                 val latestItem = player.currentMediaItem ?: return@post
                 val latestSourcePath = latestItem.resolveOriginalAudioPath() ?: return@post
                 if (latestSourcePath != sourcePath) {
+                    pendingPlayAfterTranscode = false
                     return@post
                 }
 
@@ -171,10 +184,12 @@ class MusicPlaybackService : MediaSessionService() {
                 player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
                 player.prepare()
                 player.seekTo(player.currentMediaItemIndex, resumePosition)
-                player.playWhenReady = shouldPlay
-                if (shouldPlay) {
+                val shouldPlayNow = pendingPlayAfterTranscode || player.playWhenReady || player.isPlaying
+                player.playWhenReady = shouldPlayNow
+                if (shouldPlayNow) {
                     player.play()
                 }
+                pendingPlayAfterTranscode = false
                 maybeEnsureCurrentArtworkMetadata(player, force = true)
                 PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = transcodedPath)
             }

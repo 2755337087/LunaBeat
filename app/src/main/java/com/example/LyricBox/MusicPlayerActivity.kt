@@ -15,6 +15,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
@@ -37,7 +38,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -48,11 +48,16 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -115,6 +121,7 @@ class MusicPlayerActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MusicPlayerScreen(
     onClose: () -> Unit
@@ -176,6 +183,19 @@ private fun MusicPlayerScreen(
         blendColorForUi(backgroundColor, Color.Black, 0.42f)
     }
     val onAccentColor = if (colorLuminance(accentColor) > 0.52f) Color(0xFF101010) else Color.White
+    val controlAccentBase = displayThemeColor ?: coverThemeColor ?: accentColor
+    val controlAccentColor = if (isDarkTheme) {
+        blendColorForUi(controlAccentBase, Color.White, 0.7f)
+    } else {
+        blendColorForUi(controlAccentBase, Color.Black, 0.7f)
+    }
+    val onControlAccentColor = if (colorLuminance(controlAccentColor) > 0.52f) Color(0xFF101010) else Color.White
+    val oppositeControlColor = if (isDarkTheme) {
+        blendColorForUi(controlAccentBase, Color.Black, 0.7f)
+    } else {
+        blendColorForUi(controlAccentBase, Color.White, 0.7f)
+    }
+    val onOppositeControlColor = if (colorLuminance(oppositeControlColor) > 0.52f) Color(0xFF101010) else Color.White
     val gradientTop = if (isDarkTheme) {
         blendColorForUi(backgroundColor, Color.Black, 0.18f)
     } else {
@@ -189,6 +209,11 @@ private fun MusicPlayerScreen(
 
     val position = controller.positionMs.coerceAtLeast(0L)
     val duration = controller.durationMs.coerceAtLeast(0L)
+    val coverScale by animateFloatAsState(
+        targetValue = if (controller.playWhenReadyRequested) 1f else 0.95f,
+        animationSpec = tween(durationMillis = 320),
+        label = "coverPlayPauseScale"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -252,6 +277,10 @@ private fun MusicPlayerScreen(
                                         .fillMaxWidth(0.92f)
                                         .widthIn(max = 520.dp)
                                         .aspectRatio(1f)
+                                        .graphicsLayer(
+                                            scaleX = coverScale,
+                                            scaleY = coverScale
+                                        )
                                         .clip(RoundedCornerShape(26.dp))
                                 )
                             }
@@ -262,6 +291,10 @@ private fun MusicPlayerScreen(
                                 .fillMaxWidth(0.92f)
                                 .widthIn(max = 520.dp)
                                 .aspectRatio(1f)
+                                .graphicsLayer(
+                                    scaleX = coverScale,
+                                    scaleY = coverScale
+                                )
                                 .clip(RoundedCornerShape(26.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                             contentAlignment = Alignment.Center
@@ -316,19 +349,14 @@ private fun MusicPlayerScreen(
                         0f
                     }
 
-                    val outlineColor = panelOnColor.copy(alpha = 0.20f)
-                    val progressColor = accentColor
-                    val progressTrackColor = panelOnColor.copy(alpha = 0.30f)
+                    val progressColor = controlAccentColor
+                    val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(32.dp)
-                            .background(
-                                color = outlineColor,
-                                shape = RoundedCornerShape(24.dp)
-                            )
-                            .padding(6.dp)
+                            .padding(vertical = 6.dp)
                     ) {
                         val displayProgress = if (safeDuration > 0L) {
                             (clampedCurrentTime.toFloat() / safeDuration.toFloat())
@@ -338,7 +366,6 @@ private fun MusicPlayerScreen(
                         } else {
                             0f
                         }
-
                         LinearProgressIndicator(
                             progress = { displayProgress },
                             modifier = Modifier.fillMaxSize(),
@@ -386,32 +413,65 @@ private fun MusicPlayerScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircleControlButton(
-                            icon = Icons.Rounded.SkipPrevious,
-                            onClick = { controller.skipToPrevious() },
-                            backgroundColor = panelOnColor.copy(alpha = 0.14f),
-                            iconColor = panelOnColor
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        CircleControlButton(
-                            icon = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            onClick = { controller.togglePlayPause() },
-                            isPrimary = true,
-                            backgroundColor = accentColor,
-                            iconColor = onAccentColor
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        CircleControlButton(
-                            icon = Icons.Rounded.SkipNext,
-                            onClick = { controller.skipToNext() },
-                            backgroundColor = panelOnColor.copy(alpha = 0.14f),
-                            iconColor = panelOnColor
-                        )
+                    val toggleColors = ToggleButtonDefaults.toggleButtonColors(
+                        containerColor = oppositeControlColor,
+                        contentColor = onOppositeControlColor,
+                        checkedContainerColor = oppositeControlColor,
+                        checkedContentColor = onOppositeControlColor
+                    )
+        ButtonGroup(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+        ) {
+                        ToggleButton(
+                            checked = false,
+                            onCheckedChange = { controller.skipToPrevious() },
+                            shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize(),
+                            colors = toggleColors
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipPrevious,
+                                contentDescription = "上一首"
+                            )
+                        }
+                        ToggleButton(
+                            checked = controller.isPlaying,
+                            onCheckedChange = { controller.togglePlayPause() },
+                            shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+                            modifier = Modifier
+                                .weight(1.15f)
+                                .fillMaxSize(),
+                            colors = ToggleButtonDefaults.toggleButtonColors(
+                                containerColor = controlAccentColor,
+                                contentColor = onControlAccentColor,
+                                checkedContainerColor = controlAccentColor,
+                                checkedContentColor = onControlAccentColor
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                contentDescription = if (controller.isPlaying) "暂停" else "播放"
+                            )
+                        }
+                        ToggleButton(
+                            checked = false,
+                            onCheckedChange = { controller.skipToNext() },
+                            shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize(),
+                            colors = toggleColors
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipNext,
+                                contentDescription = "下一首"
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -438,47 +498,18 @@ private fun MusicPlayerScreen(
                             }
                             .padding(horizontal = 18.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Lyrics,
                             contentDescription = "歌词",
-                            tint = accentColor
-                        )
-                        Text(
-                            text = "打开歌词预览",
-                            color = accentColor,
-                            fontWeight = FontWeight.Medium
+                            tint = accentColor,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun CircleControlButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-    isPrimary: Boolean = false,
-    backgroundColor: Color,
-    iconColor: Color
-) {
-    Box(
-        modifier = Modifier
-            .size(if (isPrimary) 68.dp else 56.dp)
-            .clip(CircleShape)
-            .background(backgroundColor)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = iconColor,
-            modifier = Modifier.size(if (isPrimary) 34.dp else 28.dp)
-        )
     }
 }
 
