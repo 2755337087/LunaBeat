@@ -44,7 +44,7 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val notificationProvider = DefaultMediaNotificationProvider.Builder(this).build().apply {
-            setSmallIcon(R.mipmap.ic_launcher_foreground)
+            setSmallIcon(R.drawable.splash_icon)
         }
         setMediaNotificationProvider(notificationProvider)
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -25,11 +26,19 @@ import java.io.File
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
+private const val PLAYBACK_STATE_PREFS = "music_playback_state"
+private const val KEY_LAST_AUDIO_PATH = "last_audio_path"
+private const val KEY_LAST_TITLE = "last_title"
+private const val KEY_LAST_ARTIST = "last_artist"
+private const val KEY_LAST_COVER_CACHE_PATH = "last_cover_cache_path"
 
 class MusicPlaybackController(private val context: Context) {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private val playbackStatePrefs by lazy {
+        context.getSharedPreferences(PLAYBACK_STATE_PREFS, Context.MODE_PRIVATE)
+    }
 
     var isReady by mutableStateOf(false)
         private set
@@ -59,9 +68,15 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var mediaCount by mutableStateOf(0)
         private set
+    var queueAudioPaths by mutableStateOf<List<String>>(emptyList())
+        private set
 
     val hasCurrentItem: Boolean
         get() = currentAudioPath != null
+
+    init {
+        restoreSnapshotState()
+    }
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -82,6 +97,7 @@ class MusicPlaybackController(private val context: Context) {
             runCatching { future.get() }.onSuccess { readyController ->
                 controller = readyController
                 readyController.addListener(listener)
+                restoreQueueIfNeeded(readyController)
                 syncFromPlayer(readyController)
                 isReady = true
             }
@@ -127,6 +143,35 @@ class MusicPlaybackController(private val context: Context) {
         player.prepare()
         player.playWhenReady = true
         player.play()
+        LocalPlaylistStore.savePlaybackQueue(
+            context,
+            queue.map {
+                LocalPlaylistEntry(
+                    path = it.path,
+                    title = it.displayTitle,
+                    artist = it.displayArtist,
+                    durationSeconds = (it.duration / 1000L).coerceAtLeast(-1L)
+                )
+            }
+        )
+    }
+
+    fun insertNext(audio: AudioFile) {
+        val player = controller ?: return
+        val insertIndex = if (player.currentMediaItemIndex >= 0) {
+            (player.currentMediaItemIndex + 1).coerceAtMost(player.mediaItemCount)
+        } else {
+            player.mediaItemCount
+        }
+        val mediaItem = audio.toPlayableMediaItem(
+            context = context,
+            preferOriginalCover = false
+        )
+        player.addMediaItem(insertIndex, mediaItem)
+        if (player.playbackState == Player.STATE_IDLE) {
+            player.prepare()
+        }
+        persistCurrentQueue(player)
     }
 
     fun skipToNext() {
@@ -160,6 +205,12 @@ class MusicPlaybackController(private val context: Context) {
         durationMs = player.duration.takeIf { it > 0L } ?: 0L
         currentIndex = player.currentMediaItemIndex
         mediaCount = player.mediaItemCount
+        queueAudioPaths = (0 until player.mediaItemCount).mapNotNull { idx ->
+            val mediaItem = player.getMediaItemAt(idx)
+            mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+                ?: mediaItem.mediaId.takeIf { it.isNotBlank() }
+        }
+        persistCurrentQueue(player)
 
         val item = player.currentMediaItem
         currentMediaId = item?.mediaId
@@ -171,6 +222,91 @@ class MusicPlaybackController(private val context: Context) {
         currentTitle = item?.mediaMetadata?.title?.toString()
             ?: File(currentAudioPath ?: "").nameWithoutExtension
         currentArtist = item?.mediaMetadata?.artist?.toString() ?: "未知艺术家"
+        persistSnapshotState()
+    }
+
+    private fun persistCurrentQueue(player: Player) {
+        val entries = (0 until player.mediaItemCount).mapNotNull { idx ->
+            val mediaItem = player.getMediaItemAt(idx)
+            val path = mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+                ?: mediaItem.mediaId.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            LocalPlaylistEntry(
+                path = path,
+                title = mediaItem.mediaMetadata.title?.toString().orEmpty(),
+                artist = mediaItem.mediaMetadata.artist?.toString().orEmpty(),
+                durationSeconds = -1L
+            )
+        }
+        LocalPlaylistStore.savePlaybackQueue(context, entries)
+    }
+
+    private fun restoreQueueIfNeeded(player: MediaController) {
+        if (player.mediaItemCount > 0) return
+        val savedPaths = LocalPlaylistStore.loadPlaybackQueuePaths(context)
+        if (savedPaths.isEmpty()) return
+        val targetPath = playbackStatePrefs.getString(KEY_LAST_AUDIO_PATH, null)
+        val targetIndex = savedPaths.indexOfFirst { it == targetPath }.let { if (it >= 0) it else 0 }
+        val restoredItems = savedPaths.mapNotNull { path ->
+            val file = File(path)
+            if (!file.exists()) return@mapNotNull null
+            val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
+            val inferredCoverCachePath = resolveExistingCoverCachePath(path)
+            val audio = AudioFile(
+                path = path,
+                title = metadata?.title.orEmpty(),
+                artist = metadata?.artist.orEmpty(),
+                album = metadata?.album.orEmpty(),
+                duration = metadata?.duration ?: 0L,
+                fileSize = file.length(),
+                lastModified = file.lastModified(),
+                addedTime = file.lastModified(),
+                coverCachePath = inferredCoverCachePath,
+                year = metadata?.year.orEmpty(),
+                mediaStoreId = -1L
+            )
+            val shouldPreferOriginalCover = path == savedPaths.getOrNull(targetIndex)
+            audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
+        }
+        if (restoredItems.isEmpty()) return
+        val safeTargetIndex = targetIndex.coerceIn(0, restoredItems.lastIndex)
+        try {
+            player.setMediaItems(restoredItems, safeTargetIndex, 0L)
+            player.prepare()
+        } catch (e: Exception) {
+            Log.e("MusicPlaybackController", "Failed to restore queue", e)
+        }
+    }
+
+    private fun persistSnapshotState() {
+        val path = currentAudioPath
+        if (path.isNullOrBlank()) return
+        playbackStatePrefs.edit()
+            .putString(KEY_LAST_AUDIO_PATH, path)
+            .putString(KEY_LAST_TITLE, currentTitle)
+            .putString(KEY_LAST_ARTIST, currentArtist)
+            .putString(KEY_LAST_COVER_CACHE_PATH, currentCoverCachePath)
+            .apply()
+    }
+
+    private fun restoreSnapshotState() {
+        val savedPath = playbackStatePrefs.getString(KEY_LAST_AUDIO_PATH, null)?.takeIf { it.isNotBlank() } ?: return
+        currentAudioPath = savedPath
+        currentMediaId = savedPath
+        currentTitle = playbackStatePrefs.getString(KEY_LAST_TITLE, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: File(savedPath).nameWithoutExtension
+        currentArtist = playbackStatePrefs.getString(KEY_LAST_ARTIST, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: "未知艺术家"
+        currentCoverCachePath = playbackStatePrefs.getString(KEY_LAST_COVER_CACHE_PATH, null)
+            ?.takeIf { !it.isNullOrBlank() && File(it).exists() }
+            ?: resolveExistingCoverCachePath(savedPath)
+    }
+
+    private fun resolveExistingCoverCachePath(audioPath: String): String? {
+        val cacheFile = File(File(context.cacheDir, "covers"), "${audioPath.hashCode()}.jpg")
+        return cacheFile.absolutePath.takeIf { cacheFile.exists() }
     }
 }
 

@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +44,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.MusicPlaybackController
-import com.example.LyricBox.R
 import com.example.LyricBox.blendColorForUi
 import com.example.LyricBox.colorLuminance
 import com.example.LyricBox.extractMutedCoverColor
@@ -59,9 +63,10 @@ fun GlobalMiniPlayerBar(
     var dragOffsetY by remember { mutableStateOf(0f) }
     val isDarkTheme = colorLuminance(MaterialTheme.colorScheme.background) < 0.5f
 
-    LaunchedEffect(controller.currentCoverCachePath) {
+    LaunchedEffect(controller.currentCoverCachePath, controller.currentArtworkData) {
         coverBitmap = withContext(Dispatchers.IO) {
             decodeCoverBitmapFromCache(controller.currentCoverCachePath, reqWidth = 112, reqHeight = 112)
+                ?: decodeCoverBitmapFromBytes(controller.currentArtworkData, reqWidth = 112, reqHeight = 112)
         }
     }
     LaunchedEffect(coverBitmap, isDarkTheme) {
@@ -151,35 +156,35 @@ fun GlobalMiniPlayerBar(
 
         IconButton(
             onClick = { controller.skipToPrevious() },
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier.size(40.dp)
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.prel),
+                imageVector = Icons.Rounded.SkipPrevious,
                 contentDescription = "上一首",
                 tint = onPanelColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
         IconButton(
             onClick = { controller.togglePlayPause() },
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(42.dp)
         ) {
             Icon(
-                painter = painterResource(id = if (controller.isPlaying) R.drawable.pause else R.drawable.play),
+                imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (controller.isPlaying) "暂停" else "播放",
                 tint = onPanelColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
         IconButton(
             onClick = { controller.skipToNext() },
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier.size(40.dp)
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.nextl),
+                imageVector = Icons.Rounded.SkipNext,
                 contentDescription = "下一首",
                 tint = onPanelColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }
@@ -201,6 +206,17 @@ private fun decodeCoverBitmapFromCache(cachePath: String?, reqWidth: Int, reqHei
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 }
 
+private fun decodeCoverBitmapFromBytes(bytes: ByteArray?, reqWidth: Int, reqHeight: Int): Bitmap? {
+    val rawBytes = bytes ?: return null
+    if (rawBytes.isEmpty()) return null
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+    options.inJustDecodeBounds = false
+    options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
+    return BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+}
+
 private fun calculateInSampleSize(
     options: BitmapFactory.Options,
     reqWidth: Int,
@@ -218,4 +234,3 @@ private fun calculateInSampleSize(
     }
     return inSampleSize.coerceAtLeast(1)
 }
-

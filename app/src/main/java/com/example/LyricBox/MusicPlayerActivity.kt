@@ -11,13 +11,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -128,7 +125,6 @@ private fun MusicPlayerScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val controller = rememberMusicPlaybackController()
-    var hasAppeared by remember { mutableStateOf(false) }
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
 
     val lyricPreviewLauncher = rememberLauncherForActivityResult(
@@ -140,8 +136,6 @@ private fun MusicPlayerScreen(
             controller.seekTo(returnedPos)
         }
     }
-
-    LaunchedEffect(Unit) { hasAppeared = true }
 
     val rawCoverBitmap = remember(controller.currentArtworkData) {
         val artwork = controller.currentArtworkData
@@ -223,18 +217,13 @@ private fun MusicPlayerScreen(
                 )
             )
     ) {
-        AnimatedVisibility(
-            visible = hasAppeared,
-            enter = fadeIn(animationSpec = tween(260)),
-            exit = fadeOut(animationSpec = tween(200))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 18.dp)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 10.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(horizontal = 18.dp)
-                    .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 10.dp)
-            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -509,7 +498,6 @@ private fun MusicPlayerScreen(
                     }
                 }
             }
-        }
     }
 }
 

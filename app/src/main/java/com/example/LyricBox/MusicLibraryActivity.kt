@@ -2,10 +2,12 @@ package com.example.LyricBox
 
 import android.content.Context
 import android.content.Intent
+import android.content.ContentUris
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
@@ -75,6 +77,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ripple
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -245,6 +250,26 @@ fun formatAudioDuration(ms: Long): String {
     val seconds = (ms / 1000) % 60
     val minutes = (ms / 60000) % 60
     return String.format("%d:%02d", minutes, seconds)
+}
+
+private const val FAVORITE_SEARCH_TOKEN = "#收藏歌曲"
+private const val ALBUM_SEARCH_PREFIX_FULL = "#专辑："
+private const val ALBUM_SEARCH_PREFIX_ASCII = "#专辑:"
+
+private fun parseTrackNumberValue(trackRaw: String): Int {
+    if (trackRaw.isBlank()) return Int.MAX_VALUE
+    val firstPart = trackRaw.substringBefore("/").trim()
+    return firstPart.toIntOrNull()
+        ?: Regex("""\d+""").find(firstPart)?.value?.toIntOrNull()
+        ?: Int.MAX_VALUE
+}
+
+private fun buildShareableAudioUri(audio: AudioFile): Uri {
+    return if (audio.mediaStoreId > 0L) {
+        ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, audio.mediaStoreId)
+    } else {
+        Uri.fromFile(File(audio.path))
+    }
 }
 
 private val LYRIC_FORMAT_OPTIONS = listOf(
@@ -1108,14 +1133,27 @@ fun MusicLibraryScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var selectedAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showAudioOptionsDialog by remember { mutableStateOf(false) }
+    var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
+    var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showArtistSelectionSheet by remember { mutableStateOf(false) }
+    var pendingArtistCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameInputValue by remember { mutableStateOf("") }
+    var renameFileExtension by remember { mutableStateOf("") }
+    var renameSuccessSignal by remember { mutableStateOf(0L) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
     var scanSummary by remember { mutableStateOf(ScanSummary()) }
     var isFromCache by remember { mutableStateOf(false) }
     var showScanComplete by remember { mutableStateOf(false) }
     var isLoadingCache by remember { mutableStateOf(true) }
+    var showScanProgressPopup by remember { mutableStateOf(false) }
+    var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
     
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
+    val favoritePaths = remember { mutableStateSetOf<String>() }
+    val albumTrackSortCache = remember { mutableMapOf<String, Int>() }
     
     var isMultiSelectMode by remember { mutableStateOf(false) }
     val selectedPaths = remember { mutableStateSetOf<String>() }
@@ -1173,25 +1211,93 @@ fun MusicLibraryScreen(
     }
     
     val activity = context as MusicLibraryActivity
-    
+
+    fun resolveTrackSortValue(audio: AudioFile): Int {
+        val cached = albumTrackSortCache[audio.path]
+        if (cached != null) return cached
+        val trackValue = runCatching {
+            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                context,
+                audio.path,
+                audio.mediaStoreId
+            )
+            parseTrackNumberValue(metadata.trackNumber)
+        }.getOrDefault(Int.MAX_VALUE)
+        albumTrackSortCache[audio.path] = trackValue
+        return trackValue
+    }
+
+    fun isAlbumSearchQuery(query: String): Boolean {
+        val trimmed = query.trim()
+        return trimmed.startsWith(ALBUM_SEARCH_PREFIX_FULL) || trimmed.startsWith(ALBUM_SEARCH_PREFIX_ASCII)
+    }
+
+    fun buildFilteredDisplayList(): List<AudioFile> {
+        val trimmed = searchQuery.trim()
+        if (trimmed.isEmpty()) return allAudioFiles.toList()
+
+        if (trimmed.startsWith(FAVORITE_SEARCH_TOKEN, ignoreCase = true)) {
+            val keyword = trimmed.removePrefix(FAVORITE_SEARCH_TOKEN).trim()
+            val favoriteList = allAudioFiles.filter { it.path in favoritePaths }
+            if (keyword.isBlank()) return favoriteList
+            return favoriteList.filter {
+                it.displayTitle.contains(keyword, ignoreCase = true) ||
+                    it.displayArtist.contains(keyword, ignoreCase = true) ||
+                    it.displayAlbum.contains(keyword, ignoreCase = true)
+            }
+        }
+
+        if (isAlbumSearchQuery(trimmed)) {
+            val keyword = trimmed
+                .removePrefix(ALBUM_SEARCH_PREFIX_FULL)
+                .removePrefix(ALBUM_SEARCH_PREFIX_ASCII)
+                .trim()
+            if (keyword.isBlank()) return emptyList()
+            return allAudioFiles
+                .filter { it.displayAlbum.contains(keyword, ignoreCase = true) }
+                .sortedWith(
+                    compareBy<AudioFile> { resolveTrackSortValue(it) }
+                        .thenBy { it.displayTitle.lowercase() }
+                )
+        }
+
+        return allAudioFiles.filter {
+            it.displayTitle.contains(trimmed, ignoreCase = true) ||
+                it.displayArtist.contains(trimmed, ignoreCase = true) ||
+                it.album.contains(trimmed, ignoreCase = true)
+        }
+    }
+
+    fun persistFavoritesPlaylist() {
+        val entries = allAudioFiles
+            .filter { it.path in favoritePaths }
+            .map { audio ->
+                LocalPlaylistEntry(
+                    path = audio.path,
+                    title = audio.displayTitle,
+                    artist = audio.displayArtist,
+                    durationSeconds = (audio.duration / 1000L).coerceAtLeast(-1L)
+                )
+            }
+        LocalPlaylistStore.saveFavorites(context, entries)
+    }
+
+    fun updateDisplayFiles() {
+        val filtered = buildFilteredDisplayList()
+        displayAudioFiles.clear()
+        displayAudioFiles.addAll(filtered)
+        if (!isAlbumSearchQuery(searchQuery)) {
+            sortAudioFiles(displayAudioFiles, sortType.value, sortOrder.value)
+        }
+    }
+
     LaunchedEffect(Unit) {
         val pathToRefresh = activity.getRefreshMetadataPath()
         if (pathToRefresh != null) {
             if (refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles) != null) {
                 saveCachedAudioFiles(context, allAudioFiles)
             }
-            val filtered = if (searchQuery.isEmpty()) {
-                allAudioFiles.toList()
-            } else {
-                allAudioFiles.filter { 
-                    it.displayTitle.contains(searchQuery, ignoreCase = true) || 
-                    it.displayArtist.contains(searchQuery, ignoreCase = true) ||
-                    it.album.contains(searchQuery, ignoreCase = true)
-                }
-            }
-            displayAudioFiles.clear()
-            displayAudioFiles.addAll(filtered)
-            sortAudioFiles(displayAudioFiles, sortType.value, sortOrder.value)
+            updateDisplayFiles()
         }
     }
     
@@ -1205,18 +1311,7 @@ fun MusicLibraryScreen(
                         if (refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles) != null) {
                             saveCachedAudioFiles(context, allAudioFiles)
                         }
-                        val filtered = if (searchQuery.isEmpty()) {
-                            allAudioFiles.toList()
-                        } else {
-                            allAudioFiles.filter { 
-                                it.displayTitle.contains(searchQuery, ignoreCase = true) || 
-                                it.displayArtist.contains(searchQuery, ignoreCase = true) ||
-                                it.album.contains(searchQuery, ignoreCase = true)
-                            }
-                        }
-                        displayAudioFiles.clear()
-                        displayAudioFiles.addAll(filtered)
-                        sortAudioFiles(displayAudioFiles, sortType.value, sortOrder.value)
+                        updateDisplayFiles()
                     }
                 }
             }
@@ -1225,21 +1320,6 @@ fun MusicLibraryScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
-    }
-    
-    fun updateDisplayFiles() {
-        val filtered = if (searchQuery.isEmpty()) {
-            allAudioFiles.toList()
-        } else {
-            allAudioFiles.filter { 
-                it.displayTitle.contains(searchQuery, ignoreCase = true) || 
-                it.displayArtist.contains(searchQuery, ignoreCase = true) ||
-                it.album.contains(searchQuery, ignoreCase = true)
-            }
-        }
-        displayAudioFiles.clear()
-        displayAudioFiles.addAll(filtered)
-        sortAudioFiles(displayAudioFiles, sortType.value, sortOrder.value)
     }
     
     fun toggleSelection(path: String) {
@@ -1303,8 +1383,31 @@ fun MusicLibraryScreen(
     fun shouldShowScanComplete(summary: ScanSummary): Boolean {
         return summary.addedCount > 0 || summary.removedCount > 0 || summary.updatedCount > 0
     }
+
+    fun startScanPopupDelay() {
+        scanPopupDelayJob?.cancel()
+        showScanProgressPopup = false
+        scanPopupDelayJob = scope.launch {
+            delay(3000)
+            if (isScanning) {
+                showScanProgressPopup = true
+            }
+        }
+    }
+
+    fun hideScanPopupImmediately() {
+        scanPopupDelayJob?.cancel()
+        scanPopupDelayJob = null
+        showScanProgressPopup = false
+    }
     
     LaunchedEffect(Unit) {
+        favoritePaths.clear()
+        favoritePaths.addAll(
+            LocalPlaylistStore.loadFavoritePaths(context).filter { path ->
+                runCatching { File(path).exists() }.getOrDefault(false)
+            }
+        )
         val hasCache = loadCachedAudioFiles(context, allAudioFiles)
         if (hasCache) {
             isFromCache = true
@@ -1328,12 +1431,15 @@ fun MusicLibraryScreen(
         if (shouldScan) {
             scanJob = launch {
                 isScanning = true
+                showScanComplete = false
+                startScanPopupDelay()
                 scanAudioFiles(context, prefs, allAudioFiles,
                     onProgress = { current, total ->
                         scanProgress = current to total
                     },
                     onComplete = { summary ->
                         isScanning = false
+                        hideScanPopupImmediately()
                         scanSummary = summary
                         if (isFromCache && shouldShowScanComplete(summary)) {
                             showScanComplete = true
@@ -1422,6 +1528,8 @@ fun MusicLibraryScreen(
                                 title = "刷新",
                                 onClick = {
                                     isScanning = true
+                                    showScanComplete = false
+                                    startScanPopupDelay()
                                     scanJob?.cancel()
                                     scanJob = scope.launch {
                                         scanAudioFiles(context, prefs, allAudioFiles,
@@ -1430,6 +1538,7 @@ fun MusicLibraryScreen(
                                             },
                                             onComplete = { summary ->
                                                 isScanning = false
+                                                hideScanPopupImmediately()
                                                 scanSummary = summary
                                                 if (shouldShowScanComplete(summary)) {
                                                     showScanComplete = true
@@ -1508,7 +1617,7 @@ fun MusicLibraryScreen(
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (searchQuery.isEmpty()) {
                                             Text(
-                                                text = "搜索歌曲、艺术家或专辑...",
+                                                text = "搜索歌曲、艺术家、专辑或“#收藏歌曲”",
                                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                                 fontSize = 16.sp
                                             )
@@ -1706,6 +1815,14 @@ fun MusicLibraryScreen(
                                     {
                                         playbackController.playQueue(displayAudioFiles.toList(), audio.path)
                                     }
+                                },
+                                onMoreClick = if (isMultiSelectMode) {
+                                    null
+                                } else {
+                                    {
+                                        selectedSongInfoAudio = audio
+                                        showSongInfoSheet = true
+                                    }
                                 }
                             )
                         }
@@ -1825,8 +1942,9 @@ fun MusicLibraryScreen(
         }
         
         val fabHeight = 56.dp
+        val showScanPanel = showScanProgressPopup || showScanComplete
         val fabOffset by animateDpAsState(
-            targetValue = if ((isScanning || showScanComplete) && isMultiSelectMode) fabHeight + 8.dp else 0.dp,
+            targetValue = if (showScanPanel && isMultiSelectMode) fabHeight + 8.dp else 0.dp,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
                 stiffness = Spring.StiffnessLow
@@ -1835,7 +1953,7 @@ fun MusicLibraryScreen(
         )
         
         AnimatedVisibility(
-            visible = isScanning || showScanComplete,
+            visible = showScanPanel,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -1871,7 +1989,7 @@ fun MusicLibraryScreen(
                 contentAlignment = Alignment.Center
             ) {
                 AnimatedContent(
-                    targetState = isScanning,
+                    targetState = showScanProgressPopup && isScanning,
                     transitionSpec = {
                         fadeIn(animationSpec = tween(200)) + slideInVertically(
                             initialOffsetY = { -it / 2 },
@@ -1953,7 +2071,7 @@ fun MusicLibraryScreen(
                 .padding(
                     start = 12.dp,
                     end = 12.dp,
-                    bottom = if (isScanning || showScanComplete) 76.dp else 8.dp
+                    bottom = if (showScanPanel) 76.dp else 8.dp
                 ),
             enter = fadeIn(animationSpec = tween(220)),
             exit = fadeOut(animationSpec = tween(180))
@@ -1984,6 +2102,242 @@ fun MusicLibraryScreen(
             },
             onEditMetadata = { path ->
                 onEditMetadata(path)
+            }
+        )
+    }
+
+    if (showSongInfoSheet && selectedSongInfoAudio != null) {
+        val infoAudio = selectedSongInfoAudio!!
+        SongInfoBottomSheet(
+            audio = infoAudio,
+            isFavorite = infoAudio.path in favoritePaths,
+            renameSuccessSignal = renameSuccessSignal,
+            onDismiss = {
+                showSongInfoSheet = false
+                selectedSongInfoAudio = null
+            },
+            onPlayNext = {
+                playbackController.insertNext(infoAudio)
+            },
+            onViewAlbum = { albumName ->
+                showSongInfoSheet = false
+                searchQuery = "$ALBUM_SEARCH_PREFIX_FULL$albumName"
+                updateDisplayFiles()
+            },
+            onViewArtists = { artists ->
+                if (artists.isNotEmpty()) {
+                    pendingArtistCandidates = artists
+                    showSongInfoSheet = false
+                    showArtistSelectionSheet = true
+                } else {
+                    Toast.makeText(context, "未读取到艺术家信息", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onToggleFavorite = {
+                if (infoAudio.path in favoritePaths) {
+                    favoritePaths.remove(infoAudio.path)
+                } else {
+                    favoritePaths.add(infoAudio.path)
+                }
+                persistFavoritesPlaylist()
+                updateDisplayFiles()
+            },
+            onShareFile = {
+                val shareUri = buildShareableAudioUri(infoAudio)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "audio/*"
+                    putExtra(Intent.EXTRA_STREAM, shareUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "分享音频"))
+            },
+            onRenameFile = {
+                val sourceFile = File(infoAudio.path)
+                renameInputValue = sourceFile.nameWithoutExtension
+                renameFileExtension = sourceFile.extension
+                    .takeIf { it.isNotBlank() }
+                    ?.let { ".$it" }
+                    ?: ""
+                showRenameDialog = true
+            },
+            onDeleteFile = {
+                showDeleteConfirmDialog = true
+            }
+        )
+    }
+
+    if (showArtistSelectionSheet) {
+        ArtistSelectionBottomSheet(
+            artists = pendingArtistCandidates,
+            onDismiss = { showArtistSelectionSheet = false },
+            onSelectArtist = { artist ->
+                searchQuery = artist
+                updateDisplayFiles()
+                showArtistSelectionSheet = false
+                showSongInfoSheet = false
+            }
+        )
+    }
+
+    if (showRenameDialog && selectedSongInfoAudio != null) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("重命名文件") },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    BasicTextField(
+                        value = renameInputValue,
+                        onValueChange = { renameInputValue = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false,
+                        maxLines = Int.MAX_VALUE,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = 16.sp
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                if (renameInputValue.isEmpty()) {
+                                    Text(
+                                        text = "输入文件名",
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                        fontSize = 16.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val sourceAudio = selectedSongInfoAudio ?: return@TextButton
+                        val oldFile = File(sourceAudio.path)
+                        val newBaseName = renameInputValue.trim()
+                        if (newBaseName.isBlank()) {
+                            Toast.makeText(context, "文件名不能为空", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        val newName = newBaseName + renameFileExtension
+                        val parent = oldFile.parentFile
+                        if (parent == null) {
+                            Toast.makeText(context, "无效目录", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        val newFile = File(parent, newName)
+                        if (newFile.exists()) {
+                            Toast.makeText(context, "目标文件已存在", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        val renamed = runCatching { oldFile.renameTo(newFile) }.getOrDefault(false)
+                        if (!renamed) {
+                            Toast.makeText(context, "重命名失败", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+
+                        runCatching {
+                            val oldTtml = File(parent, "${oldFile.nameWithoutExtension}.ttml")
+                            if (oldTtml.exists()) {
+                                val newTtml = File(parent, "${newFile.nameWithoutExtension}.ttml")
+                                oldTtml.renameTo(newTtml)
+                            }
+                        }
+
+                        val idx = allAudioFiles.indexOfFirst { it.path == sourceAudio.path }
+                        if (idx >= 0) {
+                            val metadata = runCatching {
+                                com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, newFile.absolutePath)
+                            }.getOrNull()
+                            allAudioFiles[idx] = sourceAudio.copy(
+                                path = newFile.absolutePath,
+                                title = metadata?.title ?: sourceAudio.title,
+                                artist = metadata?.artist ?: sourceAudio.artist,
+                                album = metadata?.album ?: sourceAudio.album,
+                                duration = metadata?.duration ?: sourceAudio.duration,
+                                fileSize = newFile.length(),
+                                lastModified = newFile.lastModified(),
+                                year = metadata?.year ?: sourceAudio.year,
+                                mediaStoreId = -1L
+                            )
+                        }
+                        if (sourceAudio.path in favoritePaths) {
+                            favoritePaths.remove(sourceAudio.path)
+                            favoritePaths.add(newFile.absolutePath)
+                            persistFavoritesPlaylist()
+                        }
+                        selectedPaths.remove(sourceAudio.path)
+                        selectedPaths.add(newFile.absolutePath)
+                        albumTrackSortCache.remove(sourceAudio.path)
+                        saveCachedAudioFiles(context, allAudioFiles)
+                        updateDisplayFiles()
+                        selectedSongInfoAudio = allAudioFiles.find { it.path == newFile.absolutePath }
+                        showRenameDialog = false
+                        renameSuccessSignal = System.currentTimeMillis()
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showDeleteConfirmDialog && selectedSongInfoAudio != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("删除文件") },
+            text = { Text("确认删除该音频文件吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val target = selectedSongInfoAudio ?: return@TextButton
+                        val file = File(target.path)
+                        val deleted = runCatching { file.delete() }.getOrDefault(false)
+                        if (!deleted) {
+                            Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        runCatching {
+                            val parent = file.parentFile
+                            if (parent != null) {
+                                val ttml = File(parent, "${file.nameWithoutExtension}.ttml")
+                                if (ttml.exists()) ttml.delete()
+                            }
+                        }
+                        favoritePaths.remove(target.path)
+                        persistFavoritesPlaylist()
+                        selectedPaths.remove(target.path)
+                        albumTrackSortCache.remove(target.path)
+                        allAudioFiles.removeAll { it.path == target.path }
+                        saveCachedAudioFiles(context, allAudioFiles)
+                        updateDisplayFiles()
+                        showDeleteConfirmDialog = false
+                        showSongInfoSheet = false
+                        selectedSongInfoAudio = null
+                        Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("取消")
+                }
             }
         )
     }
@@ -2399,7 +2753,8 @@ fun AudioFileItem(
     sequenceNumber: Int? = null,
     onLongClick: (() -> Unit)? = null,
     onSelectionChange: ((Boolean) -> Unit)? = null,
-    onPlayClick: (() -> Unit)? = null
+    onPlayClick: (() -> Unit)? = null,
+    onMoreClick: (() -> Unit)? = null
 ) {
     var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val context = LocalContext.current
@@ -2575,18 +2930,38 @@ fun AudioFileItem(
             )
         }
 
-        if (!isInMultiSelectMode && onPlayClick != null) {
+        if (!isInMultiSelectMode && (onPlayClick != null || onMoreClick != null)) {
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = onPlayClick,
-                modifier = Modifier.size(32.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.play),
-                    contentDescription = "播放并预览歌词",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
+                if (onPlayClick != null) {
+                    IconButton(
+                        onClick = onPlayClick,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.play),
+                            contentDescription = "播放",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                if (onMoreClick != null) {
+                    IconButton(
+                        onClick = onMoreClick,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.baseline_more_vert_24),
+                            contentDescription = "更多",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -2688,10 +3063,10 @@ private fun MusicLibraryMiniPlayerBar(
             modifier = Modifier.size(34.dp)
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.prel),
+                imageVector = Icons.Rounded.SkipPrevious,
                 contentDescription = "上一首",
                 tint = onBaseColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
         IconButton(
@@ -2710,10 +3085,10 @@ private fun MusicLibraryMiniPlayerBar(
             modifier = Modifier.size(34.dp)
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.nextl),
+                imageVector = Icons.Rounded.SkipNext,
                 contentDescription = "下一首",
                 tint = onBaseColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
     }
