@@ -497,6 +497,7 @@ fun SettingsScreen(
                     summary = when (currentSongClickAction.value) {
                         "editLyrics" -> "编辑歌词"
                         "editMetadata" -> "编辑元数据"
+                        "playMusic" -> "播放音乐"
                         else -> "编辑歌词"
                     },
                     onClick = {
@@ -1447,7 +1448,8 @@ fun SongClickActionDialog(
             Column {
                 val actions = listOf(
                     "editLyrics" to "编辑歌词",
-                    "editMetadata" to "编辑元数据"
+                    "editMetadata" to "编辑元数据",
+                    "playMusic" to "播放音乐"
                 )
                 
                 actions.forEach { (key, displayName) ->

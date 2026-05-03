@@ -1819,25 +1819,31 @@ fun MusicLibraryScreen(
                                                 }
                                             }
                                         } else {
-                                            if (songClickAction == "editMetadata") {
-                                                onEditMetadata(audio.path)
-                                            } else {
-                                                handleMusicLibraryItemLyricsAction(
-                                                    scope = scope,
-                                                    audio = audio,
-                                                    autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
-                                                    onShowOptions = {
-                                                        selectedAudio = it
-                                                        showAudioOptionsDialog = true
-                                                    },
-                                                    onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
-                                                        startLyricTimingEditor(
-                                                            audio = targetAudio,
-                                                            lyricsContent = lyricsContent,
-                                                            format = format
-                                                        )
-                                                    }
-                                                )
+                                            when (songClickAction) {
+                                                "playMusic" -> {
+                                                    playbackController.playQueue(displayAudioFiles.toList(), audio.path)
+                                                }
+                                                "editMetadata" -> {
+                                                    onEditMetadata(audio.path)
+                                                }
+                                                else -> {
+                                                    handleMusicLibraryItemLyricsAction(
+                                                        scope = scope,
+                                                        audio = audio,
+                                                        autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+                                                        onShowOptions = {
+                                                            selectedAudio = it
+                                                            showAudioOptionsDialog = true
+                                                        },
+                                                        onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
+                                                            startLyricTimingEditor(
+                                                                audio = targetAudio,
+                                                                lyricsContent = lyricsContent,
+                                                                format = format
+                                                            )
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     },
@@ -1862,6 +1868,8 @@ fun MusicLibraryScreen(
                                         }
                                     },
                                     onPlayClick = if (isMultiSelectMode) {
+                                        null
+                                    } else if (songClickAction == "playMusic") {
                                         null
                                     } else {
                                         {

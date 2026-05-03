@@ -252,6 +252,26 @@ fun SongInfoBottomSheet(
                 }
             )
             SongInfoActionItem(
+                title = "去打轴界面编辑歌词",
+                onClick = {
+                    scope.launch {
+                        launchLyricTimingEditorFromSongInfo(
+                            context = context,
+                            audio = audio,
+                            songInfo = infoState
+                        )
+                        onDismiss()
+                    }
+                }
+            )
+            SongInfoActionItem(
+                title = "去编辑歌曲元数据",
+                onClick = {
+                    launchSongMetadataEditorFromSongInfo(context, audio.path)
+                    onDismiss()
+                }
+            )
+            SongInfoActionItem(
                 title = "分享文件",
                 onClick = {
                     if (onShareFile != null) {
@@ -546,6 +566,60 @@ private fun saveFavoritePaths(context: Context, paths: Set<String>) {
         )
     }
     LocalPlaylistStore.saveFavorites(context, entries)
+}
+
+private suspend fun launchLyricTimingEditorFromSongInfo(
+    context: Context,
+    audio: AudioFile,
+    songInfo: SongInfoState
+) {
+    val (lyricsContent, lyricsFormatLabel) = withContext(Dispatchers.IO) {
+        val audioFile = File(audio.path)
+        val sameNameTtml = audioFile.parentFile?.let { parent ->
+            File(parent, "${audioFile.nameWithoutExtension}.ttml")
+        }
+        val preferredLyrics = when {
+            sameNameTtml?.exists() == true -> {
+                runCatching { sameNameTtml.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
+            }
+            else -> AudioMetadataReader.readLyrics(audio.path)?.takeIf { it.isNotBlank() }
+        }
+        val formatLabel = preferredLyrics
+            ?.let { detectLyricsFormat(it).toSongInfoLyricFormatLabel() }
+            ?: 0.toSongInfoLyricFormatLabel()
+        preferredLyrics to formatLabel
+    }
+
+    val intent = Intent(context, LyricTimingActivity::class.java).apply {
+        putExtra("audioPath", audio.path)
+        putExtra("lyricsContent", lyricsContent)
+        putExtra("sourceTitle", songInfo.title.ifBlank { audio.displayTitle })
+        putExtra("sourceArtist", songInfo.artist.ifBlank { audio.displayArtist })
+        putExtra("lyricsFormat", lyricsFormatLabel)
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+    context.startActivity(intent)
+}
+
+private fun launchSongMetadataEditorFromSongInfo(context: Context, audioPath: String) {
+    val intent = Intent(context, SongMetadataEditActivity::class.java).apply {
+        putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, audioPath)
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+    context.startActivity(intent)
+}
+
+private fun Int.toSongInfoLyricFormatLabel(): String {
+    return when (coerceIn(0, 3)) {
+        1 -> "LRC逐行/逐字歌词"
+        2 -> "增强LRC/ELRC歌词"
+        3 -> "TTML歌词"
+        else -> "纯文本歌词"
+    }
 }
 
 private fun renameAudioFile(
