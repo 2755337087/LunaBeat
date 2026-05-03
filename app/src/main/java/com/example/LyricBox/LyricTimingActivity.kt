@@ -5669,16 +5669,16 @@ fun LyricTimingScreen(
                     ImportTransliterationSheetHeader(
                         onImportKanaRomaClick = {
                             try {
-                                val importedText = context.assets.open("JapRoma.txt")
+                                val importedText = context.assets.open("JapRoman.txt")
                                     .bufferedReader(Charsets.UTF_8)
                                     .use { it.readText() }
                                 if (importedText.isBlank()) {
                                     transliterationResultSuccess = false
-                                    transliterationResultMessage = "导入失败：JapRoma.txt 内容为空"
+                                    transliterationResultMessage = "导入失败：JapRoman.txt 内容为空"
                                 } else {
                                     transliterationInput = importedText
                                     transliterationResultSuccess = true
-                                    transliterationResultMessage = "已从 JapRoma.txt 导入文本"
+                                    transliterationResultMessage = "已从 JapRoman.txt 导入文本"
                                 }
                             } catch (e: Exception) {
                                 transliterationResultSuccess = false
