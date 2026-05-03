@@ -341,6 +341,9 @@ class LyricPreviewActivity : ComponentActivity() {
         const val EXTRA_CREATORS = "creators"
         const val EXTRA_USE_SHARED_PLAYBACK = "use_shared_playback"
         const val EXTRA_SHARED_PLAYBACK_USED = "shared_playback_used"
+        const val EXTRA_PREVIEW_ENTRY_SOURCE = "preview_entry_source"
+        const val PREVIEW_ENTRY_SOURCE_DEFAULT = 0
+        const val PREVIEW_ENTRY_SOURCE_TIMING = 1
         const val PREFS_NAME = "LyricPreviewSettings"
         const val KEY_FONT_SIZE = "font_size"
         const val KEY_SHOW_TRANSLATION = "show_translation"
@@ -368,7 +371,8 @@ class LyricPreviewActivity : ComponentActivity() {
             initialPosition: Long = 0L,
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
-            useSharedPlayback: Boolean = false
+            useSharedPlayback: Boolean = false,
+            previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ): Intent {
             return Intent(context, LyricPreviewActivity::class.java).apply {
                 putExtra(EXTRA_AUDIO_PATH, audioPath)
@@ -377,6 +381,7 @@ class LyricPreviewActivity : ComponentActivity() {
                 putExtra(EXTRA_INITIAL_POSITION, initialPosition)
                 putExtra(EXTRA_CREATORS, creators.toTypedArray())
                 putExtra(EXTRA_USE_SHARED_PLAYBACK, useSharedPlayback)
+                putExtra(EXTRA_PREVIEW_ENTRY_SOURCE, previewEntrySource)
                 // 传递行数
                 putExtra("line_count", lyricLines.size)
                 // 每行的单词数
@@ -415,7 +420,8 @@ class LyricPreviewActivity : ComponentActivity() {
             initialPosition: Long = 0L,
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
-            useSharedPlayback: Boolean = false
+            useSharedPlayback: Boolean = false,
+            previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ) {
             val intent = createIntent(
                 context = context,
@@ -425,7 +431,8 @@ class LyricPreviewActivity : ComponentActivity() {
                 initialPosition = initialPosition,
                 creators = creators,
                 sourceAudioPath = sourceAudioPath,
-                useSharedPlayback = useSharedPlayback
+                useSharedPlayback = useSharedPlayback,
+                previewEntrySource = previewEntrySource
             )
             context.startActivity(intent)
         }
@@ -445,6 +452,8 @@ class LyricPreviewActivity : ComponentActivity() {
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "歌词预览"
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
         useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, false)
+        val previewEntrySource = intent.getIntExtra(EXTRA_PREVIEW_ENTRY_SOURCE, PREVIEW_ENTRY_SOURCE_DEFAULT)
+        val isTimingPreviewEntry = previewEntrySource == PREVIEW_ENTRY_SOURCE_TIMING
         val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
         val restorePlaying = savedInstanceState?.getBoolean(STATE_IS_PLAYING, false) ?: false
         val shouldAutoPlayOnLoad = if (savedInstanceState == null) true else restorePlaying
@@ -580,6 +589,7 @@ class LyricPreviewActivity : ComponentActivity() {
         
         setContent {
             歌词转换Theme {
+                val useTrackSkipControls = useSharedPlayback && !isTimingPreviewEntry
                 LyricPreviewScreen(
                     title = previewTitleState.value,
                     audioPath = previewAudioPathState.value,
@@ -616,17 +626,17 @@ class LyricPreviewActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onSkipPreviousTrack = if (useSharedPlayback) {
+                    onSkipPreviousTrack = if (useTrackSkipControls) {
                         { sharedPlaybackController?.skipToPrevious() }
                     } else {
                         null
                     },
-                    onSkipNextTrack = if (useSharedPlayback) {
+                    onSkipNextTrack = if (useTrackSkipControls) {
                         { sharedPlaybackController?.skipToNext() }
                     } else {
                         null
                     },
-                    canSkipNextTrack = if (useSharedPlayback) {
+                    canSkipNextTrack = if (useTrackSkipControls) {
                         val controller = sharedPlaybackController
                         controller != null &&
                             controller.isReady &&
@@ -678,6 +688,7 @@ class LyricPreviewActivity : ComponentActivity() {
                             previewAudioDuration.coerceAtLeast(0L)
                         }
                     },
+                    enableSongInfoSheet = !isTimingPreviewEntry,
                     playbackCompleted = playbackCompleted,
                     onPlaybackCompletedHandled = { playbackCompleted = false }
                 )
@@ -1199,6 +1210,7 @@ fun LyricPreviewScreen(
     getCurrentPosition: () -> Long,
     getIsPlayingState: () -> Boolean,
     getAudioDuration: () -> Long,
+    enableSongInfoSheet: Boolean = true,
     playbackCompleted: Boolean = false,
     onPlaybackCompletedHandled: () -> Unit = {}
 ) {
@@ -2279,7 +2291,11 @@ fun LyricPreviewScreen(
                 artist = metadata.artist,
                 coverBitmap = metadata.coverBitmap,
                 onBackClick = onBack,
-                onHeaderClick = { showSongInfoSheet = true },
+                onHeaderClick = {
+                    if (enableSongInfoSheet) {
+                        showSongInfoSheet = true
+                    }
+                },
                 onMenuClick = { menuExpanded = true },
                 menuContent = { menuButtonPosition ->
                     CustomDropdownMenu(
@@ -2362,9 +2378,9 @@ fun LyricPreviewScreen(
                     onPlayPauseClick = {
                         onPlayPause(!isPlaying)
                     },
-                    onSkipPreviousClick = { onSkipPreviousTrack?.invoke() },
-                    onSkipNextClick = { onSkipNextTrack?.invoke() },
-                    isSkipNextEnabled = canSkipNextTrack,
+                    onSkipPreviousClick = onSkipPreviousTrack,
+                    onSkipNextClick = onSkipNextTrack,
+                    isSkipNextEnabled = if (onSkipNextTrack == null) true else canSkipNextTrack,
                     onSeek = { position ->
                         onSeekTo(position)
                         currentTime = position
@@ -2451,7 +2467,7 @@ fun LyricPreviewScreen(
             )
         }
 
-        if (showSongInfoSheet) {
+        if (enableSongInfoSheet && showSongInfoSheet) {
             SongInfoBottomSheet(
                 audio = previewSongInfoAudio,
                 isFavorite = false,

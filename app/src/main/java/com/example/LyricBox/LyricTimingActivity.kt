@@ -4248,6 +4248,10 @@ fun LyricTimingScreen(
                                         putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
                                         putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
                                         putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
+                                        putExtra(
+                                            LyricPreviewActivity.EXTRA_PREVIEW_ENTRY_SOURCE,
+                                            LyricPreviewActivity.PREVIEW_ENTRY_SOURCE_TIMING
+                                        )
                                         putExtra("line_count", previewLyricLines.size)
                                         putExtra("words_per_line", previewLyricLines.map { it.words.size }.toIntArray())
                                         val wordsList = previewLyricLines.flatMap { it.words }
@@ -4547,6 +4551,10 @@ fun LyricTimingScreen(
                                         putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
                                         putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
                                         putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
+                                        putExtra(
+                                            LyricPreviewActivity.EXTRA_PREVIEW_ENTRY_SOURCE,
+                                            LyricPreviewActivity.PREVIEW_ENTRY_SOURCE_TIMING
+                                        )
                                         putExtra("line_count", previewLyricLines.size)
                                         putExtra("words_per_line", previewLyricLines.map { it.words.size }.toIntArray())
                                         val wordsList = previewLyricLines.flatMap { it.words }
