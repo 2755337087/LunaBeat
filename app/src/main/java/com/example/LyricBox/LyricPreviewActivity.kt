@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.media.MediaExtractor
 import android.media.MediaPlayer
 import android.os.Build
@@ -11,10 +12,13 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import com.lonx.audiotag.rw.AudioTagReader
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -64,6 +68,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -1075,14 +1080,7 @@ private fun getHighContrastBlackOrWhite(background: Color): Color {
 }
 
 private fun mapComposeFontWeight(weight: Int): FontWeight {
-    return when (weight) {
-        300 -> FontWeight.Light
-        400 -> FontWeight.Normal
-        500 -> FontWeight.Medium
-        600 -> FontWeight.SemiBold
-        700 -> FontWeight.Bold
-        else -> FontWeight.Normal
-    }
+    return FontWeight(weight.coerceIn(100, 900))
 }
 
 private fun applyAndroidFontWeight(
@@ -1246,6 +1244,12 @@ fun LyricPreviewScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var customFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
+    var selectedCustomFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
+    var lyricFontFamily by remember { mutableStateOf<FontFamily?>(null) }
+    var lyricTypeface by remember { mutableStateOf<Typeface?>(null) }
+    var isFontSwitchReloading by remember { mutableStateOf(false) }
+    var hasFontInitialized by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf(PreviewAudioMetadata(title, "未知艺术家", null)) }
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     val scope = rememberCoroutineScope()
@@ -1254,6 +1258,41 @@ fun LyricPreviewScreen(
     val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val settingsDarkMode = com.example.LyricBox.ui.theme.getDarkModeFromSettings(context)
     val isDarkTheme = settingsDarkMode ?: systemDarkTheme
+
+    val customFontPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val importResult = withContext(Dispatchers.IO) {
+                LyricCustomFontStore.importFont(context, uri)
+            }
+            importResult.onSuccess { option ->
+                customFontOptions = LyricCustomFontStore.loadOptions(context)
+                selectedCustomFontId = option.id
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: "字体导入失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    LaunchedEffect(selectedCustomFontId, customFontOptions.size) {
+        val withLoading = hasFontInitialized
+        if (withLoading) {
+            isFontSwitchReloading = true
+        }
+        val resolved = withContext(Dispatchers.IO) {
+            LyricCustomFontStore.resolveSelectedFontFamily(context) to
+                LyricCustomFontStore.resolveSelectedTypeface(context)
+        }
+        lyricFontFamily = resolved.first
+        lyricTypeface = resolved.second
+        hasFontInitialized = true
+        if (withLoading) {
+            delay(260L)
+            isFontSwitchReloading = false
+        }
+    }
     
     // 加载音频元数据
     LaunchedEffect(sourceAudioPath, title) {
@@ -1959,7 +1998,7 @@ fun LyricPreviewScreen(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
             ) {
-                val showLoadingOverlay = isLyricLoading || !lyricsContentReady
+                val showLoadingOverlay = isLyricLoading || !lyricsContentReady || isFontSwitchReloading
                 val lyricContentAlpha by animateFloatAsState(
                     targetValue = if (showLoadingOverlay) 0f else 1f,
                     animationSpec = if (showLoadingOverlay) snap() else tween(durationMillis = 320),
@@ -2091,6 +2130,8 @@ fun LyricPreviewScreen(
                                     fontSize = fontSize.sp,
                                     fontWeight = fontWeight, // 新增
                                     showTransliteration = showTransliteration, // 新增
+                                    fontFamily = lyricFontFamily,
+                                    customTypeface = lyricTypeface,
                                     lookaheadScope = this@LookaheadScope,
                                     itemKey = "${line.begin}-${line.end}-$index",
                                     isManualScrolling = isUserScrolling,
@@ -2186,6 +2227,8 @@ fun LyricPreviewScreen(
                                             fontSize = creatorFontSize,
                                             fontWeight = fontWeight,
                                             showTransliteration = false,
+                                            fontFamily = lyricFontFamily,
+                                            customTypeface = lyricTypeface,
                                             lookaheadScope = this@LookaheadScope,
                                             itemKey = "creator-info-line",
                                             isManualScrolling = isUserScrolling,
@@ -2374,6 +2417,8 @@ fun LyricPreviewScreen(
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 animationType = animationType,
+                fontOptions = customFontOptions,
+                selectedFontId = selectedCustomFontId,
                 onShowTranslationChange = { saveShowTranslation(it) },
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
@@ -2383,6 +2428,22 @@ fun LyricPreviewScreen(
                 onAnimationTypeChange = {
                     animationType = it
                     prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it).apply()
+                },
+                onOpenCustomFontPicker = {
+                    customFontPickerLauncher.launch(arrayOf("*/*"))
+                },
+                onSelectFont = { fontId ->
+                    if (selectedCustomFontId != fontId) {
+                        LyricCustomFontStore.setSelectedFontId(context, fontId)
+                        selectedCustomFontId = fontId
+                    }
+                },
+                onDeleteFont = { fontId ->
+                    val deleted = LyricCustomFontStore.deleteFont(context, fontId)
+                    if (deleted) {
+                        customFontOptions = LyricCustomFontStore.loadOptions(context)
+                        selectedCustomFontId = LyricCustomFontStore.getSelectedFontId(context)
+                    }
                 },
                 containerColor = dialogContainerColor,
                 contentColor = dialogContentColor,
@@ -2403,13 +2464,18 @@ fun LyricPreviewScreen(
 
 // 获取字体粗细标签
 fun getFontWeightLabel(weight: Int): String {
-    return when (weight) {
-        300 -> "细"
-        400 -> "正常"
-        500 -> "中"
-        600 -> "半粗"
-        700 -> "粗"
-        else -> "正常"
+    val safeWeight = weight.coerceIn(100, 900) / 100 * 100
+    return when (safeWeight) {
+        100 -> "极细(100)"
+        200 -> "特细(200)"
+        300 -> "细(300)"
+        400 -> "正常(400)"
+        500 -> "中(500)"
+        600 -> "半粗(600)"
+        700 -> "粗(700)"
+        800 -> "特粗(800)"
+        900 -> "极粗(900)"
+        else -> "正常(400)"
     }
 }
 
@@ -2893,6 +2959,8 @@ fun LyricLineView(
     fontSize: TextUnit = 32.sp,
     fontWeight: Int = 400, // 新增：字体粗细
     showTransliteration: Boolean = true, // 新增：是否显示注音
+    fontFamily: FontFamily? = null,
+    customTypeface: Typeface? = null,
     lookaheadScope: androidx.compose.ui.layout.LookaheadScope,
     itemKey: Any,
     isManualScrolling: Boolean,
@@ -3101,7 +3169,8 @@ fun LyricLineView(
                             fontSize = lineFontSize,
                             isDuet = effectiveIsDuet,
                             fontWeight = fontWeight, // 新增
-                            showTransliteration = showTransliteration // 新增
+                            showTransliteration = showTransliteration, // 新增
+                            fontFamily = fontFamily
                         )
                     } else {
                         // 逐字歌词渲染 - 支持自动换行
@@ -3113,7 +3182,9 @@ fun LyricLineView(
                             fontSize = lineFontSize,
                             isDuet = effectiveIsDuet,
                             fontWeight = fontWeight, // 新增
-                            showTransliteration = showTransliteration // 新增
+                            showTransliteration = showTransliteration, // 新增
+                            fontFamily = fontFamily,
+                            customTypeface = customTypeface
                         )
                     }
                     
@@ -3124,6 +3195,7 @@ fun LyricLineView(
                             color = translationColor,
                             fontSize = (lineFontSize.value * 0.6).sp,
                             fontWeight = fontWeightValue,
+                            fontFamily = fontFamily,
                             modifier = Modifier.padding(top = 4.dp),
                             textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
                         )
@@ -3158,7 +3230,8 @@ fun LyricLineView(
                         fontSize = lineFontSize,
                         isDuet = effectiveIsDuet,
                         fontWeight = fontWeight, // 新增
-                        showTransliteration = showTransliteration // 新增
+                        showTransliteration = showTransliteration, // 新增
+                        fontFamily = fontFamily
                     )
                 } else {
                     // 逐字歌词渲染 - 支持自动换行
@@ -3170,7 +3243,9 @@ fun LyricLineView(
                         fontSize = lineFontSize,
                         isDuet = effectiveIsDuet,
                         fontWeight = fontWeight, // 新增
-                        showTransliteration = showTransliteration // 新增
+                        showTransliteration = showTransliteration, // 新增
+                        fontFamily = fontFamily,
+                        customTypeface = customTypeface
                     )
                 }
                 
@@ -3181,6 +3256,7 @@ fun LyricLineView(
                         color = translationColor,
                         fontSize = (lineFontSize.value * 0.6).sp,
                         fontWeight = fontWeightValue,
+                        fontFamily = fontFamily,
                         modifier = Modifier.padding(top = 4.dp),
                         textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
                     )
@@ -3206,7 +3282,8 @@ fun LyricLineByLineView(
     fontSize: TextUnit = 24.sp,
     isDuet: Boolean = false,
     fontWeight: Int = 400, // 新增：字体粗细
-    showTransliteration: Boolean = true // 新增：是否显示注音
+    showTransliteration: Boolean = true, // 新增：是否显示注音
+    fontFamily: FontFamily? = null
 ) {
     val fullText = line.words.joinToString("") { it.text }
     val effectiveEnd = getEffectiveEndTime(line, nextLine)
@@ -3266,6 +3343,7 @@ fun LyricLineByLineView(
                 color = transliterationColor,
                 fontSize = fontSize * 0.6f,
                 fontWeight = fontWeightValue,
+                fontFamily = fontFamily,
                 textAlign = if (isDuet) TextAlign.End else TextAlign.Start
             )
             // 第二行：显示歌词
@@ -3274,6 +3352,7 @@ fun LyricLineByLineView(
                 color = displayColor,
                 fontSize = fontSize,
                 fontWeight = fontWeightValue,
+                fontFamily = fontFamily,
                 textAlign = if (isDuet) TextAlign.End else TextAlign.Start
             )
         }
@@ -3284,6 +3363,7 @@ fun LyricLineByLineView(
             color = displayColor,
             fontSize = fontSize,
             fontWeight = fontWeightValue,
+            fontFamily = fontFamily,
             textAlign = if (isDuet) TextAlign.End else TextAlign.Start
         )
     }
@@ -3300,7 +3380,9 @@ fun LyricWordsCanvasWithWrap(
     fontSize: TextUnit = 24.sp,
     isDuet: Boolean = false,
     fontWeight: Int = 400, // 新增：字体粗细
-    showTransliteration: Boolean = true // 新增：是否显示注音
+    showTransliteration: Boolean = true, // 新增：是否显示注音
+    fontFamily: FontFamily? = null,
+    customTypeface: Typeface? = null
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -3313,7 +3395,7 @@ fun LyricWordsCanvasWithWrap(
     val liftAnimator = remember { WordLiftAnimator() }
     
     // 计算所有单词布局并自动换行
-    val lineLayouts = remember(words, fontSize, fontWeight, showTransliteration) {
+    val lineLayouts = remember(words, fontSize, fontWeight, showTransliteration, fontFamily) {
         // 辅助函数：根据给定的单词列表和允许换行的空格位置来计算布局
         fun calculateLayouts(
             inputWords: List<NewPreviewLyricWord>,
@@ -3416,7 +3498,11 @@ fun LyricWordsCanvasWithWrap(
                 
                 val result = textMeasurer.measure(
                     text = processedText,
-                    style = TextStyle(fontSize = fontSize, fontWeight = composeFontWeight)
+                    style = TextStyle(
+                        fontSize = fontSize,
+                        fontWeight = composeFontWeight,
+                        fontFamily = fontFamily
+                    )
                 )
                 val groupWidth = result.size.width.toFloat()
                 val spaceWidth = if (processedText.endsWith(" ")) with(density) { 1.dp.toPx() } else 0f
@@ -3469,7 +3555,11 @@ fun LyricWordsCanvasWithWrap(
                             } else {
                                 val trimmedResult = textMeasurer.measure(
                                     text = trimmedWord,
-                                    style = TextStyle(fontSize = fontSize, fontWeight = composeFontWeight)
+                                    style = TextStyle(
+                                        fontSize = fontSize,
+                                        fontWeight = composeFontWeight,
+                                        fontFamily = fontFamily
+                                    )
                                 )
                                 val trimmedWidth = trimmedResult.size.width.toFloat()
                                 val trimmedWordObj = NewPreviewLyricWord(
@@ -3514,7 +3604,11 @@ fun LyricWordsCanvasWithWrap(
                     val charText = word.text
                     val charResult = textMeasurer.measure(
                         text = charText,
-                        style = TextStyle(fontSize = fontSize, fontWeight = composeFontWeight)
+                        style = TextStyle(
+                            fontSize = fontSize,
+                            fontWeight = composeFontWeight,
+                            fontFamily = fontFamily
+                        )
                     )
                     val charWidth = charResult.size.width.toFloat()
                     
@@ -3530,7 +3624,11 @@ fun LyricWordsCanvasWithWrap(
                         }
                         val transResult = textMeasurer.measure(
                             text = textToMeasure,
-                            style = TextStyle(fontSize = transFontSize, fontWeight = composeFontWeight)
+                            style = TextStyle(
+                                fontSize = transFontSize,
+                                fontWeight = composeFontWeight,
+                                fontFamily = fontFamily
+                            )
                         )
                         val transWidth = transResult.size.width.toFloat()
                         if (transWidth > charWidth) {
@@ -3792,7 +3890,8 @@ fun LyricWordsCanvasWithWrap(
                             hasTransliteration = hasTransliteration,
                             density = density,
                             fontSize = fontSize,
-                            fontWeight = fontWeight // 新增
+                            fontWeight = fontWeight, // 新增
+                            customTypeface = customTypeface
                         )
                     }
                 }
@@ -3812,7 +3911,8 @@ private fun DrawScope.drawWordWithTransliteration(
     hasTransliteration: Boolean,
     density: Density,
     fontSize: TextUnit,
-    fontWeight: Int = 400 // 新增：字体粗细
+    fontWeight: Int = 400, // 新增：字体粗细
+    customTypeface: Typeface? = null
 ) {
     val word = layout.word
     
@@ -3821,6 +3921,9 @@ private fun DrawScope.drawWordWithTransliteration(
         this.textSize = fontSizePx
         this.isAntiAlias = true
         applyAndroidFontWeight(this, fontWeight)
+        if (customTypeface != null) {
+            this.typeface = customTypeface
+        }
     }
     
     val textX = layout.startPosition
@@ -3901,6 +4004,9 @@ private fun DrawScope.drawWordWithTransliteration(
             this.isAntiAlias = true
             this.color = inactiveColor.toArgb()
             applyAndroidFontWeight(this, fontWeight)
+            if (customTypeface != null) {
+                this.typeface = customTypeface
+            }
         }
         
         val transFontMetrics = transliterationPaint.fontMetrics

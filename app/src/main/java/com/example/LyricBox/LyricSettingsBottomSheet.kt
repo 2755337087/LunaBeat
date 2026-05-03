@@ -14,8 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -44,7 +46,8 @@ private enum class LyricSettingsPage {
     MAIN,
     FONT_SIZE,
     FONT_WEIGHT,
-    INTERLUDE_ANIMATION
+    INTERLUDE_ANIMATION,
+    CUSTOM_FONT
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +62,8 @@ fun LyricSettingsBottomSheet(
     fontSize: Float,
     fontWeight: Int,
     animationType: Int,
+    fontOptions: List<LyricCustomFontOption>,
+    selectedFontId: String,
     onShowTranslationChange: (Boolean) -> Unit,
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
@@ -66,6 +71,9 @@ fun LyricSettingsBottomSheet(
     onFontSizeChange: (Float) -> Unit,
     onFontWeightChange: (Int) -> Unit,
     onAnimationTypeChange: (Int) -> Unit,
+    onOpenCustomFontPicker: () -> Unit,
+    onSelectFont: (String) -> Unit,
+    onDeleteFont: (String) -> Unit,
     containerColor: Color,
     contentColor: Color,
     accentColor: Color
@@ -156,6 +164,12 @@ fun LyricSettingsBottomSheet(
                             page = LyricSettingsPage.INTERLUDE_ANIMATION
                         }
                     )
+                    val currentFontName = fontOptions.firstOrNull { it.id == selectedFontId }?.displayName ?: "默认字体"
+                    LyricSettingsActionRow(
+                        title = "自定义字体：$currentFontName",
+                        contentColor = contentColor,
+                        onClick = { page = LyricSettingsPage.CUSTOM_FONT }
+                    )
                 }
 
                 LyricSettingsPage.FONT_SIZE -> {
@@ -199,21 +213,21 @@ fun LyricSettingsBottomSheet(
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     Text(
-                        text = "当前粗细: ${getFontWeightLabel(tempFontWeight.toInt() / 100 * 100)}",
+                        text = "当前粗细: ${getFontWeightLabel(tempFontWeight.toInt().coerceIn(100, 900) / 100 * 100)}",
                         color = contentColor
                     )
                     Slider(
                         value = tempFontWeight,
                         onValueChange = { tempFontWeight = it },
-                        valueRange = 300f..700f,
-                        steps = 3,
+                        valueRange = 100f..900f,
+                        steps = 7,
                         colors = SliderDefaults.colors(
                             thumbColor = accentColor,
                             activeTrackColor = accentColor,
                             inactiveTrackColor = contentColor.copy(alpha = 0.25f)
                         ),
                         onValueChangeFinished = {
-                            val snappedWeight = tempFontWeight.toInt().coerceIn(300, 700) / 100 * 100
+                            val snappedWeight = tempFontWeight.toInt().coerceIn(100, 900) / 100 * 100
                             tempFontWeight = snappedWeight.toFloat()
                             onFontWeightChange(snappedWeight)
                         }
@@ -222,11 +236,9 @@ fun LyricSettingsBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("细", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("正常", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("中", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("半粗", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("粗", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("100", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("500", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("900", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
                     }
                 }
 
@@ -256,6 +268,33 @@ fun LyricSettingsBottomSheet(
                             onAnimationTypeChange(LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR)
                         }
                     )
+                }
+
+                LyricSettingsPage.CUSTOM_FONT -> {
+                    LyricSettingsSubPageTitle(
+                        title = "自定义字体",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    LyricSettingsActionRow(
+                        title = "添加TTF字体",
+                        contentColor = contentColor,
+                        onClick = onOpenCustomFontPicker
+                    )
+                    fontOptions.forEach { option ->
+                        LyricSettingsFontRow(
+                            option = option,
+                            selected = selectedFontId == option.id,
+                            contentColor = contentColor,
+                            accentColor = accentColor,
+                            onSelect = { onSelectFont(option.id) },
+                            onDelete = {
+                                if (!option.isDefault) {
+                                    onDeleteFont(option.id)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -382,5 +421,48 @@ private fun LyricSettingsRadioRow(
             )
         )
         Text(text = title, color = contentColor)
+    }
+}
+
+@Composable
+private fun LyricSettingsFontRow(
+    option: LyricCustomFontOption,
+    selected: Boolean,
+    contentColor: Color,
+    accentColor: Color,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) accentColor.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onSelect,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = accentColor,
+                unselectedColor = contentColor.copy(alpha = 0.65f)
+            )
+        )
+        Text(
+            text = option.displayName,
+            color = contentColor,
+            modifier = Modifier.weight(1f)
+        )
+        if (!option.isDefault) {
+            IconButton(onClick = onDelete) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "删除字体",
+                    tint = contentColor.copy(alpha = 0.8f)
+                )
+            }
+        }
     }
 }

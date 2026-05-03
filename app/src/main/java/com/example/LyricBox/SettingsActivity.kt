@@ -5,9 +5,12 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import android.os.Process
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +57,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.ui.theme.DarkModeType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val APP_SETTINGS_PREFS_NAME = "AppSettings"
 private const val PREF_KEY_AM_REGION = "amRegion"
@@ -316,6 +323,25 @@ fun SettingsScreen(
                 LyricPreviewActivity.ANIMATION_TYPE_DEFAULT
             )
         )
+    }
+    var lyricFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
+    var lyricSelectedFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
+    val scope = rememberCoroutineScope()
+    val lyricFontPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                LyricCustomFontStore.importFont(context, uri)
+            }
+            result.onSuccess { option ->
+                lyricFontOptions = LyricCustomFontStore.loadOptions(context)
+                lyricSelectedFontId = option.id
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: "字体导入失败", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
     
     Column(modifier = modifier.fillMaxSize()) {
@@ -802,6 +828,8 @@ fun SettingsScreen(
             fontSize = lyricFontSize,
             fontWeight = lyricFontWeight,
             animationType = lyricAnimationType,
+            fontOptions = lyricFontOptions,
+            selectedFontId = lyricSelectedFontId,
             onShowTranslationChange = {
                 lyricShowTranslation = it
                 lyricPreviewPrefs.edit()
@@ -843,6 +871,20 @@ fun SettingsScreen(
                 lyricPreviewPrefs.edit()
                     .putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it)
                     .apply()
+            },
+            onOpenCustomFontPicker = {
+                lyricFontPickerLauncher.launch(arrayOf("*/*"))
+            },
+            onSelectFont = { fontId ->
+                LyricCustomFontStore.setSelectedFontId(context, fontId)
+                lyricSelectedFontId = fontId
+            },
+            onDeleteFont = { fontId ->
+                val deleted = LyricCustomFontStore.deleteFont(context, fontId)
+                if (deleted) {
+                    lyricFontOptions = LyricCustomFontStore.loadOptions(context)
+                    lyricSelectedFontId = LyricCustomFontStore.getSelectedFontId(context)
+                }
             },
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
