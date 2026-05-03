@@ -2636,28 +2636,47 @@ fun SongMetadataEditScreen(
                             .clickable { shiftInputFocusRequester.requestFocus() }
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        BasicTextField(
-                            value = shiftTimestampInput,
-                            onValueChange = { shiftTimestampInput = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(shiftInputFocusRequester),
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontSize = 16.sp
-                            ),
-                            decorationBox = { innerTextField ->
-                                if (shiftTimestampInput.isBlank()) {
-                                    Text(
-                                        text = "请输入毫秒数",
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
-                                        fontSize = 16.sp
-                                    )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    val current = shiftTimestampInput.trim().toLongOrNull() ?: 0L
+                                    shiftTimestampInput = (current - 100L).toString()
                                 }
-                                innerTextField()
-                            }
-                        )
+                            ) { Text("-") }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            BasicTextField(
+                                value = shiftTimestampInput,
+                                onValueChange = { shiftTimestampInput = it },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(shiftInputFocusRequester),
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontSize = 16.sp
+                                ),
+                                decorationBox = { innerTextField ->
+                                    if (shiftTimestampInput.isBlank()) {
+                                        Text(
+                                            text = "请输入毫秒数",
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                            fontSize = 16.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(
+                                onClick = {
+                                    val current = shiftTimestampInput.trim().toLongOrNull() ?: 0L
+                                    shiftTimestampInput = (current + 100L).toString()
+                                }
+                            ) { Text("+") }
+                        }
                     }
                 }
             },
@@ -3049,6 +3068,12 @@ fun ModifiableMetadataField(
 ) {
     val focusRequester = remember { FocusRequester() }
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val lineLimitPrefKey = remember(label) { "metadata_field_unlimited_lines_$label" }
+    var unlimitedLines by rememberSaveable(label) {
+        mutableStateOf(prefs.getBoolean(lineLimitPrefKey, false))
+    }
     val fieldContainerColor = if (isModified) {
         MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
     } else {
@@ -3060,6 +3085,7 @@ fun ModifiableMetadataField(
         MaterialTheme.colorScheme.onPrimaryContainer
     }
     val fieldPlaceholderColor = fieldTextColor.copy(alpha = 0.72f)
+    val effectiveMaxLines = if (unlimitedLines) Int.MAX_VALUE else maxLines
     
     Column(modifier = modifier) {
         Row(
@@ -3073,7 +3099,11 @@ fun ModifiableMetadataField(
                 text = if (isModified) "$label（已修改）" else label,
                 fontSize = 14.sp,
                 color = if (isModified) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.clickable {
+                    unlimitedLines = !unlimitedLines
+                    prefs.edit().putBoolean(lineLimitPrefKey, unlimitedLines).apply()
+                }
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -3184,7 +3214,7 @@ fun ModifiableMetadataField(
                         .weight(1f)
                         .focusRequester(focusRequester),
                     minLines = minLines,
-                    maxLines = maxLines,
+                    maxLines = effectiveMaxLines,
                     textStyle = androidx.compose.ui.text.TextStyle(
                         color = fieldTextColor,
                         fontSize = 16.sp
