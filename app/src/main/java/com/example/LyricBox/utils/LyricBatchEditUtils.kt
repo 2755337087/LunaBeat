@@ -3,20 +3,30 @@ package com.example.LyricBox.utils
 import com.example.LyricBox.LyricLine
 
 object LyricBatchEditUtils {
+    private fun linePlainText(line: LyricLine): String {
+        return line.timeUnits.joinToString("") { it.text }.trim()
+    }
+
+    private fun isLogicalEmptyLine(line: LyricLine): Boolean {
+        if (line.timeUnits.isEmpty()) return true
+        val text = linePlainText(line)
+        return text.isEmpty() || text == "//"
+    }
+
     fun toSimplifiedText(text: String): String {
         return ChineseConverter.toSimplified(text)
     }
 
     fun hasEmptyLines(lines: List<LyricLine>): Boolean {
-        return lines.any { it.timeUnits.isEmpty() }
+        return lines.any { isLogicalEmptyLine(it) }
     }
 
     fun emptyLineIndices(lines: List<LyricLine>): List<Int> {
-        return lines.indices.filter { lines[it].timeUnits.isEmpty() }
+        return lines.indices.filter { isLogicalEmptyLine(lines[it]) }
     }
 
     fun removeEmptyLines(lines: List<LyricLine>): List<LyricLine> {
-        return lines.filter { it.timeUnits.isNotEmpty() }
+        return lines.filterNot { isLogicalEmptyLine(it) }
     }
 
     fun shiftTimestamps(

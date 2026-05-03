@@ -650,7 +650,7 @@ class LyricPreviewActivity : ComponentActivity() {
                         controller != null &&
                             controller.isReady &&
                             controller.currentIndex >= 0 &&
-                            controller.currentIndex < (controller.mediaCount - 1)
+                            controller.mediaCount > 0
                     } else {
                         true
                     },
@@ -4489,14 +4489,37 @@ fun LyricPreviewHeader(
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val coverAspectRatio = remember(coverBitmap) {
+                        coverBitmap?.let { bitmap ->
+                            if (bitmap.height > 0) {
+                                (bitmap.width.toFloat() / bitmap.height.toFloat())
+                                    .takeIf { it.isFinite() && it > 0f }
+                            } else {
+                                null
+                            }
+                        } ?: 1f
+                    }
+                    val coverBoxMax = 75.dp
+                    val coverWidth = if (coverAspectRatio >= 1f) {
+                        coverBoxMax
+                    } else {
+                        (coverBoxMax * coverAspectRatio).coerceAtLeast(42.dp)
+                    }
+                    val coverHeight = if (coverAspectRatio >= 1f) {
+                        (coverBoxMax / coverAspectRatio).coerceAtLeast(42.dp)
+                    } else {
+                        coverBoxMax
+                    }
+
                     // 封面
                     if (coverBitmap != null) {
                         Image(
                             bitmap = coverBitmap.asImageBitmap(),
                             contentDescription = "封面",
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .size(75.dp)
+                                .width(coverWidth)
+                                .height(coverHeight)
                                 .clip(RoundedCornerShape(12.dp))
                         )
                     } else {

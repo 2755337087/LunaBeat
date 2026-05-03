@@ -757,6 +757,10 @@ fun SongMetadataEditScreen(
         )
     }
 
+    fun trimTrailingBlankLines(text: String): String {
+        return text.trimEnd('\r', '\n')
+    }
+
     fun convertLyricsFormat(targetFormat: LyricExportFormat) {
         val parsed = parseLyricsForTools() ?: return
         val converted = saveLyricsInFormat(parsed.second, targetFormat)
@@ -800,7 +804,10 @@ fun SongMetadataEditScreen(
     fun deleteLyricsEmptyLines() {
         val detectedFormat = detectLyricsFormat(lyrics)
         if (detectedFormat == 0) {
-            val cleaned = lyrics.lines().filter { it.isNotBlank() }.joinToString("\n")
+            val cleaned = lyrics.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it != "//" }
+                .joinToString("\n")
             updateLyricsWithModifiedState(cleaned)
             return
         }
@@ -811,7 +818,7 @@ fun SongMetadataEditScreen(
             3 -> LyricExportFormat.TTML
             else -> LyricExportFormat.LRC_WORD
         }
-        updateLyricsWithModifiedState(saveLyricsInFormat(cleaned, sourceFormat))
+        updateLyricsWithModifiedState(trimTrailingBlankLines(saveLyricsInFormat(cleaned, sourceFormat)))
     }
 
     fun formatLyricsTimeline() {
@@ -822,7 +829,7 @@ fun SongMetadataEditScreen(
             3 -> LyricExportFormat.TTML
             else -> LyricExportFormat.LRC_WORD
         }
-        updateLyricsWithModifiedState(saveLyricsInFormat(formatted, sourceFormat))
+        updateLyricsWithModifiedState(trimTrailingBlankLines(saveLyricsInFormat(formatted, sourceFormat)))
     }
     
     fun saveAllData() {

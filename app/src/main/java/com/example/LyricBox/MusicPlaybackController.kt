@@ -191,14 +191,22 @@ class MusicPlaybackController(private val context: Context) {
         val player = controller ?: return
         val current = player.currentMediaItemIndex
         if (current < 0) return
+        val count = player.mediaItemCount
+        if (count <= 0) return
         if (playbackMode == PlaybackMode.SINGLE_REPEAT) {
             val nextIndex = current + 1
-            if (nextIndex in 0 until player.mediaItemCount) {
+            if (nextIndex in 0 until count) {
                 player.seekToDefaultPosition(nextIndex)
+            } else {
+                player.seekToDefaultPosition(0)
             }
             return
         }
-        player.seekToNextMediaItem()
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+        } else {
+            player.seekToDefaultPosition(0)
+        }
     }
 
     fun skipToPrevious() {
@@ -400,7 +408,7 @@ class MusicPlaybackController(private val context: Context) {
         durationMs = player.duration.takeIf { it > 0L } ?: 0L
         currentIndex = player.currentMediaItemIndex
         mediaCount = player.mediaItemCount
-        hasNextTrack = currentIndex >= 0 && currentIndex < player.mediaItemCount - 1
+        hasNextTrack = currentIndex >= 0 && player.mediaItemCount > 0
         queueAudioPaths = (0 until player.mediaItemCount).mapNotNull { idx ->
             val mediaItem = player.getMediaItemAt(idx)
             mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)

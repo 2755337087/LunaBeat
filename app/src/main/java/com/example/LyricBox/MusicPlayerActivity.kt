@@ -465,13 +465,29 @@ private fun MusicPlayerPrimaryPane(
             ) {
                 val targetWidth = maxWidth * 0.92f
                 val targetHeight = maxHeight * 0.92f
-                val coverSide = if (targetWidth <= targetHeight) {
-                    targetWidth
-                } else {
-                    targetHeight
+                val coverAspectRatio = remember(displayCoverBitmap) {
+                    displayCoverBitmap?.let { bitmap ->
+                        if (bitmap.height > 0) {
+                            (bitmap.width.toFloat() / bitmap.height.toFloat())
+                                .takeIf { it.isFinite() && it > 0f }
+                        } else {
+                            null
+                        }
+                    } ?: 1f
                 }
-                    .coerceAtMost(520.dp)
-                    .coerceAtLeast(120.dp)
+                val maxCoverWidth = targetWidth.coerceAtMost(520.dp).coerceAtLeast(120.dp)
+                val maxCoverHeight = targetHeight.coerceAtMost(520.dp).coerceAtLeast(120.dp)
+                val coverWidth: androidx.compose.ui.unit.Dp
+                val coverHeight: androidx.compose.ui.unit.Dp
+                if (coverAspectRatio >= 1f) {
+                    val candidateWidth = maxCoverHeight * coverAspectRatio
+                    coverWidth = minOf(maxCoverWidth, candidateWidth)
+                    coverHeight = (coverWidth / coverAspectRatio).coerceAtMost(maxCoverHeight)
+                } else {
+                    val candidateHeight = maxCoverWidth / coverAspectRatio
+                    coverHeight = minOf(maxCoverHeight, candidateHeight)
+                    coverWidth = (coverHeight * coverAspectRatio).coerceAtMost(maxCoverWidth)
+                }
 
                 if (displayCoverBitmap != null) {
                     Crossfade(
@@ -483,8 +499,10 @@ private fun MusicPlayerPrimaryPane(
                             Image(
                                 bitmap = cover.asImageBitmap(),
                                 contentDescription = "封面",
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                                 modifier = Modifier
-                                    .size(coverSide)
+                                    .width(coverWidth)
+                                    .height(coverHeight)
                                     .graphicsLayer(
                                         scaleX = coverScale,
                                         scaleY = coverScale
@@ -496,7 +514,8 @@ private fun MusicPlayerPrimaryPane(
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(coverSide)
+                            .width(coverWidth)
+                            .height(coverHeight)
                             .graphicsLayer(
                                 scaleX = coverScale,
                                 scaleY = coverScale
