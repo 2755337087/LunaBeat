@@ -776,10 +776,8 @@ fun SettingsScreen(
                 currentSongClickAction.value = tempSongClickAction
                 val editor = musicLibraryPrefs.edit()
                 editor.putString("songClickAction", tempSongClickAction)
-                if (tempSongClickAction == "editLyrics") {
-                    currentAutoDetectEmbeddedLyricsType.value = tempAutoDetectEmbeddedLyricsType
-                    editor.putBoolean("autoDetectEmbeddedLyricsType", tempAutoDetectEmbeddedLyricsType)
-                }
+                currentAutoDetectEmbeddedLyricsType.value = tempAutoDetectEmbeddedLyricsType
+                editor.putBoolean("autoDetectEmbeddedLyricsType", tempAutoDetectEmbeddedLyricsType)
                 editor.apply()
                 showSongClickActionDialog = false
             }
@@ -1480,35 +1478,33 @@ fun SongClickActionDialog(
                     }
                 }
 
-                if (currentValue == "editLyrics") {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onAutoDetectEmbeddedLyricsTypeChange(!autoDetectEmbeddedLyricsType) }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "自动判断歌词类型",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "对于不标准的歌词，可能会判断出错",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = autoDetectEmbeddedLyricsType,
-                            onCheckedChange = onAutoDetectEmbeddedLyricsTypeChange
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onAutoDetectEmbeddedLyricsTypeChange(!autoDetectEmbeddedLyricsType) }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "自动判断歌词类型",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "对于不标准的歌词，可能会判断出错",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Switch(
+                        checked = autoDetectEmbeddedLyricsType,
+                        onCheckedChange = onAutoDetectEmbeddedLyricsTypeChange
+                    )
                 }
             }
         },

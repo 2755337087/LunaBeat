@@ -825,7 +825,7 @@ class MusicLibraryActivity : ComponentActivity() {
                         ExternalAudioScreen(
                             audio = externalAudioFile!!,
                             onBack = { finish() },
-                            onEditLyrics = { lyricsContent, format ->
+                            onEditLyrics = { lyricsContent, format, finishAfterNavigate ->
                                 val intent = Intent(this, LyricTimingActivity::class.java).apply {
                                     putExtra("audioPath", externalAudioFile!!.path)
                                     putExtra("lyricsContent", lyricsContent)
@@ -834,12 +834,18 @@ class MusicLibraryActivity : ComponentActivity() {
                                     putExtra("lyricsFormat", format)
                                 }
                                 startActivity(intent)
+                                if (finishAfterNavigate) {
+                                    finish()
+                                }
                             },
-                            onEditMetadata = { path ->
+                            onEditMetadata = { path, finishAfterNavigate ->
                                 val intent = Intent(this, SongMetadataEditActivity::class.java).apply {
                                     putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, path)
                                 }
                                 startActivity(intent)
+                                if (finishAfterNavigate) {
+                                    finish()
+                                }
                             },
                             modifier = Modifier.padding(paddingValues)
                         )
@@ -4357,20 +4363,42 @@ private fun clearOldCoverCache(context: Context, validPaths: Set<String>) {
 fun ExternalAudioScreen(
     audio: AudioFile,
     onBack: () -> Unit,
-    onEditLyrics: (String?, String) -> Unit,
-    onEditMetadata: (String) -> Unit,
+    onEditLyrics: (String?, String, Boolean) -> Unit,
+    onEditMetadata: (String, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showAudioOptionsDialog by remember { mutableStateOf(true) }
+    var showAudioOptionsDialog by remember { mutableStateOf(false) }
+    var hasAppliedDefaultAction by remember(audio.path) { mutableStateOf(false) }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val songClickAction = remember { prefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(audio.path, songClickAction, autoDetectEmbeddedLyricsType) {
+        if (hasAppliedDefaultAction) return@LaunchedEffect
+        hasAppliedDefaultAction = true
+        showAudioOptionsDialog = false
+        if (songClickAction == "editMetadata") {
+            onEditMetadata(audio.path, true)
+        } else {
+            handleMusicLibraryItemLyricsAction(
+                scope = scope,
+                audio = audio,
+                autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+                onShowOptions = { showAudioOptionsDialog = true },
+                onStartLyricTimingEditor = { _, lyricsContent, format ->
+                    onEditLyrics(lyricsContent, format, true)
+                }
+            )
+        }
+    }
     
     // 当从编辑页面返回时，重新弹出对话框
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME && hasAppliedDefaultAction) {
                 showAudioOptionsDialog = true
             }
         }
@@ -4439,11 +4467,11 @@ fun ExternalAudioScreen(
             },
             onEditLyrics = { lyricsContent, format ->
                 showAudioOptionsDialog = false
-                onEditLyrics(lyricsContent, format)
+                onEditLyrics(lyricsContent, format, false)
             },
             onEditMetadata = { path ->
                 showAudioOptionsDialog = false
-                onEditMetadata(path)
+                onEditMetadata(path, false)
             }
         )
     }
