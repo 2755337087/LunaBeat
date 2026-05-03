@@ -816,6 +816,241 @@ data class LyricLine(
     val lineKey: String = ""
 ) : java.io.Serializable
 
+private data class CjkTransliterationUnit(
+    val startIndex: Int,
+    val indices: List<Int>,
+    val text: String
+)
+
+private val JapaneseSmallKanaChars = setOf(
+    'ゃ', 'ゅ', 'ょ', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'ゎ', 'っ',
+    'ャ', 'ュ', 'ョ', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ヮ', 'ッ'
+)
+
+private fun clearAllLyricLineTransliterations(lines: List<LyricLine>): List<LyricLine> {
+    return lines.map { line ->
+        val clearedUnits = line.timeUnits.map { unit ->
+            unit.copy(
+                transliteration = "",
+                charTransliterations = emptyMap()
+            )
+        }
+        line.copy(timeUnits = clearedUnits)
+    }
+}
+
+@Composable
+private fun ImportTransliterationSheetHeader(
+    onImportKanaRomaClick: () -> Unit,
+    onDeleteAllClick: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    var menuAnchor by remember { mutableStateOf(MenuAnchorPosition(0f, 0f)) }
+    val density = LocalDensity.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "导入注音",
+            style = MaterialTheme.typography.titleLarge
+        )
+        IconButton(
+            onClick = { showMenu = true },
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInRoot()
+                val centerX = bounds.center.x
+                val centerY = bounds.center.y
+                menuAnchor = MenuAnchorPosition(
+                    x = with(density) { centerX.toDp().value },
+                    y = with(density) { centerY.toDp().value }
+                )
+            }
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.more),
+                contentDescription = "注音菜单"
+            )
+        }
+    }
+
+    CustomDropdownMenu(
+        expanded = showMenu,
+        onDismissRequest = { showMenu = false },
+        items = listOf(
+            MenuItem(
+                title = "导入假名罗马音",
+                onClick = {
+                    showMenu = false
+                    onImportKanaRomaClick()
+                }
+            ),
+            MenuItem(
+                title = "删除所有注音",
+                onClick = {
+                    showMenu = false
+                    onDeleteAllClick()
+                }
+            )
+        ),
+        anchorPosition = menuAnchor
+    )
+}
+
+@Composable
+private fun DeleteAllTransliterationConfirmDialog(
+    showDialog: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    if (!showDialog) return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("删除所有注音") },
+        text = { Text("确定删除当前打轴界面所有歌词行的注音内容吗？此操作可通过撤销恢复。") },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确定删除")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+private fun isJapaneseSmallKana(char: Char): Boolean {
+    return JapaneseSmallKanaChars.contains(char)
+}
+
+private fun extractCjkTransliterationUnits(text: String): List<CjkTransliterationUnit> {
+    data class MutableUnit(
+        val startIndex: Int,
+        val indices: MutableList<Int>,
+        val text: StringBuilder
+    )
+
+    val units = mutableListOf<MutableUnit>()
+    text.forEachIndexed { index, char ->
+        if (!isCJKCharacter(char)) return@forEachIndexed
+
+        val lastUnit = units.lastOrNull()
+        val canAttachToPrevious = isJapaneseSmallKana(char) &&
+                lastUnit != null &&
+                index == lastUnit.indices.last() + 1
+
+        if (canAttachToPrevious) {
+            lastUnit.indices.add(index)
+            lastUnit.text.append(char)
+        } else {
+            units.add(
+                MutableUnit(
+                    startIndex = index,
+                    indices = mutableListOf(index),
+                    text = StringBuilder(char.toString())
+                )
+            )
+        }
+    }
+
+    return units.map { unit ->
+        CjkTransliterationUnit(
+            startIndex = unit.startIndex,
+            indices = unit.indices.toList(),
+            text = unit.text.toString()
+        )
+    }
+}
+
+private fun findTransliterationForUnit(
+    indices: List<Int>,
+    charTransliterations: Map<Int, String>
+): String {
+    indices.forEach { idx ->
+        val trans = charTransliterations[idx]
+        if (!trans.isNullOrBlank()) {
+            return trans
+        }
+    }
+    return ""
+}
+
+private fun parseTransliterationInput(content: String): Pair<Map<String, String>, Boolean> {
+    val transliterationMap = linkedMapOf<String, String>()
+    val lines = content.lines().filter { it.isNotBlank() }
+    var parseError = false
+
+    for (line in lines) {
+        val parts = line.split("：", ":", limit = 2)
+        if (parts.size == 2) {
+            val key = parts[0].trim()
+            val value = parts[1].trim()
+            if (key.isNotEmpty()) {
+                transliterationMap[key] = value
+            }
+        } else {
+            parseError = true
+            break
+        }
+    }
+
+    return transliterationMap to parseError
+}
+
+private fun applyTransliterationMapToLyrics(
+    lyricLines: List<LyricLine>,
+    transliterationMap: Map<String, String>
+): Pair<List<LyricLine>, Int> {
+    if (transliterationMap.isEmpty()) return lyricLines to 0
+
+    val sortedKeys = transliterationMap.keys
+        .filter { it.isNotBlank() }
+        .sortedByDescending { it.length }
+
+    var matchCount = 0
+    val updatedLines = lyricLines.map { line ->
+        val newUnits = line.timeUnits.map { unit ->
+            val text = unit.text
+            val newCharTransliterations = unit.charTransliterations.toMutableMap()
+            var index = 0
+
+            while (index < text.length) {
+                val matchedKey = sortedKeys.firstOrNull { key ->
+                    index + key.length <= text.length &&
+                            text.regionMatches(index, key, 0, key.length, ignoreCase = false)
+                }
+
+                if (matchedKey != null) {
+                    val targetChar = text[index]
+                    val transliteration = transliterationMap[matchedKey].orEmpty()
+                    if (isCJKCharacter(targetChar) && transliteration.isNotBlank()) {
+                        newCharTransliterations[index] = transliteration
+                        for (removeIdx in (index + 1) until (index + matchedKey.length)) {
+                            newCharTransliterations.remove(removeIdx)
+                        }
+                        matchCount++
+                    }
+                    index += matchedKey.length
+                } else {
+                    index++
+                }
+            }
+
+            unit.copy(charTransliterations = newCharTransliterations)
+        }
+        line.copy(timeUnits = newUnits)
+    }
+
+    return updatedLines to matchCount
+}
+
 @Composable
 fun LyricLineItem(
     lineIndex: Int,
@@ -3336,6 +3571,7 @@ fun LyricTimingScreen(
     var showTransliterationResultDialog by remember { mutableStateOf(false) }
     var transliterationResultSuccess by remember { mutableStateOf(false) }
     var transliterationResultMessage by remember { mutableStateOf("") }
+    var showDeleteAllTransliterationConfirmDialog by remember { mutableStateOf(false) }
     
     // 编辑输入状态
     var editUnitText by remember { mutableStateOf("") }
@@ -3565,6 +3801,13 @@ fun LyricTimingScreen(
                     currentLines.addAll(oldLines.filterIsInstance<LyricLine>())
                 }
             }
+            UndoActionType.MULTI_CHANGE -> {
+                val oldLines = action.oldValue as? List<*>
+                if (oldLines != null) {
+                    currentLines.clear()
+                    currentLines.addAll(oldLines.filterIsInstance<LyricLine>())
+                }
+            }
             else -> {}
         }
     }
@@ -3662,6 +3905,13 @@ fun LyricTimingScreen(
                 }
             }
             UndoActionType.BATCH_FORMAT_TIMELINE -> {
+                val newLines = action.newValue as? List<*>
+                if (newLines != null) {
+                    currentLines.clear()
+                    currentLines.addAll(newLines.filterIsInstance<LyricLine>())
+                }
+            }
+            UndoActionType.MULTI_CHANGE -> {
                 val newLines = action.newValue as? List<*>
                 if (newLines != null) {
                     currentLines.clear()
@@ -5415,10 +5665,28 @@ fun LyricTimingScreen(
                         .padding(16.dp)
                         .navigationBarsPadding()
                 ) {
-                    Text(
-                        text = "导入注音",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                    val context = LocalContext.current
+                    ImportTransliterationSheetHeader(
+                        onImportKanaRomaClick = {
+                            try {
+                                val importedText = context.assets.open("JapRoma.txt")
+                                    .bufferedReader(Charsets.UTF_8)
+                                    .use { it.readText() }
+                                if (importedText.isBlank()) {
+                                    transliterationResultSuccess = false
+                                    transliterationResultMessage = "导入失败：JapRoma.txt 内容为空"
+                                } else {
+                                    transliterationInput = importedText
+                                    transliterationResultSuccess = true
+                                    transliterationResultMessage = "已从 JapRoma.txt 导入文本"
+                                }
+                            } catch (e: Exception) {
+                                transliterationResultSuccess = false
+                                transliterationResultMessage = "导入失败：${e.message ?: "无法读取文件"}"
+                            }
+                            showTransliterationResultDialog = true
+                        },
+                        onDeleteAllClick = { showDeleteAllTransliterationConfirmDialog = true }
                     )
                     ThemedTextField(
                         value = transliterationInput,
@@ -5440,7 +5708,6 @@ fun LyricTimingScreen(
                         ) {
                             Text("取消")
                         }
-                        val context = LocalContext.current
                         OutlinedButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -5459,25 +5726,9 @@ fun LyricTimingScreen(
                         }
                         Button(
                             onClick = {
-                                // 解析用户输入的注音
-                                val transliterationMap = mutableMapOf<String, String>()
-                                val lines = transliterationInput.lines().filter { it.isNotBlank() }
-                                var parseError = false
-                                
-                                for (line in lines) {
-                                    val parts = line.split("：", ":", limit = 2)
-                                    if (parts.size == 2) {
-                                        val char = parts[0].trim()
-                                        val transliteration = parts[1].trim()
-                                        if (char.isNotEmpty()) {
-                                            transliterationMap[char] = transliteration
-                                        }
-                                    } else {
-                                        parseError = true
-                                        break
-                                    }
-                                }
-                                
+                                // 解析用户输入的注音（支持多字符，应用时按最长词条优先）
+                                val (transliterationMap, parseError) = parseTransliterationInput(transliterationInput)
+
                                 if (parseError) {
                                     transliterationResultSuccess = false
                                     transliterationResultMessage = "解析失败，请检查格式是否正确"
@@ -5490,37 +5741,12 @@ fun LyricTimingScreen(
                                     showImportTransliterationDialog = false
                                 } else {
                                     // 应用注音到歌词
-                                    var matchCount = 0
                                     val oldLines = lyricLines.toList()
-                                    
-                                    lyricLines = lyricLines.map { line ->
-                                        val newUnits = line.timeUnits.map { unit ->
-                                            val text = unit.text
-                                            val newCharTransliterations = unit.charTransliterations.toMutableMap()
-                                            
-                                            // 逐个字符检查并添加注音
-                                            for ((index, char) in text.withIndex()) {
-                                                val charStr = char.toString()
-                                                // 只对CJK字符、日语假名、韩语谚文和数字注音
-                                                if (transliterationMap.containsKey(charStr)) {
-                                                    // 检查字符类型
-                                                    val isCJK = char in '\u4E00'..'\u9FFF' || char in '\u3400'..'\u4DBF' // CJK统一汉字和扩展A
-                                                    val isHiragana = char in '\u3040'..'\u309F' // 平假名
-                                                    val isKatakana = char in '\u30A0'..'\u30FF' // 片假名
-                                                    val isKatakanaExtended = char in '\u31F0'..'\u31FF' // 片假名扩展
-                                                    val isHangul = char in '\uAC00'..'\uD7AF' // 韩语谚文
-                                                    val isDigit = char.isDigit()
-                                                    if (isCJK || isHiragana || isKatakana || isKatakanaExtended || isHangul || isDigit) {
-                                                        newCharTransliterations[index] = transliterationMap[charStr]!!
-                                                        matchCount++
-                                                    }
-                                                }
-                                            }
-                                            
-                                            unit.copy(charTransliterations = newCharTransliterations)
-                                        }
-                                        line.copy(timeUnits = newUnits)
-                                    }
+                                    val (updatedLyricLines, matchCount) = applyTransliterationMapToLyrics(
+                                        lyricLines = lyricLines,
+                                        transliterationMap = transliterationMap
+                                    )
+                                    lyricLines = updatedLyricLines
                                     
                                     // 添加到撤销栈
                                     undoRedoManager.pushAction(
@@ -5552,6 +5778,28 @@ fun LyricTimingScreen(
                 }
             }
         }
+
+        DeleteAllTransliterationConfirmDialog(
+            showDialog = showDeleteAllTransliterationConfirmDialog,
+            onDismiss = { showDeleteAllTransliterationConfirmDialog = false },
+            onConfirm = {
+                showDeleteAllTransliterationConfirmDialog = false
+                val oldLines = lyricLines.toList()
+                val clearedLines = clearAllLyricLineTransliterations(lyricLines)
+                if (oldLines != clearedLines) {
+                    lyricLines = clearedLines
+                    undoRedoManager.pushAction(
+                        UndoAction(
+                            actionType = UndoActionType.MULTI_CHANGE,
+                            lineIndex = 0,
+                            oldValue = oldLines,
+                            newValue = clearedLines
+                        )
+                    )
+                    updateUndoRedoState()
+                }
+            }
+        )
         
         // 注音导入结果对话框
         SimpleAlertDialog(
@@ -7102,27 +7350,25 @@ fun LyricTimingScreen(
                                 // 尝试智能调整注音索引
                                 val newCharTransliterations = mutableMapOf<Int, String>()
                                 
-                                // 获取旧文本中的CJK字符索引
-                                val oldCjkIndices = oldText.mapIndexedNotNull { idx, char -> 
-                                    if (isCJKCharacter(char)) idx else null 
-                                }
-                                // 获取新文本中的CJK字符索引
-                                val newCjkIndices = newText.mapIndexedNotNull { idx, char -> 
-                                    if (isCJKCharacter(char)) idx else null 
-                                }
+                                // 获取旧/新文本中的可注音字符单元（小假名与前一字符绑定）
+                                val oldCjkUnits = extractCjkTransliterationUnits(oldText)
+                                val newCjkUnits = extractCjkTransliterationUnits(newText)
                                 
-                                // 如果CJK字符数量相同，尝试按顺序迁移注音
-                                if (oldCjkIndices.size == newCjkIndices.size && oldCjkIndices.size > 0) {
-                                    for (i in oldCjkIndices.indices) {
-                                        val oldIdx = oldCjkIndices[i]
-                                        val newIdx = newCjkIndices[i]
-                                        val trans = editUnitCharTransliterations[oldIdx]
-                                        if (trans != null) {
-                                            newCharTransliterations[newIdx] = trans
+                                // 如果可注音单元数量相同，按顺序迁移注音
+                                if (oldCjkUnits.size == newCjkUnits.size && oldCjkUnits.isNotEmpty()) {
+                                    for (i in oldCjkUnits.indices) {
+                                        val oldUnit = oldCjkUnits[i]
+                                        val newUnit = newCjkUnits[i]
+                                        val trans = findTransliterationForUnit(
+                                            indices = oldUnit.indices,
+                                            charTransliterations = editUnitCharTransliterations
+                                        )
+                                        if (trans.isNotBlank()) {
+                                            newCharTransliterations[newUnit.startIndex] = trans
                                         }
                                     }
                                 }
-                                // 否则清空注音（因为字符数量变化太大，无法确定映射关系）
+                                // 否则清空注音（因为可注音单元变化太大，无法确定映射关系）
                                 
                                 editUnitCharTransliterations = newCharTransliterations
                             }
@@ -7142,7 +7388,8 @@ fun LyricTimingScreen(
                     )
                     
                     // 检查是否需要显示整体注音编辑
-                    val cjkCount = editUnitText.count { isCJKCharacter(it) }
+                    val cjkUnits = extractCjkTransliterationUnits(editUnitText)
+                    val cjkCount = cjkUnits.size
                     val hasUnassignedTransliteration = editUnitTransliteration.isNotEmpty() && 
                             editUnitCharTransliterations.isEmpty()
                     
@@ -7158,37 +7405,37 @@ fun LyricTimingScreen(
                         Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            editUnitText.forEachIndexed { index, char ->
-                                if (isCJKCharacter(char)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = char.toString(),
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.width(40.dp)
+                            cjkUnits.forEach { unit ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = unit.text,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.width(40.dp)
+                                    )
+                                    // 使用key确保正确的重组
+                                    key(unit.startIndex) {
+                                        val currentValue = findTransliterationForUnit(
+                                            indices = unit.indices,
+                                            charTransliterations = editUnitCharTransliterations
                                         )
-                                        // 使用key确保正确的重组
-                                        key(index) {
-                                            val currentValue = editUnitCharTransliterations[index] ?: ""
-                                            ThemedTextField(
-                                                value = currentValue,
-                                                onValueChange = { newValue ->
-                                                    val newMap = editUnitCharTransliterations.toMutableMap()
-                                                    if (newValue.isBlank()) {
-                                                        newMap.remove(index)
-                                                    } else {
-                                                        newMap[index] = newValue
-                                                    }
-                                                    editUnitCharTransliterations = newMap
-                                                },
-                                                placeholder = "注音",
-                                                modifier = Modifier.weight(1f),
-                                                singleLine = true
-                                            )
-                                        }
+                                        ThemedTextField(
+                                            value = currentValue,
+                                            onValueChange = { newValue ->
+                                                val newMap = editUnitCharTransliterations.toMutableMap()
+                                                unit.indices.forEach { idx -> newMap.remove(idx) }
+                                                if (newValue.isNotBlank()) {
+                                                    newMap[unit.startIndex] = newValue
+                                                }
+                                                editUnitCharTransliterations = newMap
+                                            },
+                                            placeholder = "注音",
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true
+                                        )
                                     }
                                 }
                             }
@@ -7827,6 +8074,7 @@ fun LyricTimingScreen(
                                             smartSegmentLyric(segment).size
                                         }
                                         val totalWeight = segmentWeights.sum()
+                                        var sourceCharCursor = 0
                                         
                                         var accumulatedMs = startMs
                                         segments.forEachIndexed { index, segment ->
@@ -7843,11 +8091,29 @@ fun LyricTimingScreen(
                                                 accumulatedMs + unitDuration
                                             }
                                             accumulatedMs = unitEndMs
+
+                                            val mappedCharTransliterations = mutableMapOf<Int, String>()
+                                            segment.forEachIndexed { newIdx, _ ->
+                                                val oldIdx = sourceCharCursor + newIdx
+                                                currentUnit.charTransliterations[oldIdx]?.let { translit ->
+                                                    mappedCharTransliterations[newIdx] = translit
+                                                }
+                                            }
+                                            sourceCharCursor += segment.length
+
+                                            val mappedTransliteration = when {
+                                                mappedCharTransliterations.isNotEmpty() && segment.length == 1 ->
+                                                    mappedCharTransliterations[0] ?: ""
+                                                segments.size == 1 -> currentUnit.transliteration
+                                                else -> ""
+                                            }
                                             
                                             newTimeUnits.add(LyricTimeUnit(
-                                                segment,
-                                                formatTime(unitStartMs),
-                                                formatTime(unitEndMs)
+                                                text = segment,
+                                                startTime = formatTime(unitStartMs),
+                                                endTime = formatTime(unitEndMs),
+                                                transliteration = mappedTransliteration,
+                                                charTransliterations = mappedCharTransliterations.toMap()
                                             ))
                                         }
                                         
@@ -7926,6 +8192,41 @@ fun LyricTimingScreen(
         if (showMergeLyricDialog && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
             val currentLine = lyricLines[menuLineIndex]
             val displayTimeUnits = if (mergeLyricPreview.isNotEmpty()) mergeLyricPreview else currentLine.timeUnits
+            fun mergeLyricGroup(units: List<LyricTimeUnit>, group: List<Int>): LyricTimeUnit {
+                val unitsToMerge = group.map { units[it] }
+                val mergedText = unitsToMerge.joinToString("") { it.text }
+
+                val mergedCharTransliterations = mutableMapOf<Int, String>()
+                var charOffset = 0
+                unitsToMerge.forEach { unit ->
+                    unit.charTransliterations.forEach { (idx, translit) ->
+                        mergedCharTransliterations[charOffset + idx] = translit
+                    }
+                    charOffset += unit.text.length
+                }
+
+                val transliterationsToJoin = unitsToMerge.mapNotNull {
+                    it.transliteration.takeIf { trans -> trans.isNotEmpty() }
+                }
+                val mergedTransliteration = if (transliterationsToJoin.isNotEmpty()) {
+                    val hasAnyCjk = unitsToMerge.any { hasCjkChar(it.text) }
+                    if (hasAnyCjk) {
+                        transliterationsToJoin.joinToString("")
+                    } else {
+                        transliterationsToJoin.joinToString(" ")
+                    }
+                } else {
+                    ""
+                }
+
+                return LyricTimeUnit(
+                    text = mergedText,
+                    startTime = unitsToMerge.first().startTime,
+                    endTime = unitsToMerge.last().endTime,
+                    transliteration = mergedTransliteration,
+                    charTransliterations = mergedCharTransliterations.toMap()
+                )
+            }
 
             androidx.compose.material3.ModalBottomSheet(
                 onDismissRequest = {
@@ -8041,10 +8342,7 @@ fun LyricTimingScreen(
                                         while (i < displayTimeUnits.size) {
                                             val inGroup = groups.find { group -> i in group }
                                             if (inGroup != null) {
-                                                val mergedText = inGroup.map { displayTimeUnits[it].text }.joinToString("")
-                                                val startTime = displayTimeUnits[inGroup.first()].startTime
-                                                val endTime = displayTimeUnits[inGroup.last()].endTime
-                                                newTimeUnits.add(LyricTimeUnit(mergedText, startTime, endTime))
+                                                newTimeUnits.add(mergeLyricGroup(displayTimeUnits, inGroup))
                                                 i = inGroup.last() + 1
                                             } else {
                                                 newTimeUnits.add(displayTimeUnits[i])
@@ -8106,10 +8404,7 @@ fun LyricTimingScreen(
                                             while (i < timeUnits.size) {
                                                 val inGroup = groups.find { group -> i in group }
                                                 if (inGroup != null) {
-                                                    val mergedText = inGroup.map { timeUnits[it].text }.joinToString("")
-                                                    val startTime = timeUnits[inGroup.first()].startTime
-                                                    val endTime = timeUnits[inGroup.last()].endTime
-                                                    newTimeUnits.add(LyricTimeUnit(mergedText, startTime, endTime))
+                                                    newTimeUnits.add(mergeLyricGroup(timeUnits, inGroup))
                                                     i = inGroup.last() + 1
                                                 } else {
                                                     newTimeUnits.add(timeUnits[i])
@@ -10813,6 +11108,18 @@ fun smartSegmentLyric(text: String): List<String> {
         }
         
         if (isCJKCharacter(char)) {
+            val shouldAttachToPrevious = isJapaneseSmallKana(char) &&
+                    pendingSpaces.isEmpty() &&
+                    result.isNotEmpty() &&
+                    result.last().lastOrNull()?.let { isCJKCharacter(it) } == true
+
+            if (shouldAttachToPrevious) {
+                val lastIndex = result.lastIndex
+                result[lastIndex] = result[lastIndex] + char
+                i++
+                continue
+            }
+
             result.add(pendingSpaces + char)
             pendingSpaces = ""
             i++
