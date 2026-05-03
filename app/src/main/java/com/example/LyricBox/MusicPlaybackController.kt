@@ -191,6 +191,72 @@ class MusicPlaybackController(private val context: Context) {
         controller?.seekTo(position.coerceAtLeast(0L))
     }
 
+    fun removeAudioPathAndAdvance(path: String) {
+        val targetPath = path.trim()
+        if (targetPath.isEmpty()) return
+
+        val player = controller
+        if (player != null && player.mediaItemCount > 0) {
+            val matchedIndexes = (0 until player.mediaItemCount).filter { idx ->
+                val mediaItem = player.getMediaItemAt(idx)
+                val itemPath = mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+                    ?: mediaItem.mediaId.takeIf { it.isNotBlank() }
+                itemPath == targetPath
+            }
+
+            if (matchedIndexes.isNotEmpty()) {
+                val currentIdx = player.currentMediaItemIndex
+                val currentPath = if (currentIdx in 0 until player.mediaItemCount) {
+                    val currentItem = player.getMediaItemAt(currentIdx)
+                    currentItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+                        ?: currentItem.mediaId.takeIf { it.isNotBlank() }
+                } else {
+                    null
+                }
+                val removingCurrent = currentPath == targetPath
+                val wasPlaying = player.isPlaying || player.playWhenReady
+
+                // 删除当前曲目时，优先切到下一首（如果存在）。
+                if (removingCurrent && currentIdx >= 0 && currentIdx < player.mediaItemCount - 1) {
+                    player.seekTo(currentIdx + 1, 0L)
+                }
+
+                matchedIndexes.sortedDescending().forEach { removeIdx ->
+                    player.removeMediaItem(removeIdx)
+                }
+
+                if (player.mediaItemCount == 0) {
+                    player.stop()
+                } else {
+                    if (player.playbackState == Player.STATE_IDLE) {
+                        player.prepare()
+                    }
+                    player.playWhenReady = wasPlaying
+                    if (wasPlaying) {
+                        player.play()
+                    }
+                }
+
+                syncFromPlayer(player)
+            }
+        }
+
+        queueAudioPaths = queueAudioPaths.filter { it != targetPath }
+        removePathFromPersistedQueue(targetPath)
+
+        if (currentAudioPath == targetPath && (controller == null || mediaCount == 0)) {
+            currentAudioPath = null
+            currentMediaId = null
+            currentCoverCachePath = null
+            currentArtworkData = null
+            currentTitle = ""
+            currentArtist = ""
+            currentIndex = -1
+            mediaCount = 0
+            clearSnapshotState()
+        }
+    }
+
     fun handleAudioRenamed(oldPath: String, newPath: String) {
         if (oldPath.isBlank() || newPath.isBlank() || oldPath == newPath) return
         val player = controller
@@ -265,7 +331,11 @@ class MusicPlaybackController(private val context: Context) {
         currentTitle = item?.mediaMetadata?.title?.toString()
             ?: File(currentAudioPath ?: "").nameWithoutExtension
         currentArtist = item?.mediaMetadata?.artist?.toString() ?: "未知艺术家"
-        persistSnapshotState()
+        if (currentAudioPath.isNullOrBlank()) {
+            clearSnapshotState()
+        } else {
+            persistSnapshotState()
+        }
     }
 
     private fun persistCurrentQueue(player: Player) {
@@ -397,6 +467,38 @@ class MusicPlaybackController(private val context: Context) {
             )
         }
         LocalPlaylistStore.savePlaybackQueue(context, entries)
+    }
+
+    private fun removePathFromPersistedQueue(path: String) {
+        val savedPaths = LocalPlaylistStore.loadPlaybackQueuePaths(context)
+        if (savedPaths.isEmpty()) return
+        var changed = false
+        val remainedPaths = savedPaths.filter { saved ->
+            val keep = saved != path
+            if (!keep) changed = true
+            keep
+        }
+        if (!changed) return
+        val entries = remainedPaths.map { remainedPath ->
+            val file = File(remainedPath)
+            val metadata = runCatching { AudioMetadataReader.readMetadata(context, remainedPath) }.getOrNull()
+            LocalPlaylistEntry(
+                path = remainedPath,
+                title = metadata?.title?.takeIf { it.isNotBlank() } ?: file.nameWithoutExtension,
+                artist = metadata?.artist.orEmpty(),
+                durationSeconds = ((metadata?.duration ?: 0L) / 1000L).coerceAtLeast(-1L)
+            )
+        }
+        LocalPlaylistStore.savePlaybackQueue(context, entries)
+    }
+
+    private fun clearSnapshotState() {
+        playbackStatePrefs.edit()
+            .remove(KEY_LAST_AUDIO_PATH)
+            .remove(KEY_LAST_TITLE)
+            .remove(KEY_LAST_ARTIST)
+            .remove(KEY_LAST_COVER_CACHE_PATH)
+            .apply()
     }
 }
 

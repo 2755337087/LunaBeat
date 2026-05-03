@@ -100,6 +100,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
+private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
 private const val PLAYED_LINE_BLUR_RADIUS = 3f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
@@ -1304,6 +1305,9 @@ fun LyricPreviewScreen(
     var isManualLyricJumping by remember { mutableStateOf(false) }
     var manualLyricJumpGuardJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var manualTapAnchorIndex by remember { mutableIntStateOf(-1) }
+    var manualTapAnchorBeginMs by remember { mutableLongStateOf(0L) }
+    var manualTapNextLineBeginMs by remember { mutableLongStateOf(Long.MAX_VALUE) }
+    var manualTapSeekSettled by remember { mutableStateOf(false) }
     var manualTapSuppressUntilMs by remember { mutableLongStateOf(0L) }
     var previousObservedTime by remember { mutableLongStateOf(initialPosition) }
     var hidePlayedLinesDuringInitialBuild by remember(processedLyricLines, initialPosition) {
@@ -1345,7 +1349,7 @@ fun LyricPreviewScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    fun requestAutoScroll(targetIndex: Int) {
+    fun requestAutoScroll(targetIndex: Int, forceAnimate: Boolean = false) {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
         if (lyricBlurPreferenceEnabled && !isLyricBlurEnabled) {
             isLyricBlurEnabled = true
@@ -1370,14 +1374,16 @@ fun LyricPreviewScreen(
         autoScrollJob = coroutineScope.launch {
             try {
                 var nextTarget = targetIndex
+                var forceAnimateForCurrent = forceAnimate
                 while (nextTarget >= 0) {
                     val now = SystemClock.elapsedRealtime()
                     val isRapidAutoScroll = (now - lastAutoScrollWallTime) < autoScrollMinIntervalMs
+                    val useInstantScroll = !forceAnimateForCurrent && isRapidAutoScroll
                     logAutoScroll(
-                        "execute target=$nextTarget mode=${if (isRapidAutoScroll) "instant" else "animate"} " +
-                            "deltaSinceLast=${now - lastAutoScrollWallTime}ms"
+                        "execute target=$nextTarget mode=${if (useInstantScroll) "instant" else "animate"} " +
+                            "deltaSinceLast=${now - lastAutoScrollWallTime}ms forceAnimate=$forceAnimateForCurrent"
                     )
-                    if (isRapidAutoScroll) {
+                    if (useInstantScroll) {
                         lazyListState.scrollToItem(
                             index = nextTarget,
                             scrollOffset = -100
@@ -1396,6 +1402,7 @@ fun LyricPreviewScreen(
                         pendingAutoScrollIndex = -1
                         autoScrollRunningTarget = pending
                         nextTarget = pending
+                        forceAnimateForCurrent = false
                         logAutoScroll("drain pending target=$pending")
                     } else {
                         pendingAutoScrollIndex = -1
@@ -1529,7 +1536,54 @@ fun LyricPreviewScreen(
         }
         previousObservedTime = currentTime
     }
-    
+
+    LaunchedEffect(lazyListState, processedLyricLines, creators, currentLineIndex, isUserScrolling, seekResetCounter) {
+        if (creators.isEmpty() || processedLyricLines.isEmpty()) return@LaunchedEffect
+        var lastSnapshot = ""
+        while (true) {
+            val lastLyricIndex = processedLyricLines.lastIndex
+            val creatorItemKey = "creator-info-line"
+            val visibleItems = lazyListState.layoutInfo.visibleItemsInfo
+            val lyricItemInfo = visibleItems.firstOrNull { it.index == lastLyricIndex }
+            val creatorItemInfo = visibleItems.firstOrNull { it.key == creatorItemKey }
+            val lyricOffset = lyricItemInfo?.offset ?: Int.MIN_VALUE
+            val creatorOffset = creatorItemInfo?.offset ?: Int.MIN_VALUE
+            val offsetDelta = if (lyricItemInfo != null && creatorItemInfo != null) {
+                creatorOffset - lyricOffset
+            } else {
+                Int.MIN_VALUE
+            }
+            val lyricDistance = if (currentLineIndex >= 0) kotlin.math.abs(lastLyricIndex - currentLineIndex) else 0
+            val creatorDistance = lyricDistance
+            val lyricStiffness = (120f - (lyricDistance * 20f)).coerceAtLeast(20f)
+            val creatorStiffness = (120f - (creatorDistance * 20f)).coerceAtLeast(20f)
+
+            val snapshot = buildString {
+                append("currentLine=").append(currentLineIndex)
+                append(" firstVisible=").append(lazyListState.firstVisibleItemIndex)
+                append(" firstOffset=").append(lazyListState.firstVisibleItemScrollOffset)
+                append(" userScrolling=").append(isUserScrolling)
+                append(" reset=").append(seekResetCounter)
+                append(" | lyric(index=").append(lyricItemInfo?.index ?: -1)
+                append(",offset=").append(lyricOffset)
+                append(",size=").append(lyricItemInfo?.size ?: Int.MIN_VALUE)
+                append(")")
+                append(" creator(index=").append(creatorItemInfo?.index ?: -1)
+                append(",offset=").append(creatorOffset)
+                append(",size=").append(creatorItemInfo?.size ?: Int.MIN_VALUE)
+                append(")")
+                append(" delta=").append(offsetDelta)
+                append(" stiffness(lyric=").append(lyricStiffness)
+                append(",creator=").append(creatorStiffness).append(")")
+            }
+            if (snapshot != lastSnapshot) {
+                lastSnapshot = snapshot
+                Log.d(CREATOR_VS_LYRIC_LOG_TAG, snapshot)
+            }
+            delay(80L)
+        }
+    }
+
     // 保存字体大小设置
     fun saveFontSize(size: Float) {
         fontSize = size
@@ -1610,16 +1664,43 @@ fun LyricPreviewScreen(
         return triggerInterval < autoScrollConflictWindowMs
     }
 
+    fun findNextAutoScrollEligibleLineBegin(anchorIndex: Int): Long {
+        if (anchorIndex < 0 || anchorIndex >= processedLyricLines.lastIndex) return Long.MAX_VALUE
+        for (index in (anchorIndex + 1) until processedLyricLines.size) {
+            val line = processedLyricLines[index]
+            if (line.isInterlude) continue
+            if (line.isBackground && line.backgroundPlacement >= 0) continue
+            return line.begin
+        }
+        return Long.MAX_VALUE
+    }
+
     // 自动滚动到当前播放行（屏幕1/4位置）
-    LaunchedEffect(currentTime, isUserScrolling, isManualLyricJumping, lyricsContentReady, manualTapAnchorIndex, manualTapSuppressUntilMs) {
+    LaunchedEffect(
+        currentTime,
+        isUserScrolling,
+        isManualLyricJumping,
+        lyricsContentReady,
+        manualTapAnchorIndex,
+        manualTapAnchorBeginMs,
+        manualTapNextLineBeginMs,
+        manualTapSeekSettled,
+        manualTapSuppressUntilMs
+    ) {
         if (!isUserScrolling && !isManualLyricJumping && lyricsContentReady && processedLyricLines.isNotEmpty()) {
             val nowWallTime = SystemClock.elapsedRealtime()
             if (manualTapAnchorIndex >= 0) {
-                val observedIndex = lineNavigator.findTargetIndex(currentTime)
-                val nextStarted = observedIndex > manualTapAnchorIndex
+                val seekDelta = currentTime - manualTapAnchorBeginMs
+                if (!manualTapSeekSettled && seekDelta in -220L..2200L) {
+                    manualTapSeekSettled = true
+                    logAutoScroll("manual tap seek settled anchor=$manualTapAnchorIndex at=$currentTime delta=${seekDelta}ms")
+                }
+                val hasNextLine = manualTapNextLineBeginMs != Long.MAX_VALUE
+                val nextStarted = manualTapSeekSettled && hasNextLine && currentTime >= manualTapNextLineBeginMs
                 if (!nextStarted && nowWallTime < manualTapSuppressUntilMs) {
                     logAutoScroll(
-                        "manual tap hold index=$manualTapAnchorIndex wait=${manualTapSuppressUntilMs - nowWallTime}ms current=$observedIndex"
+                        "manual tap hold index=$manualTapAnchorIndex wait=${manualTapSuppressUntilMs - nowWallTime}ms " +
+                            "settled=$manualTapSeekSettled current=$currentTime nextBegin=$manualTapNextLineBeginMs"
                     )
                     return@LaunchedEffect
                 }
@@ -1630,10 +1711,16 @@ fun LyricPreviewScreen(
                     }
                     logAutoScroll("manual tap timeout -> allow current line auto-scroll index=$manualTapAnchorIndex")
                     manualTapAnchorIndex = -1
+                    manualTapAnchorBeginMs = 0L
+                    manualTapNextLineBeginMs = Long.MAX_VALUE
+                    manualTapSeekSettled = false
                     manualTapSuppressUntilMs = 0L
                 } else if (nextStarted) {
-                    logAutoScroll("manual tap released by next line start anchor=$manualTapAnchorIndex current=$observedIndex")
+                    logAutoScroll("manual tap released by next line start anchor=$manualTapAnchorIndex current=$currentTime")
                     manualTapAnchorIndex = -1
+                    manualTapAnchorBeginMs = 0L
+                    manualTapNextLineBeginMs = Long.MAX_VALUE
+                    manualTapSeekSettled = false
                     manualTapSuppressUntilMs = 0L
                 }
             }
@@ -1881,6 +1968,7 @@ fun LyricPreviewScreen(
                     // 使用较小的 keepAlive 区域来确保弹簧动画工作，同时不会占用过多空间
                     val keepAlivePadding = 100.dp
                     val density = LocalDensity.current
+                    var lastLyricRowHeightPx by remember { mutableIntStateOf(0) }
                     
                     // 创建一个自定义 Modifier 来延长视口高度
                     val extendedViewportModifier = object : LayoutModifier {
@@ -1962,7 +2050,19 @@ fun LyricPreviewScreen(
                                 label = "initialPlayedLineReveal"
                             )
 
-                            Box(modifier = Modifier.alpha(lineAlpha)) {
+                            val lyricLineContainerModifier = if (index == processedLyricLines.lastIndex) {
+                                Modifier
+                                    .alpha(lineAlpha)
+                                    .onGloballyPositioned { coordinates ->
+                                        val h = coordinates.size.height
+                                        if (h > 0 && h != lastLyricRowHeightPx) {
+                                            lastLyricRowHeightPx = h
+                                        }
+                                    }
+                            } else {
+                                Modifier.alpha(lineAlpha)
+                            }
+                            Box(modifier = lyricLineContainerModifier) {
                                 LyricLineView(
                                     line = line,
                                     nextLine = nextLine,
@@ -1993,60 +2093,100 @@ fun LyricPreviewScreen(
                                             isPlaying = true
                                             onPlayPause(true)
                                         }
-                                        manualTapAnchorIndex = index
-                                        manualTapSuppressUntilMs = SystemClock.elapsedRealtime() + 2000L
+                                        manualTapAnchorIndex = -1
+                                        manualTapAnchorBeginMs = 0L
+                                        manualTapNextLineBeginMs = Long.MAX_VALUE
+                                        manualTapSeekSettled = false
+                                        manualTapSuppressUntilMs = 0L
                                         isManualLyricJumping = true
                                         manualLyricJumpGuardJob?.cancel()
                                         manualLyricJumpGuardJob = coroutineScope.launch {
-                                            // seek 是异步，给播放器时间同步，避免旧时间触发一次错误自动滚动
-                                            delay(420L)
+                                            // 轻微保护，避免 seek 回调与当前帧竞争导致一次错误回退判断
+                                            delay(260L)
                                             isManualLyricJumping = false
                                         }
                                         isUserScrolling = false
                                         scrollJob?.cancel()
-                                        // 点击选择时保持当前列表位置，不触发当前行自动滚动；从下一行开始再按规则自动滚动
+                                        // 点击歌词后立即触发自动滚动，并将当前行滚动到目标位置
                                         lastAutoScrolledIndex = index
                                         lastSkippedScrollIndex = -1
                                         closeNextSkipStreak = 0
+                                        requestAutoScroll(index, forceAnimate = true)
                                         onSeekTo(line.begin)
                                         currentTime = line.begin
                                     }
                                 )
                             }
                         }
-                        
-                            // 创作者信息显示区域，跟随歌词一起滚动
                             if (creators.isNotEmpty()) {
-                                val creatorFontSize = maxOf(18f, fontSize - 10f).sp
-                                val creatorItemKey = "creators-section"
-                                val distance = if (currentLineIndex >= 0) kotlin.math.abs(processedLyricLines.size - currentLineIndex) else 0
-                                val dynamicStiffness = (120f - (distance * 20f)).coerceAtLeast(20f)
-                                
-                                item(key = creatorItemKey) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .springPlacement(this@LookaheadScope, creatorItemKey, isUserScrolling, dynamicStiffness, seekResetCounter)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 16.dp),
-                                            horizontalAlignment = Alignment.Start
-                                        ) {
-                                            Text(
-                                                text = buildAnnotatedString {
-                                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                                        append("创作者：")
-                                                    }
+                                val creatorRenderIndex = processedLyricLines.size
+                                val lastLyricIndex = processedLyricLines.lastIndex
+                                val creatorDistance = if (currentLineIndex >= 0) {
+                                    kotlin.math.abs(lastLyricIndex - currentLineIndex)
+                                } else {
+                                    0
+                                }
+                                val creatorStiffness = (120f - (creatorDistance * 20f)).coerceAtLeast(20f)
+                                item(key = "creator-info-line") {
+                                    val creatorFontSize = maxOf(18f, fontSize - 8f).sp
+                                    val creatorVirtualLine = NewPreviewLyricLine(
+                                        words = listOf(
+                                            NewPreviewLyricWord(
+                                                text = buildString {
+                                                    append("创作者：")
                                                     append(creators.joinToString("、"))
                                                 },
-                                                fontSize = creatorFontSize,
-                                                color = creatorLyricColor,
-                                                modifier = Modifier.alpha(0.8f),
-                                                textAlign = TextAlign.Start
+                                                begin = Long.MAX_VALUE / 4,
+                                                end = Long.MAX_VALUE / 4 + 1
                                             )
+                                        ),
+                                        translation = "",
+                                        isDuet = false,
+                                        isBackground = false,
+                                        isInterlude = false,
+                                        backgroundPlacement = 0
+                                    )
+                                    val creatorMinHeightDp = if (lastLyricRowHeightPx > 0) {
+                                        with(density) { lastLyricRowHeightPx.toDp() }
+                                    } else {
+                                        0.dp
+                                    }
+                                    Box(
+                                        modifier = if (creatorMinHeightDp > 0.dp) {
+                                            Modifier.heightIn(min = creatorMinHeightDp)
+                                        } else {
+                                            Modifier
                                         }
+                                    ) {
+                                        LyricLineView(
+                                            line = creatorVirtualLine,
+                                            nextLine = null,
+                                            lineIndex = creatorRenderIndex,
+                                            currentPlayingIndex = currentLineIndex,
+                                            currentTime = currentTime,
+                                            showTranslation = false,
+                                            isDarkTheme = isDarkTheme,
+                                            fontSize = creatorFontSize,
+                                            fontWeight = fontWeight,
+                                            showTransliteration = false,
+                                            lookaheadScope = this@LookaheadScope,
+                                            itemKey = "creator-info-line",
+                                            isManualScrolling = isUserScrolling,
+                                            stiffness = creatorStiffness,
+                                            forceReset = seekResetCounter,
+                                            shouldShowBackgroundLine = true,
+                                            isAboveMain = null,
+                                            backgroundColor = backgroundColor,
+                                            themeAccentColor = accentColor,
+                                            effectiveIsDuet = false,
+                                            nextLineIsDuet = false,
+                                            isPlaying = isPlaying,
+                                            animationType = animationType,
+                                            blurRadius = 0f,
+                                            clickableEnabled = false,
+                                            overrideInactiveColor = creatorLyricColor,
+                                            onClick = {}
+                                        )
                                     }
                                 }
                             }
@@ -2747,6 +2887,8 @@ fun LyricLineView(
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     blurRadius: Float = 0f,
+    clickableEnabled: Boolean = true,
+    overrideInactiveColor: Color? = null,
     onClick: () -> Unit = {}
 ) {
     val interludeLyricColor = backgroundColor?.let { bg ->
@@ -2798,12 +2940,13 @@ fun LyricLineView(
         fallback = baseForeground,
         minContrast = 4.1f
     )
-    val inactiveColor = ensureReadableColor(
+    val defaultInactiveColor = ensureReadableColor(
         candidate = blendColors(activeColor, resolvedBackground, 0.42f),
         background = resolvedBackground,
         fallback = blendColors(baseForeground, resolvedBackground, 0.45f),
         minContrast = 2.9f
     )
+    val inactiveColor = overrideInactiveColor ?: defaultInactiveColor
     val translationActiveColor = ensureReadableColor(
         candidate = blendColors(accent, baseForeground, 0.78f),
         background = resolvedBackground,
@@ -2919,7 +3062,7 @@ fun LyricLineView(
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.Transparent)
                         .then(lineBlurModifier)
-                        .clickable(onClick = onClick)
+                        .clickable(enabled = clickableEnabled, onClick = onClick)
                         .padding(horizontal = 12.dp, vertical = verticalPadding),
                     horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
                 ) {
@@ -2976,7 +3119,7 @@ fun LyricLineView(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Transparent)
                     .then(lineBlurModifier)
-                    .clickable(onClick = onClick)
+                    .clickable(enabled = clickableEnabled, onClick = onClick)
                     .padding(horizontal = 12.dp, vertical = verticalPadding),
                 horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
             ) {
@@ -3262,6 +3405,37 @@ fun LyricWordsCanvasWithWrap(
                 // 1. 当前是空格且在允许换行的位置
                 // 2. 加上当前内容超过屏幕宽度
                 val isBreakableSpace = group.size == 1 && group.first().second.text == " " && breakableSpaceIndices.contains(group.first().first)
+                val shouldWrapByWidth = currentX + groupWidth > screenWidthPx && currentLine.isNotEmpty()
+                val isLeadingQuestionMarkGroup = !isBreakableSpace && group.size == 1 && (
+                    group.first().second.text == "?" || group.first().second.text == "？"
+                )
+
+                // 标点保护：问号不能单独落到新行句首，和前一个字符/单词一起换行。
+                if (shouldWrapByWidth && isLeadingQuestionMarkGroup && currentLine.isNotEmpty()) {
+                    var moveStartIndex = currentLine.lastIndex
+                    while (moveStartIndex > 0 && currentLine[moveStartIndex - 1].word.text != " ") {
+                        moveStartIndex--
+                    }
+                    val movedLayoutsRaw = currentLine.subList(moveStartIndex, currentLine.size).toList()
+                    repeat(currentLine.size - moveStartIndex) {
+                        currentLine.removeAt(currentLine.lastIndex)
+                    }
+                    if (currentLine.isNotEmpty()) {
+                        layouts.add(currentLine.toList())
+                    }
+                    currentLine = mutableListOf()
+                    var movedX = 0f
+                    movedLayoutsRaw.forEach { layout ->
+                        val rebased = layout.copy(
+                            startPosition = movedX,
+                            endPosition = movedX + layout.textWidth
+                        )
+                        currentLine.add(rebased)
+                        movedX = rebased.endPosition + rebased.spaceWidth
+                    }
+                    currentX = movedX
+                    isNewLine = false
+                }
                 
                 if ((currentX + groupWidth > screenWidthPx && currentLine.isNotEmpty()) || isBreakableSpace) {
                     // 换行前，检查并移除当前行末尾的空格
@@ -4134,7 +4308,7 @@ fun LyricPreviewHeader(
                             .background(MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.search),
+                            painter = painterResource(id = R.drawable.img),
                             contentDescription = "音乐",
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier

@@ -118,6 +118,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
@@ -740,6 +741,7 @@ class MusicLibraryActivity : ComponentActivity() {
     private var editingMetadataPath by mutableStateOf<String?>(null)
     private var _refreshMetadataPath by mutableStateOf<String?>(null)
     private var initialSearchQueryState by mutableStateOf("")
+    private var initialSearchRequestState by mutableIntStateOf(0)
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
@@ -797,6 +799,9 @@ class MusicLibraryActivity : ComponentActivity() {
         
         val prefs = getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE)
         initialSearchQueryState = intent.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
+        if (initialSearchQueryState.isNotBlank()) {
+            initialSearchRequestState += 1
+        }
         val hasSetup = prefs.getBoolean("hasSetup", false)
         
         // 如果是第三方调用且没有设置过，直接加载音频文件
@@ -841,6 +846,7 @@ class MusicLibraryActivity : ComponentActivity() {
                     } else {
                         MusicLibraryScreen(
                             initialSearchQuery = initialSearchQueryState,
+                            initialSearchRequestVersion = initialSearchRequestState,
                             onBack = { finish() },
                             onOpenSettings = {
                                 startActivityForResult(Intent(this, MusicLibrarySettingsActivity::class.java), 100)
@@ -872,9 +878,11 @@ class MusicLibraryActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         intent?.let {
-            val incomingSearch = it.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
-            if (incomingSearch.isNotBlank()) {
+            setIntent(it)
+            if (it.hasExtra(EXTRA_INITIAL_SEARCH_QUERY)) {
+                val incomingSearch = it.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
                 initialSearchQueryState = incomingSearch
+                initialSearchRequestState += 1
             }
             val externalPath = handleExternalIntent(it)
             if (externalPath != null) {
@@ -1112,6 +1120,7 @@ class MusicLibraryActivity : ComponentActivity() {
 @Composable
 fun MusicLibraryScreen(
     initialSearchQuery: String = "",
+    initialSearchRequestVersion: Int = 0,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditMetadata: (String) -> Unit,
@@ -1155,6 +1164,7 @@ fun MusicLibraryScreen(
     var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
     
     var searchQuery by remember(initialSearchQuery) { mutableStateOf(initialSearchQuery) }
+    var lastAppliedInitialSearchRequest by remember { mutableIntStateOf(-1) }
     var isSearching by remember { mutableStateOf(false) }
     val favoritePaths = remember { mutableStateSetOf<String>() }
     val albumTrackSortCache = remember { mutableMapOf<String, Int>() }
@@ -1295,6 +1305,13 @@ fun MusicLibraryScreen(
         if (!isAlbumSearchQuery(searchQuery)) {
             sortAudioFiles(displayAudioFiles, sortType.value, sortOrder.value)
         }
+    }
+
+    LaunchedEffect(initialSearchRequestVersion, initialSearchQuery) {
+        if (initialSearchRequestVersion == lastAppliedInitialSearchRequest) return@LaunchedEffect
+        lastAppliedInitialSearchRequest = initialSearchRequestVersion
+        searchQuery = initialSearchQuery
+        updateDisplayFiles()
     }
 
     LaunchedEffect(Unit) {

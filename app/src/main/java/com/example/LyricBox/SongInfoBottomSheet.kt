@@ -392,6 +392,8 @@ fun SongInfoBottomSheet(
                                 }
                             }
                             removeFavoritePath(context, audio.path)
+                            // 预览页场景：删除后从播放队列移除并优先切换到下一首。
+                            fallbackPlaybackController?.removeAudioPathAndAdvance(audio.path)
                             showDeleteConfirmDialog = false
                             Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
                             onDismiss()
