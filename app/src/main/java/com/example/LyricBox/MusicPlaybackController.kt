@@ -31,6 +31,13 @@ private const val KEY_LAST_AUDIO_PATH = "last_audio_path"
 private const val KEY_LAST_TITLE = "last_title"
 private const val KEY_LAST_ARTIST = "last_artist"
 private const val KEY_LAST_COVER_CACHE_PATH = "last_cover_cache_path"
+private const val KEY_PLAYBACK_MODE = "playback_mode"
+
+enum class PlaybackMode {
+    SEQUENTIAL,
+    SHUFFLE,
+    SINGLE_REPEAT
+}
 
 class MusicPlaybackController(private val context: Context) {
 
@@ -70,12 +77,17 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var queueAudioPaths by mutableStateOf<List<String>>(emptyList())
         private set
+    var playbackMode by mutableStateOf(PlaybackMode.SEQUENTIAL)
+        private set
+    var hasNextTrack by mutableStateOf(false)
+        private set
 
     val hasCurrentItem: Boolean
         get() = currentAudioPath != null
 
     init {
         restoreSnapshotState()
+        restorePlaybackModeState()
     }
 
     private val listener = object : Player.Listener {
@@ -98,6 +110,7 @@ class MusicPlaybackController(private val context: Context) {
                 controller = readyController
                 readyController.addListener(listener)
                 restoreQueueIfNeeded(readyController)
+                applyPlaybackModeToPlayer(readyController, playbackMode)
                 syncFromPlayer(readyController)
                 isReady = true
             }
@@ -175,11 +188,26 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun skipToNext() {
-        controller?.seekToNextMediaItem()
+        val player = controller ?: return
+        val current = player.currentMediaItemIndex
+        if (current < 0) return
+        if (playbackMode == PlaybackMode.SINGLE_REPEAT) {
+            val nextIndex = current + 1
+            if (nextIndex in 0 until player.mediaItemCount) {
+                player.seekToDefaultPosition(nextIndex)
+            }
+            return
+        }
+        player.seekToNextMediaItem()
     }
 
     fun skipToPrevious() {
         val player = controller ?: return
+        val current = player.currentMediaItemIndex
+        if (playbackMode == PlaybackMode.SINGLE_REPEAT && current > 0 && player.currentPosition <= 5_000L) {
+            player.seekToDefaultPosition(current - 1)
+            return
+        }
         if (player.currentPosition > 5_000L) {
             player.seekTo(0L)
         } else {
@@ -189,6 +217,64 @@ class MusicPlaybackController(private val context: Context) {
 
     fun seekTo(position: Long) {
         controller?.seekTo(position.coerceAtLeast(0L))
+    }
+
+    fun playAtQueueIndex(index: Int) {
+        val player = controller ?: return
+        if (index !in 0 until player.mediaItemCount) return
+        player.seekToDefaultPosition(index)
+        if (player.playbackState == Player.STATE_IDLE) {
+            player.prepare()
+        }
+        player.playWhenReady = true
+        player.play()
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val player = controller ?: return
+        if (fromIndex !in 0 until player.mediaItemCount || toIndex !in 0 until player.mediaItemCount) return
+        if (fromIndex == toIndex) return
+        player.moveMediaItem(fromIndex, toIndex)
+        persistCurrentQueue(player)
+        syncFromPlayer(player)
+    }
+
+    fun removeQueueItemAt(index: Int) {
+        val player = controller ?: return
+        if (index !in 0 until player.mediaItemCount) return
+        val wasPlaying = player.isPlaying || player.playWhenReady
+        player.removeMediaItem(index)
+        if (player.mediaItemCount == 0) {
+            player.stop()
+        } else {
+            if (player.playbackState == Player.STATE_IDLE) {
+                player.prepare()
+            }
+            player.playWhenReady = wasPlaying
+            if (wasPlaying) {
+                player.play()
+            }
+        }
+        persistCurrentQueue(player)
+        syncFromPlayer(player)
+    }
+
+    fun updatePlaybackMode(mode: PlaybackMode) {
+        playbackMode = mode
+        persistPlaybackModeState(mode)
+        controller?.let { player ->
+            applyPlaybackModeToPlayer(player, mode)
+            syncFromPlayer(player)
+        }
+    }
+
+    fun cyclePlaybackMode() {
+        val nextMode = when (playbackMode) {
+            PlaybackMode.SEQUENTIAL -> PlaybackMode.SHUFFLE
+            PlaybackMode.SHUFFLE -> PlaybackMode.SINGLE_REPEAT
+            PlaybackMode.SINGLE_REPEAT -> PlaybackMode.SEQUENTIAL
+        }
+        updatePlaybackMode(nextMode)
     }
 
     fun removeAudioPathAndAdvance(path: String) {
@@ -314,11 +400,18 @@ class MusicPlaybackController(private val context: Context) {
         durationMs = player.duration.takeIf { it > 0L } ?: 0L
         currentIndex = player.currentMediaItemIndex
         mediaCount = player.mediaItemCount
+        hasNextTrack = currentIndex >= 0 && currentIndex < player.mediaItemCount - 1
         queueAudioPaths = (0 until player.mediaItemCount).mapNotNull { idx ->
             val mediaItem = player.getMediaItemAt(idx)
             mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
                 ?: mediaItem.mediaId.takeIf { it.isNotBlank() }
         }
+        playbackMode = when {
+            player.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackMode.SINGLE_REPEAT
+            player.shuffleModeEnabled -> PlaybackMode.SHUFFLE
+            else -> PlaybackMode.SEQUENTIAL
+        }
+        persistPlaybackModeState(playbackMode)
         persistCurrentQueue(player)
 
         val item = player.currentMediaItem
@@ -499,6 +592,37 @@ class MusicPlaybackController(private val context: Context) {
             .remove(KEY_LAST_ARTIST)
             .remove(KEY_LAST_COVER_CACHE_PATH)
             .apply()
+    }
+
+    private fun restorePlaybackModeState() {
+        playbackMode = when (playbackStatePrefs.getString(KEY_PLAYBACK_MODE, null)) {
+            PlaybackMode.SHUFFLE.name -> PlaybackMode.SHUFFLE
+            PlaybackMode.SINGLE_REPEAT.name -> PlaybackMode.SINGLE_REPEAT
+            else -> PlaybackMode.SEQUENTIAL
+        }
+    }
+
+    private fun persistPlaybackModeState(mode: PlaybackMode) {
+        playbackStatePrefs.edit()
+            .putString(KEY_PLAYBACK_MODE, mode.name)
+            .apply()
+    }
+
+    private fun applyPlaybackModeToPlayer(player: Player, mode: PlaybackMode) {
+        when (mode) {
+            PlaybackMode.SEQUENTIAL -> {
+                player.shuffleModeEnabled = false
+                player.repeatMode = Player.REPEAT_MODE_OFF
+            }
+            PlaybackMode.SHUFFLE -> {
+                player.shuffleModeEnabled = true
+                player.repeatMode = Player.REPEAT_MODE_OFF
+            }
+            PlaybackMode.SINGLE_REPEAT -> {
+                player.shuffleModeEnabled = false
+                player.repeatMode = Player.REPEAT_MODE_ONE
+            }
+        }
     }
 }
 

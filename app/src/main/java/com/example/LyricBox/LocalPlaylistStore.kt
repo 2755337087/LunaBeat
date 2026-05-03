@@ -46,6 +46,10 @@ object LocalPlaylistStore {
         return parseM3uPaths(playbackQueueFile(context))
     }
 
+    fun loadPlaybackQueueEntries(context: Context): List<LocalPlaylistEntry> {
+        return parseM3uEntries(playbackQueueFile(context))
+    }
+
     fun savePlaybackQueue(context: Context, entries: List<LocalPlaylistEntry>) {
         writeM3u(playbackQueueFile(context), entries)
     }
@@ -58,6 +62,60 @@ object LocalPlaylistStore {
                 .filter { it.isNotEmpty() && !it.startsWith("#") }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing m3u file: ${file.absolutePath}", e)
+            emptyList()
+        }
+    }
+
+    private fun parseM3uEntries(file: File): List<LocalPlaylistEntry> {
+        if (!file.exists()) return emptyList()
+        return try {
+            val lines = file.readLines(Charsets.UTF_8)
+            val result = mutableListOf<LocalPlaylistEntry>()
+            var pendingTitle = ""
+            var pendingArtist = ""
+            var pendingDuration = -1L
+
+            lines.forEach { raw ->
+                val line = raw.trim()
+                if (line.isEmpty()) return@forEach
+                if (line.startsWith("#EXTINF:", ignoreCase = true)) {
+                    val extInf = line.removePrefix("#EXTINF:")
+                    val commaIndex = extInf.indexOf(',')
+                    if (commaIndex >= 0) {
+                        val durationPart = extInf.substring(0, commaIndex).trim()
+                        val displayPart = extInf.substring(commaIndex + 1).trim()
+                        pendingDuration = durationPart.toLongOrNull() ?: -1L
+                        if (displayPart.contains(" - ")) {
+                            val parts = displayPart.split(" - ", limit = 2)
+                            pendingArtist = parts.getOrNull(0)?.trim().orEmpty()
+                            pendingTitle = parts.getOrNull(1)?.trim().orEmpty()
+                        } else {
+                            pendingArtist = ""
+                            pendingTitle = displayPart
+                        }
+                    }
+                    return@forEach
+                }
+                if (line.startsWith("#")) return@forEach
+
+                val path = line
+                val fallbackTitle = File(path).nameWithoutExtension
+                result.add(
+                    LocalPlaylistEntry(
+                        path = path,
+                        title = pendingTitle.ifBlank { fallbackTitle },
+                        artist = pendingArtist,
+                        durationSeconds = pendingDuration
+                    )
+                )
+                pendingTitle = ""
+                pendingArtist = ""
+                pendingDuration = -1L
+            }
+
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing m3u entries: ${file.absolutePath}", e)
             emptyList()
         }
     }

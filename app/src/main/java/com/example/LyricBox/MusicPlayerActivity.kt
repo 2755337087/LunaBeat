@@ -37,10 +37,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
@@ -77,6 +82,7 @@ import com.example.LyricBox.ui.theme.歌词转换Theme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MusicPlayerActivity : ComponentActivity() {
 
@@ -126,6 +132,11 @@ private fun MusicPlayerScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val controller = rememberMusicPlaybackController()
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
+    var showArtistSheet by remember { mutableStateOf(false) }
+    var pendingArtists by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showSongInfoSheet by remember { mutableStateOf(false) }
+    var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
+    var showPlaylistSheet by remember { mutableStateOf(false) }
 
     val lyricPreviewLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -134,6 +145,58 @@ private fun MusicPlayerScreen(
         val returnedPos = result.data?.getLongExtra(LyricPreviewActivity.EXTRA_RETURN_POSITION, -1L) ?: -1L
         if (!usedSharedPlayback && returnedPos >= 0L) {
             controller.seekTo(returnedPos)
+        }
+    }
+
+    val cachedQueueEntries = remember(controller.queueAudioPaths) {
+        LocalPlaylistStore.loadPlaybackQueueEntries(context)
+    }
+    val cachedEntryByPath = remember(cachedQueueEntries) {
+        cachedQueueEntries
+            .groupBy { it.path }
+            .mapValues { (_, entries) -> entries.first() }
+    }
+
+    val currentAudio = remember(
+        controller.currentAudioPath,
+        controller.currentTitle,
+        controller.currentArtist,
+        controller.currentCoverCachePath,
+        controller.durationMs
+    ) {
+        controller.currentAudioPath?.let { path ->
+            buildAudioFileForPlayer(
+                path = path,
+                titleHint = controller.currentTitle,
+                artistHint = controller.currentArtist,
+                coverCachePath = controller.currentCoverCachePath
+                    ?: resolveCoverCachePathForAudio(context, path),
+                durationHint = controller.durationMs
+            )
+        }
+    }
+
+    val playbackQueueAudios = remember(
+        controller.queueAudioPaths,
+        cachedEntryByPath,
+        controller.currentAudioPath,
+        controller.currentTitle,
+        controller.currentArtist,
+        controller.currentCoverCachePath,
+        controller.durationMs
+    ) {
+        controller.queueAudioPaths.map { path ->
+            if (path == controller.currentAudioPath && currentAudio != null) {
+                currentAudio
+            } else {
+                val cachedEntry = cachedEntryByPath[path]
+                buildAudioFileForPlayer(
+                    path = path,
+                    titleHint = cachedEntry?.title.orEmpty(),
+                    artistHint = cachedEntry?.artist.orEmpty(),
+                    coverCachePath = resolveCoverCachePathForAudio(context, path)
+                )
+            }
         }
     }
 
@@ -305,22 +368,53 @@ private fun MusicPlayerScreen(
                         .background(panelColor)
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
-                    Text(
-                        text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = panelOnColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = controller.currentArtist.ifBlank { "未知艺术家" },
-                        fontSize = 15.sp,
-                        color = panelOnColor.copy(alpha = 0.78f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    val title = controller.currentTitle.ifBlank { currentAudio?.displayTitle.orEmpty() }
+                                    val artist = controller.currentArtist.ifBlank { currentAudio?.displayArtist.orEmpty() }
+                                    val artists = extractAllArtistsForPlayer(title, artist)
+                                    if (artists.isNotEmpty()) {
+                                        pendingArtists = artists
+                                        showArtistSheet = true
+                                    }
+                                }
+                        ) {
+                            Text(
+                                text = controller.currentTitle.ifBlank { "未选择歌曲" },
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = panelOnColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = controller.currentArtist.ifBlank { "未知艺术家" },
+                                fontSize = 15.sp,
+                                color = panelOnColor.copy(alpha = 0.78f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                selectedSongInfoAudio = currentAudio
+                                showSongInfoSheet = currentAudio != null
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "更多",
+                                tint = panelOnColor
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -450,6 +544,7 @@ private fun MusicPlayerScreen(
                         ToggleButton(
                             checked = false,
                             onCheckedChange = { controller.skipToNext() },
+                            enabled = controller.hasNextTrack,
                             shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
                             modifier = Modifier
                                 .weight(1f)
@@ -458,47 +553,203 @@ private fun MusicPlayerScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SkipNext,
-                                contentDescription = "下一首"
+                                contentDescription = "下一首",
+                                tint = if (controller.hasNextTrack) onOppositeControlColor else onOppositeControlColor.copy(alpha = 0.42f)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    val modeIcon = when (controller.playbackMode) {
+                        PlaybackMode.SEQUENTIAL -> Icons.Rounded.Repeat
+                        PlaybackMode.SHUFFLE -> Icons.Rounded.Shuffle
+                        PlaybackMode.SINGLE_REPEAT -> Icons.Rounded.RepeatOne
+                    }
+
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(accentColor.copy(alpha = 0.18f))
-                            .clickable {
-                                val currentPath = controller.currentAudioPath
-                                if (currentPath.isNullOrBlank()) return@clickable
-
-                                val previewIntent = LyricPreviewActivity.createIntent(
-                                    context = context,
-                                    audioPath = currentPath,
-                                    lyricLines = emptyList(),
-                                    title = controller.currentTitle.ifBlank { "歌词预览" },
-                                    initialPosition = position,
-                                    creators = emptyList(),
-                                    sourceAudioPath = currentPath,
-                                    useSharedPlayback = true
-                                )
-                                lyricPreviewLauncher.launch(previewIntent)
-                            }
-                            .padding(horizontal = 18.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Lyrics,
-                            contentDescription = "歌词",
+                        PlayerBottomActionButton(
+                            modifier = Modifier.weight(1f),
+                            icon = modeIcon,
                             tint = accentColor,
-                            modifier = Modifier.size(20.dp)
+                            onClick = { controller.cyclePlaybackMode() },
+                            contentDescription = "播放模式"
+                        )
+                        PlayerBottomActionButton(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Rounded.Lyrics,
+                            tint = accentColor,
+                            onClick = {
+                                val currentPath = controller.currentAudioPath
+                                if (!currentPath.isNullOrBlank()) {
+                                    val previewIntent = LyricPreviewActivity.createIntent(
+                                        context = context,
+                                        audioPath = currentPath,
+                                        lyricLines = emptyList(),
+                                        title = controller.currentTitle.ifBlank { "歌词预览" },
+                                        initialPosition = position,
+                                        creators = emptyList(),
+                                        sourceAudioPath = currentPath,
+                                        useSharedPlayback = true
+                                    )
+                                    lyricPreviewLauncher.launch(previewIntent)
+                                }
+                            },
+                            contentDescription = "歌词预览"
+                        )
+                        PlayerBottomActionButton(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                            tint = accentColor,
+                            onClick = { showPlaylistSheet = true },
+                            contentDescription = "播放列表"
                         )
                     }
                 }
             }
     }
+
+    if (showPlaylistSheet) {
+        NowPlayingPlaylistBottomSheet(
+            queue = playbackQueueAudios,
+            currentAudioPath = controller.currentAudioPath,
+            onDismiss = { showPlaylistSheet = false },
+            onMoveItem = { fromIndex, toIndex ->
+                controller.moveQueueItem(fromIndex, toIndex)
+            },
+            onPlayAtIndex = { index ->
+                controller.playAtQueueIndex(index)
+            },
+            onRemoveAtIndex = { index ->
+                controller.removeQueueItemAt(index)
+            }
+        )
+    }
+
+    if (showSongInfoSheet && selectedSongInfoAudio != null) {
+        val infoAudio = selectedSongInfoAudio!!
+        SongInfoBottomSheet(
+            audio = infoAudio,
+            isFavorite = infoAudio.path in LocalPlaylistStore.loadFavoritePaths(context),
+            renameSuccessSignal = 0L,
+            onDismiss = {
+                showSongInfoSheet = false
+                selectedSongInfoAudio = null
+            },
+            onPlayNext = {
+                controller.insertNext(infoAudio)
+            },
+            onViewArtists = { artists ->
+                if (artists.isNotEmpty()) {
+                    pendingArtists = artists
+                    showArtistSheet = true
+                }
+            }
+        )
+    }
+
+    if (showArtistSheet) {
+        ArtistSelectionBottomSheet(
+            artists = pendingArtists,
+            onDismiss = { showArtistSheet = false },
+            onSelectArtist = { artist ->
+                showArtistSheet = false
+                val intent = Intent(context, MusicLibraryActivity::class.java).apply {
+                    putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, artist)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    if (context !is Activity) {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+                context.startActivity(intent)
+            }
+        )
+    }
+}
+
+@Composable
+private fun PlayerBottomActionButton(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    onClick: () -> Unit,
+    contentDescription: String
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(tint.copy(alpha = 0.18f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+private fun extractAllArtistsForPlayer(title: String, artist: String): List<String> {
+    fun splitArtists(raw: String): List<String> {
+        return raw
+            .replace("／", "/")
+            .replace("；", ";")
+            .replace("，", ",")
+            .split("/", "&", ";", ",", "、")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    val base = splitArtists(artist)
+    val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
+    val titleArtists = featPattern.findAll(title)
+        .flatMap { match -> splitArtists(match.groupValues.getOrElse(1) { "" }).asSequence() }
+        .toList()
+
+    return (base + titleArtists)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
+}
+
+private fun buildAudioFileForPlayer(
+    path: String,
+    titleHint: String = "",
+    artistHint: String = "",
+    coverCachePath: String? = null,
+    durationHint: Long = 0L
+): AudioFile {
+    val file = File(path)
+    val title = titleHint.ifBlank { file.nameWithoutExtension }
+    return AudioFile(
+        path = path,
+        title = title,
+        artist = artistHint,
+        album = "",
+        duration = durationHint.coerceAtLeast(0L),
+        fileSize = if (file.exists()) file.length() else 0L,
+        lastModified = if (file.exists()) file.lastModified() else 0L,
+        addedTime = if (file.exists()) file.lastModified() else System.currentTimeMillis(),
+        coverCachePath = coverCachePath,
+        year = "",
+        mediaStoreId = -1L
+    )
+}
+
+private fun resolveCoverCachePathForAudio(context: Context, audioPath: String): String? {
+    if (audioPath.isBlank()) return null
+    val cacheFile = File(File(context.cacheDir, "covers"), "${audioPath.hashCode()}.jpg")
+    return cacheFile.absolutePath.takeIf { cacheFile.exists() }
 }
 
 private fun formatPlaybackTime(ms: Long): String {

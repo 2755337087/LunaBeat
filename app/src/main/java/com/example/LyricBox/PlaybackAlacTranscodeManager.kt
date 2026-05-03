@@ -59,10 +59,19 @@ object PlaybackAlacTranscodeManager {
         }
     }
 
-    fun ensureTranscodedPath(context: Context, sourcePath: String): String? {
+    fun ensureTranscodedPath(
+        context: Context,
+        sourcePath: String,
+        forceForM4aFailure: Boolean = false
+    ): String? {
         val sourceFile = File(sourcePath)
         if (!sourceFile.exists()) return null
-        if (!isAlacEncodedM4a(sourcePath)) return sourcePath
+        val shouldTranscode = if (forceForM4aFailure) {
+            sourceFile.name.lowercase().endsWith(".m4a")
+        } else {
+            isAlacEncodedM4a(sourcePath)
+        }
+        if (!shouldTranscode) return sourcePath
 
         synchronized(lock) {
             val cached = cachedOutputBySource[sourcePath]

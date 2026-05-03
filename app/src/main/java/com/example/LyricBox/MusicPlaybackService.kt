@@ -409,7 +409,12 @@ class MusicPlaybackService : MediaSessionService() {
         val currentItem = player.currentMediaItem ?: return
         val sourcePath = currentItem.resolveOriginalAudioPath() ?: return
 
-        if (!PlaybackAlacTranscodeManager.isAlacEncodedM4a(sourcePath)) {
+        val sourceFileNameLower = sourcePath.lowercase()
+        val sourceIsM4a = sourceFileNameLower.endsWith(".m4a")
+        val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(sourcePath)
+        val forceTranscodeForFailure = !isDetectedAlac && sourceIsM4a && reason.startsWith("player_error")
+
+        if (!isDetectedAlac && !forceTranscodeForFailure) {
             lastFailedAlacPath = null
             pendingPlayAfterTranscode = false
             PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
@@ -445,7 +450,11 @@ class MusicPlaybackService : MediaSessionService() {
         isTranscodingCurrentItem = true
 
         transcodeExecutor.execute {
-            val transcodedPath = PlaybackAlacTranscodeManager.ensureTranscodedPath(this, sourcePath)
+            val transcodedPath = PlaybackAlacTranscodeManager.ensureTranscodedPath(
+                context = this,
+                sourcePath = sourcePath,
+                forceForM4aFailure = forceTranscodeForFailure
+            )
             mainHandler.post {
                 isTranscodingCurrentItem = false
                 if (transcodedPath.isNullOrBlank()) {
