@@ -3,6 +3,11 @@ package com.example.LyricBox.utils
 import com.example.LyricBox.LyricLine
 
 object LyricBatchEditUtils {
+    private fun isSlashOnlyText(text: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.isNotEmpty() && trimmed.all { it == '/' || it == '\\' }
+    }
+
     private fun linePlainText(line: LyricLine): String {
         return line.timeUnits.joinToString("") { it.text }.trim()
     }
@@ -10,7 +15,15 @@ object LyricBatchEditUtils {
     private fun isLogicalEmptyLine(line: LyricLine): Boolean {
         if (line.timeUnits.isEmpty()) return true
         val text = linePlainText(line)
-        return text.isEmpty() || text == "//"
+        return text.isEmpty() || isSlashOnlyText(text)
+    }
+
+    private fun sanitizeTranslation(line: LyricLine): LyricLine {
+        return if (isSlashOnlyText(line.translation)) {
+            line.copy(translation = "")
+        } else {
+            line
+        }
     }
 
     fun toSimplifiedText(text: String): String {
@@ -26,7 +39,9 @@ object LyricBatchEditUtils {
     }
 
     fun removeEmptyLines(lines: List<LyricLine>): List<LyricLine> {
-        return lines.filterNot { isLogicalEmptyLine(it) }
+        return lines
+            .filterNot { isLogicalEmptyLine(it) }
+            .map { sanitizeTranslation(it) }
     }
 
     fun shiftTimestamps(
@@ -74,7 +89,10 @@ object LyricBatchEditUtils {
             val firstTimeMs: Long
         )
 
-        val linesWithTime = lines.mapNotNull { line ->
+        val linesWithTime = lines
+            .filterNot { isLogicalEmptyLine(it) }
+            .map { sanitizeTranslation(it) }
+            .mapNotNull { line ->
             line.timeUnits.firstOrNull()?.startTime?.let { startTime ->
                 LyricLineWithTime(line, parseTimeToMs(startTime))
             }
@@ -98,9 +116,11 @@ object LyricBatchEditUtils {
 
                 val finalTranslation = if (translationLine != null) {
                     val textFromTranslationLine = translationLine.timeUnits.joinToString("") { it.text }
-                    if (textFromTranslationLine.isNotEmpty()) textFromTranslationLine else translationLine.translation
+                    val normalized = if (isSlashOnlyText(textFromTranslationLine)) "" else textFromTranslationLine
+                    if (normalized.isNotEmpty()) normalized
+                    else if (isSlashOnlyText(translationLine.translation)) "" else translationLine.translation
                 } else {
-                    mainLine.translation
+                    if (isSlashOnlyText(mainLine.translation)) "" else mainLine.translation
                 }
 
                 result.add(mainLine.copy(translation = finalTranslation))
