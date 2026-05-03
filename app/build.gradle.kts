@@ -17,7 +17,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 24
-        versionName = "1.9.0_beta01"
+        versionName = "1.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -87,6 +87,7 @@ dependencies {
     implementation(libs.androidx.foundation)
     implementation(libs.lottie.compose)
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.window:window:1.4.0")
     implementation("com.github.yalantis:ucrop:2.2.11-native")
     implementation("androidx.palette:palette:1.0.0")
     implementation("io.github.proify.lyricon:provider:0.1.70")

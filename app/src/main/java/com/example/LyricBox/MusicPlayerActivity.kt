@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -74,6 +76,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -100,6 +103,7 @@ class MusicPlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MusicPlayerEmbeddingRules.ensureRegistered(this)
         enableEdgeToEdge()
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -137,6 +141,11 @@ private fun MusicPlayerScreen(
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    val isTabletLayout = configuration.smallestScreenWidthDp >= 600
+    val canUseActivityEmbedding = remember(context) {
+        MusicPlayerEmbeddingRules.isSplitAvailable(context)
+    }
 
     val lyricPreviewLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -271,6 +280,26 @@ private fun MusicPlayerScreen(
         animationSpec = tween(durationMillis = 320),
         label = "coverPlayPauseScale"
     )
+    val navigationBottomPadding =
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 10.dp
+    val openLyricPreview: () -> Unit = {
+        val currentPath = controller.currentAudioPath
+        if (!currentPath.isNullOrBlank()) {
+            val previewIntent = LyricPreviewActivity.createIntent(
+                context = context,
+                audioPath = currentPath,
+                lyricLines = emptyList(),
+                title = controller.currentTitle.ifBlank { "歌词预览" },
+                initialPosition = position,
+                creators = emptyList(),
+                sourceAudioPath = currentPath,
+                useSharedPlayback = true,
+                splitEmbeddedMode = isTabletLayout && canUseActivityEmbedding
+            )
+            lyricPreviewLauncher.launch(previewIntent)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -280,339 +309,41 @@ private fun MusicPlayerScreen(
                 )
             )
     ) {
-        Column(
+        MusicPlayerPrimaryPane(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(horizontal = 18.dp)
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 10.dp)
-        ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onClose) {
-                        Icon(
-                            imageVector = Icons.Rounded.ArrowDownward,
-                            contentDescription = "收起播放器",
-                            tint = onBackgroundColor
-                        )
-                    }
-                    Text(
-                        text = "正在播放",
-                        fontSize = 14.sp,
-                        color = onBackgroundColor.copy(alpha = 0.88f)
-                    )
-                    Spacer(modifier = Modifier.width(48.dp))
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (displayCoverBitmap != null) {
-                        Crossfade(
-                            targetState = displayCoverBitmap,
-                            animationSpec = tween(durationMillis = 360),
-                            label = "coverCrossfade"
-                        ) { cover ->
-                            if (cover != null) {
-                                Image(
-                                    bitmap = cover.asImageBitmap(),
-                                    contentDescription = "封面",
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.92f)
-                                        .widthIn(max = 520.dp)
-                                        .aspectRatio(1f)
-                                        .graphicsLayer(
-                                            scaleX = coverScale,
-                                            scaleY = coverScale
-                                        )
-                                        .clip(RoundedCornerShape(26.dp))
-                                )
-                            }
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .widthIn(max = 520.dp)
-                                .aspectRatio(1f)
-                                .graphicsLayer(
-                                    scaleX = coverScale,
-                                    scaleY = coverScale
-                                )
-                                .clip(RoundedCornerShape(26.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = android.R.drawable.ic_media_play),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(108.dp)
-                            )
-                        }
-                    }
-                }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(panelColor)
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    val title = controller.currentTitle.ifBlank { currentAudio?.displayTitle.orEmpty() }
-                                    val artist = controller.currentArtist.ifBlank { currentAudio?.displayArtist.orEmpty() }
-                                    val artists = extractAllArtistsForPlayer(title, artist)
-                                    if (artists.isNotEmpty()) {
-                                        pendingArtists = artists
-                                        showArtistSheet = true
-                                    }
-                                }
-                        ) {
-                            Text(
-                                text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = panelOnColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = controller.currentArtist.ifBlank { "未知艺术家" },
-                                fontSize = 15.sp,
-                                color = panelOnColor.copy(alpha = 0.78f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                selectedSongInfoAudio = currentAudio
-                                showSongInfoSheet = currentAudio != null
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "更多",
-                                tint = panelOnColor
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    val minSeekStartMs = 240L
-                    val safeDuration = duration.coerceAtLeast(0L)
-                    val seekStart = if (safeDuration > minSeekStartMs) minSeekStartMs else 0L
-                    val seekSpan = (safeDuration - seekStart).coerceAtLeast(0L)
-                    val clampedCurrentTime = position.coerceIn(0L, safeDuration)
-                    val seekSliderProgress = if (seekSpan > 0L) {
-                        ((clampedCurrentTime - seekStart).toFloat() / seekSpan.toFloat())
-                            .takeIf { it.isFinite() }
-                            ?.coerceIn(0f, 1f)
-                            ?: 0f
-                    } else {
-                        0f
-                    }
-
-                    val progressColor = controlAccentColor
-                    val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(32.dp)
-                            .padding(vertical = 6.dp)
-                    ) {
-                        val displayProgress = if (safeDuration > 0L) {
-                            (clampedCurrentTime.toFloat() / safeDuration.toFloat())
-                                .takeIf { it.isFinite() }
-                                ?.coerceIn(0f, 1f)
-                                ?: 0f
-                        } else {
-                            0f
-                        }
-                        LinearProgressIndicator(
-                            progress = { displayProgress },
-                            modifier = Modifier.fillMaxSize(),
-                            color = progressColor,
-                            trackColor = progressTrackColor
-                        )
-
-                        Slider(
-                            value = seekSliderProgress,
-                            onValueChange = { newProgress ->
-                                val safeProgress = newProgress
-                                    .takeIf { it.isFinite() }
-                                    ?.coerceIn(0f, 1f)
-                                    ?: 0f
-                                val newPosition = if (seekSpan > 0L) {
-                                    seekStart + (safeProgress * seekSpan.toFloat()).toLong()
-                                } else {
-                                    seekStart
-                                }
-                                controller.seekTo(newPosition.coerceIn(0L, safeDuration))
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.Transparent,
-                                activeTrackColor = Color.Transparent,
-                                inactiveTrackColor = Color.Transparent
-                            )
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = formatPlaybackTime(position),
-                            color = panelOnColor.copy(alpha = 0.74f),
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            text = formatPlaybackTime(safeDuration),
-                            color = panelOnColor.copy(alpha = 0.74f),
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val toggleColors = ToggleButtonDefaults.toggleButtonColors(
-                        containerColor = oppositeControlColor,
-                        contentColor = onOppositeControlColor,
-                        checkedContainerColor = oppositeControlColor,
-                        checkedContentColor = onOppositeControlColor
-                    )
-        ButtonGroup(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
-        ) {
-                        ToggleButton(
-                            checked = false,
-                            onCheckedChange = { controller.skipToPrevious() },
-                            shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize(),
-                            colors = toggleColors
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.SkipPrevious,
-                                contentDescription = "上一首"
-                            )
-                        }
-                        ToggleButton(
-                            checked = controller.isPlaying,
-                            onCheckedChange = { controller.togglePlayPause() },
-                            shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
-                            modifier = Modifier
-                                .weight(1.15f)
-                                .fillMaxSize(),
-                            colors = ToggleButtonDefaults.toggleButtonColors(
-                                containerColor = controlAccentColor,
-                                contentColor = onControlAccentColor,
-                                checkedContainerColor = controlAccentColor,
-                                checkedContentColor = onControlAccentColor
-                            )
-                        ) {
-                            Icon(
-                                imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (controller.isPlaying) "暂停" else "播放"
-                            )
-                        }
-                        ToggleButton(
-                            checked = false,
-                            onCheckedChange = { controller.skipToNext() },
-                            enabled = controller.hasNextTrack,
-                            shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize(),
-                            colors = toggleColors
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.SkipNext,
-                                contentDescription = "下一首",
-                                tint = if (controller.hasNextTrack) onOppositeControlColor else onOppositeControlColor.copy(alpha = 0.42f)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    val modeIcon = when (controller.playbackMode) {
-                        PlaybackMode.SEQUENTIAL -> Icons.Rounded.Repeat
-                        PlaybackMode.SHUFFLE -> Icons.Rounded.Shuffle
-                        PlaybackMode.SINGLE_REPEAT -> Icons.Rounded.RepeatOne
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PlayerBottomActionButton(
-                            modifier = Modifier.weight(1f),
-                            icon = modeIcon,
-                            tint = accentColor,
-                            onClick = { controller.cyclePlaybackMode() },
-                            contentDescription = "播放模式"
-                        )
-                        PlayerBottomActionButton(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Rounded.Lyrics,
-                            tint = accentColor,
-                            onClick = {
-                                val currentPath = controller.currentAudioPath
-                                if (!currentPath.isNullOrBlank()) {
-                                    val previewIntent = LyricPreviewActivity.createIntent(
-                                        context = context,
-                                        audioPath = currentPath,
-                                        lyricLines = emptyList(),
-                                        title = controller.currentTitle.ifBlank { "歌词预览" },
-                                        initialPosition = position,
-                                        creators = emptyList(),
-                                        sourceAudioPath = currentPath,
-                                        useSharedPlayback = true
-                                    )
-                                    lyricPreviewLauncher.launch(previewIntent)
-                                }
-                            },
-                            contentDescription = "歌词预览"
-                        )
-                        PlayerBottomActionButton(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                            tint = accentColor,
-                            onClick = { showPlaylistSheet = true },
-                            contentDescription = "播放列表"
-                        )
-                    }
+                .padding(bottom = navigationBottomPadding),
+            onClose = onClose,
+            controller = controller,
+            currentAudio = currentAudio,
+            displayCoverBitmap = displayCoverBitmap,
+            coverScale = coverScale,
+            position = position,
+            duration = duration,
+            onBackgroundColor = onBackgroundColor,
+            panelColor = panelColor,
+            panelOnColor = panelOnColor,
+            accentColor = accentColor,
+            controlAccentColor = controlAccentColor,
+            onControlAccentColor = onControlAccentColor,
+            oppositeControlColor = oppositeControlColor,
+            onOppositeControlColor = onOppositeControlColor,
+            showLyricPreviewButton = true,
+            onLyricPreviewClick = openLyricPreview,
+            onShowPlaylist = { showPlaylistSheet = true },
+            onSongInfoClick = {
+                selectedSongInfoAudio = currentAudio
+                showSongInfoSheet = currentAudio != null
+            },
+            onArtistsClick = { artists ->
+                if (artists.isNotEmpty()) {
+                    pendingArtists = artists
+                    showArtistSheet = true
                 }
             }
+        )
     }
 
     if (showPlaylistSheet) {
@@ -671,6 +402,356 @@ private fun MusicPlayerScreen(
                 context.startActivity(intent)
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MusicPlayerPrimaryPane(
+    modifier: Modifier,
+    onClose: () -> Unit,
+    controller: MusicPlaybackController,
+    currentAudio: AudioFile?,
+    displayCoverBitmap: android.graphics.Bitmap?,
+    coverScale: Float,
+    position: Long,
+    duration: Long,
+    onBackgroundColor: Color,
+    panelColor: Color,
+    panelOnColor: Color,
+    accentColor: Color,
+    controlAccentColor: Color,
+    onControlAccentColor: Color,
+    oppositeControlColor: Color,
+    onOppositeControlColor: Color,
+    showLyricPreviewButton: Boolean,
+    onLyricPreviewClick: () -> Unit,
+    onShowPlaylist: () -> Unit,
+    onSongInfoClick: () -> Unit,
+    onArtistsClick: (List<String>) -> Unit
+) {
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowDownward,
+                    contentDescription = "收起播放器",
+                    tint = onBackgroundColor
+                )
+            }
+            Text(
+                text = "正在播放",
+                fontSize = 14.sp,
+                color = onBackgroundColor.copy(alpha = 0.88f)
+            )
+            Spacer(modifier = Modifier.width(48.dp))
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                val targetWidth = maxWidth * 0.92f
+                val targetHeight = maxHeight * 0.92f
+                val coverSide = if (targetWidth <= targetHeight) {
+                    targetWidth
+                } else {
+                    targetHeight
+                }
+                    .coerceAtMost(520.dp)
+                    .coerceAtLeast(120.dp)
+
+                if (displayCoverBitmap != null) {
+                    Crossfade(
+                        targetState = displayCoverBitmap,
+                        animationSpec = tween(durationMillis = 360),
+                        label = "coverCrossfade"
+                    ) { cover ->
+                        if (cover != null) {
+                            Image(
+                                bitmap = cover.asImageBitmap(),
+                                contentDescription = "封面",
+                                modifier = Modifier
+                                    .size(coverSide)
+                                    .graphicsLayer(
+                                        scaleX = coverScale,
+                                        scaleY = coverScale
+                                    )
+                                    .clip(RoundedCornerShape(26.dp))
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(coverSide)
+                            .graphicsLayer(
+                                scaleX = coverScale,
+                                scaleY = coverScale
+                            )
+                            .clip(RoundedCornerShape(26.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = android.R.drawable.ic_media_play),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(108.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(panelColor)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            val title = controller.currentTitle.ifBlank { currentAudio?.displayTitle.orEmpty() }
+                            val artist = controller.currentArtist.ifBlank { currentAudio?.displayArtist.orEmpty() }
+                            val artists = extractAllArtistsForPlayer(title, artist)
+                            if (artists.isNotEmpty()) {
+                                onArtistsClick(artists)
+                            }
+                        }
+                ) {
+                    Text(
+                        text = controller.currentTitle.ifBlank { "未选择歌曲" },
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = panelOnColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = controller.currentArtist.ifBlank { "未知艺术家" },
+                        fontSize = 15.sp,
+                        color = panelOnColor.copy(alpha = 0.78f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onSongInfoClick) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "更多",
+                        tint = panelOnColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val minSeekStartMs = 240L
+            val safeDuration = duration.coerceAtLeast(0L)
+            val seekStart = if (safeDuration > minSeekStartMs) minSeekStartMs else 0L
+            val seekSpan = (safeDuration - seekStart).coerceAtLeast(0L)
+            val clampedCurrentTime = position.coerceIn(0L, safeDuration)
+            val seekSliderProgress = if (seekSpan > 0L) {
+                ((clampedCurrentTime - seekStart).toFloat() / seekSpan.toFloat())
+                    .takeIf { it.isFinite() }
+                    ?.coerceIn(0f, 1f)
+                    ?: 0f
+            } else {
+                0f
+            }
+
+            val progressColor = controlAccentColor
+            val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(32.dp)
+                    .padding(vertical = 6.dp)
+            ) {
+                val displayProgress = if (safeDuration > 0L) {
+                    (clampedCurrentTime.toFloat() / safeDuration.toFloat())
+                        .takeIf { it.isFinite() }
+                        ?.coerceIn(0f, 1f)
+                        ?: 0f
+                } else {
+                    0f
+                }
+                LinearProgressIndicator(
+                    progress = { displayProgress },
+                    modifier = Modifier.fillMaxSize(),
+                    color = progressColor,
+                    trackColor = progressTrackColor
+                )
+
+                Slider(
+                    value = seekSliderProgress,
+                    onValueChange = { newProgress ->
+                        val safeProgress = newProgress
+                            .takeIf { it.isFinite() }
+                            ?.coerceIn(0f, 1f)
+                            ?: 0f
+                        val newPosition = if (seekSpan > 0L) {
+                            seekStart + (safeProgress * seekSpan.toFloat()).toLong()
+                        } else {
+                            seekStart
+                        }
+                        controller.seekTo(newPosition.coerceIn(0L, safeDuration))
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.Transparent,
+                        activeTrackColor = Color.Transparent,
+                        inactiveTrackColor = Color.Transparent
+                    )
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatPlaybackTime(position),
+                    color = panelOnColor.copy(alpha = 0.74f),
+                    fontSize = 12.sp
+                )
+                Text(
+                    text = formatPlaybackTime(safeDuration),
+                    color = panelOnColor.copy(alpha = 0.74f),
+                    fontSize = 12.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            val toggleColors = ToggleButtonDefaults.toggleButtonColors(
+                containerColor = oppositeControlColor,
+                contentColor = onOppositeControlColor,
+                checkedContainerColor = oppositeControlColor,
+                checkedContentColor = onOppositeControlColor
+            )
+            ButtonGroup(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+            ) {
+                ToggleButton(
+                    checked = false,
+                    onCheckedChange = { controller.skipToPrevious() },
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    colors = toggleColors
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipPrevious,
+                        contentDescription = "上一首"
+                    )
+                }
+                ToggleButton(
+                    checked = controller.isPlaying,
+                    onCheckedChange = { controller.togglePlayPause() },
+                    shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+                    modifier = Modifier
+                        .weight(1.15f)
+                        .fillMaxSize(),
+                    colors = ToggleButtonDefaults.toggleButtonColors(
+                        containerColor = controlAccentColor,
+                        contentColor = onControlAccentColor,
+                        checkedContainerColor = controlAccentColor,
+                        checkedContentColor = onControlAccentColor
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (controller.isPlaying) "暂停" else "播放"
+                    )
+                }
+                ToggleButton(
+                    checked = false,
+                    onCheckedChange = { controller.skipToNext() },
+                    enabled = controller.hasNextTrack,
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    colors = toggleColors
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SkipNext,
+                        contentDescription = "下一首",
+                        tint = if (controller.hasNextTrack) {
+                            onOppositeControlColor
+                        } else {
+                            onOppositeControlColor.copy(alpha = 0.42f)
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val modeIcon = when (controller.playbackMode) {
+                PlaybackMode.SEQUENTIAL -> Icons.Rounded.Repeat
+                PlaybackMode.SHUFFLE -> Icons.Rounded.Shuffle
+                PlaybackMode.SINGLE_REPEAT -> Icons.Rounded.RepeatOne
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PlayerBottomActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = modeIcon,
+                    tint = accentColor,
+                    onClick = { controller.cyclePlaybackMode() },
+                    contentDescription = "播放模式"
+                )
+                if (showLyricPreviewButton) {
+                    PlayerBottomActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Lyrics,
+                        tint = accentColor,
+                        onClick = onLyricPreviewClick,
+                        contentDescription = "歌词预览"
+                    )
+                }
+                PlayerBottomActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                    tint = accentColor,
+                    onClick = onShowPlaylist,
+                    contentDescription = "播放列表"
+                )
+            }
+        }
     }
 }
 

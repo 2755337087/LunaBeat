@@ -82,6 +82,7 @@ import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
@@ -106,6 +107,8 @@ import kotlin.math.roundToInt
 
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
+private const val ENABLE_LYRIC_AUTOSCROLL_DEBUG_LOG = false
+private const val ENABLE_CREATOR_SYNC_TRACE = false
 private const val PLAYED_LINE_BLUR_RADIUS = 3f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
@@ -341,6 +344,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val EXTRA_CREATORS = "creators"
         const val EXTRA_USE_SHARED_PLAYBACK = "use_shared_playback"
         const val EXTRA_SHARED_PLAYBACK_USED = "shared_playback_used"
+        const val EXTRA_SPLIT_EMBEDDED_MODE = "split_embedded_mode"
         const val EXTRA_PREVIEW_ENTRY_SOURCE = "preview_entry_source"
         const val PREVIEW_ENTRY_SOURCE_DEFAULT = 0
         const val PREVIEW_ENTRY_SOURCE_TIMING = 1
@@ -372,6 +376,7 @@ class LyricPreviewActivity : ComponentActivity() {
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
             useSharedPlayback: Boolean = false,
+            splitEmbeddedMode: Boolean = false,
             previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ): Intent {
             return Intent(context, LyricPreviewActivity::class.java).apply {
@@ -381,6 +386,7 @@ class LyricPreviewActivity : ComponentActivity() {
                 putExtra(EXTRA_INITIAL_POSITION, initialPosition)
                 putExtra(EXTRA_CREATORS, creators.toTypedArray())
                 putExtra(EXTRA_USE_SHARED_PLAYBACK, useSharedPlayback)
+                putExtra(EXTRA_SPLIT_EMBEDDED_MODE, splitEmbeddedMode)
                 putExtra(EXTRA_PREVIEW_ENTRY_SOURCE, previewEntrySource)
                 // 传递行数
                 putExtra("line_count", lyricLines.size)
@@ -421,6 +427,7 @@ class LyricPreviewActivity : ComponentActivity() {
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
             useSharedPlayback: Boolean = false,
+            splitEmbeddedMode: Boolean = false,
             previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ) {
             val intent = createIntent(
@@ -432,6 +439,7 @@ class LyricPreviewActivity : ComponentActivity() {
                 creators = creators,
                 sourceAudioPath = sourceAudioPath,
                 useSharedPlayback = useSharedPlayback,
+                splitEmbeddedMode = splitEmbeddedMode,
                 previewEntrySource = previewEntrySource
             )
             context.startActivity(intent)
@@ -452,6 +460,7 @@ class LyricPreviewActivity : ComponentActivity() {
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "歌词预览"
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
         useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, false)
+        val splitEmbeddedMode = intent.getBooleanExtra(EXTRA_SPLIT_EMBEDDED_MODE, false)
         val previewEntrySource = intent.getIntExtra(EXTRA_PREVIEW_ENTRY_SOURCE, PREVIEW_ENTRY_SOURCE_DEFAULT)
         val isTimingPreviewEntry = previewEntrySource == PREVIEW_ENTRY_SOURCE_TIMING
         val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
@@ -690,7 +699,9 @@ class LyricPreviewActivity : ComponentActivity() {
                     },
                     enableSongInfoSheet = !isTimingPreviewEntry,
                     playbackCompleted = playbackCompleted,
-                    onPlaybackCompletedHandled = { playbackCompleted = false }
+                    onPlaybackCompletedHandled = { playbackCompleted = false },
+                    showBottomControls = !splitEmbeddedMode,
+                    headerMenuOnlyMode = splitEmbeddedMode
                 )
             }
         }
@@ -1212,10 +1223,18 @@ fun LyricPreviewScreen(
     getAudioDuration: () -> Long,
     enableSongInfoSheet: Boolean = true,
     playbackCompleted: Boolean = false,
-    onPlaybackCompletedHandled: () -> Unit = {}
+    onPlaybackCompletedHandled: () -> Unit = {},
+    showChrome: Boolean = true,
+    showHeader: Boolean = true,
+    showBottomControls: Boolean = true,
+    headerMenuOnlyMode: Boolean = false,
+    enableBackHandler: Boolean = true
 ) {
+    val actualShowHeader = showChrome && showHeader
+    val actualShowBottomControls = showChrome && showBottomControls
+
     // 使用 BackHandler 拦截系统返回事件
-    androidx.activity.compose.BackHandler(enabled = true) {
+    androidx.activity.compose.BackHandler(enabled = enableBackHandler) {
         onBack()
     }
     
@@ -1387,7 +1406,9 @@ fun LyricPreviewScreen(
     val autoScrollMinIntervalMs = 700L
     val lifecycleOwner = LocalLifecycleOwner.current
     fun logAutoScroll(message: String) {
-        Log.d(AUTO_SCROLL_LOG_TAG, message)
+        if (ENABLE_LYRIC_AUTOSCROLL_DEBUG_LOG) {
+            Log.d(AUTO_SCROLL_LOG_TAG, message)
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -1524,10 +1545,12 @@ fun LyricPreviewScreen(
         lyricsContentReady = true
     }
 
+    val initialSeekAnchorKey = if (applyInitialSeek) initialPosition.coerceAtLeast(0L) else 0L
+
     // 初始化歌词列表定位：共享播放模式只跟随当前进度，不做强制 seek，避免回退与中断。
-    LaunchedEffect(processedLyricLines, initialPosition, applyInitialSeek, isLyricLoading) {
+    LaunchedEffect(processedLyricLines, initialSeekAnchorKey, applyInitialSeek, isLyricLoading) {
         val anchorPosition = if (applyInitialSeek) {
-            initialPosition.coerceAtLeast(0L)
+            initialSeekAnchorKey
         } else {
             getCurrentPosition().coerceAtLeast(0L)
         }
@@ -1601,6 +1624,7 @@ fun LyricPreviewScreen(
     }
 
     LaunchedEffect(lazyListState, processedLyricLines, creators, currentLineIndex, isUserScrolling, seekResetCounter) {
+        if (!ENABLE_CREATOR_SYNC_TRACE) return@LaunchedEffect
         if (creators.isEmpty() || processedLyricLines.isEmpty()) return@LaunchedEffect
         var lastSnapshot = ""
         while (true) {
@@ -1686,12 +1710,13 @@ fun LyricPreviewScreen(
     }
     
     // 更新当前时间
-    LaunchedEffect(Unit) {
+    val playbackTickerDelayMs = if (showChrome) 16L else 48L
+    LaunchedEffect(playbackTickerDelayMs) {
         while (true) {
             currentTime = getCurrentPosition()
             isPlaying = getIsPlayingState()
             dynamicDuration = getAudioDuration().coerceAtLeast(0L)
-            delay(16)
+            delay(playbackTickerDelayMs)
         }
     }
 
@@ -2030,8 +2055,16 @@ fun LyricPreviewScreen(
                     // 计算屏幕高度的1/4作为顶部padding
                     val configuration = LocalConfiguration.current
                     val screenHeight = configuration.screenHeightDp.dp
-                    val topPadding = screenHeight * 0.25f // 屏幕高度的1/4
-                    val bottomPadding = screenHeight * 0.6f // 底部留出足够空间
+                    val topPadding = if (actualShowHeader) {
+                        screenHeight * 0.25f
+                    } else {
+                        48.dp
+                    }
+                    val bottomPadding = if (actualShowBottomControls) {
+                        screenHeight * 0.6f
+                    } else {
+                        96.dp
+                    }
                     
                     // 使用较小的 keepAlive 区域来确保弹簧动画工作，同时不会占用过多空间
                     val keepAlivePadding = 100.dp
@@ -2284,128 +2317,136 @@ fun LyricPreviewScreen(
             }
         }
         
-        // Headbar 和播放控制放在上层，遮挡额外歌词区域
-        Column(modifier = Modifier.fillMaxSize()) {
-            LyricPreviewHeader(
-                title = metadata.title,
-                artist = metadata.artist,
-                coverBitmap = metadata.coverBitmap,
-                onBackClick = onBack,
-                onHeaderClick = {
-                    if (enableSongInfoSheet) {
-                        showSongInfoSheet = true
-                    }
-                },
-                onMenuClick = { menuExpanded = true },
-                menuContent = { menuButtonPosition ->
-                    CustomDropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                        items = listOf(
-                            MenuItem(
-                                title = "歌词设置",
-                                onClick = {
-                                    menuExpanded = false
-                                    showLyricSettingsSheet = true
-                                }
-                            )
-                        ),
-                        anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
-                        containerColor = menuSurfaceColor,
-                        contentColor = menuContentColor,
-                        pressColor = menuPressedColor,
-                        borderColor = menuBorderColor
-                    )
-                },
-                mutedColor = accentColor,
-                isDarkTheme = isDarkTheme,
-                backgroundColor = backgroundColor
-            )
-            
-            // 顶部渐变透明效果
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { })
-                    }
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                backgroundColor,
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-            
-            Spacer(modifier = Modifier.weight(1f))
-            
-            // 底部渐变透明效果
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { })
-                    }
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                backgroundColor
-                            )
-                        )
-                    )
-            )
-            
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {}
-            ) {
-                PlaybackControls(
-                    currentTime = currentTime,
-                    duration = dynamicDuration,
-                    isPlaying = isPlaying,
-                    isDarkTheme = isDarkTheme,
-                    seekTimeMs = seekTimeMs,
-                    seekTimeSeconds = seekTimeSeconds,
-                    onPlayPauseClick = {
-                        onPlayPause(!isPlaying)
-                    },
-                    onSkipPreviousClick = onSkipPreviousTrack,
-                    onSkipNextClick = onSkipNextTrack,
-                    isSkipNextEnabled = if (onSkipNextTrack == null) true else canSkipNextTrack,
-                    onSeek = { position ->
-                        onSeekTo(position)
-                        currentTime = position
-                        // 拖动进度条后重置用户滚动状态，立即滚动到对应位置
-                        isUserScrolling = false
-                        scrollJob?.cancel()
-                        // 只有在非0秒处才触发歌词动画重置
-                        if (position > 0) {
-                            seekResetCounter += 1
-                        }
-                        // 强制重新计算自动滚动索引
-                        lastAutoScrolledIndex = -1
-                        // 重置跳过的索引状态
-                        lastSkippedScrollIndex = -1
-                        // 立即滚动到当前歌词位置，不使用动画
-                        coroutineScope.launch {
-                            val targetIndex = lineNavigator.findTargetIndex(position)
-                            if (targetIndex >= 0) {
-                                lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+        if (actualShowHeader || actualShowBottomControls) {
+            // Headbar 和播放控制放在上层，遮挡额外歌词区域
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (actualShowHeader) {
+                    LyricPreviewHeader(
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        coverBitmap = metadata.coverBitmap,
+                        onBackClick = onBack,
+                        onHeaderClick = {
+                            if (enableSongInfoSheet && !headerMenuOnlyMode) {
+                                showSongInfoSheet = true
                             }
-                        }
-                    },
-                    vibrantColor = coverThemeColor ?: accentColor,
-                    backgroundColor = backgroundColor
-                )
+                        },
+                        onMenuClick = { menuExpanded = true },
+                        menuContent = { menuButtonPosition ->
+                            CustomDropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                                items = listOf(
+                                    MenuItem(
+                                        title = "歌词设置",
+                                        onClick = {
+                                            menuExpanded = false
+                                            showLyricSettingsSheet = true
+                                        }
+                                    )
+                                ),
+                                anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
+                                containerColor = menuSurfaceColor,
+                                contentColor = menuContentColor,
+                                pressColor = menuPressedColor,
+                                borderColor = menuBorderColor
+                            )
+                        },
+                        mutedColor = accentColor,
+                        isDarkTheme = isDarkTheme,
+                        backgroundColor = backgroundColor,
+                        showBackButton = !headerMenuOnlyMode,
+                        showCoverAndMeta = !headerMenuOnlyMode
+                    )
+
+                    // 顶部渐变透明效果
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { })
+                            }
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        backgroundColor,
+                                        Color.Transparent
+                                    )
+                                )
+                            )
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (actualShowBottomControls) {
+                    // 底部渐变透明效果
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { })
+                            }
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        backgroundColor
+                                    )
+                                )
+                            )
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {}
+                    ) {
+                        PlaybackControls(
+                            currentTime = currentTime,
+                            duration = dynamicDuration,
+                            isPlaying = isPlaying,
+                            isDarkTheme = isDarkTheme,
+                            seekTimeMs = seekTimeMs,
+                            seekTimeSeconds = seekTimeSeconds,
+                            onPlayPauseClick = {
+                                onPlayPause(!isPlaying)
+                            },
+                            onSkipPreviousClick = onSkipPreviousTrack,
+                            onSkipNextClick = onSkipNextTrack,
+                            isSkipNextEnabled = if (onSkipNextTrack == null) true else canSkipNextTrack,
+                            onSeek = { position ->
+                                onSeekTo(position)
+                                currentTime = position
+                                // 拖动进度条后重置用户滚动状态，立即滚动到对应位置
+                                isUserScrolling = false
+                                scrollJob?.cancel()
+                                // 只有在非0秒处才触发歌词动画重置
+                                if (position > 0) {
+                                    seekResetCounter += 1
+                                }
+                                // 强制重新计算自动滚动索引
+                                lastAutoScrolledIndex = -1
+                                // 重置跳过的索引状态
+                                lastSkippedScrollIndex = -1
+                                // 立即滚动到当前歌词位置，不使用动画
+                                coroutineScope.launch {
+                                    val targetIndex = lineNavigator.findTargetIndex(position)
+                                    if (targetIndex >= 0) {
+                                        lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+                                    }
+                                }
+                            },
+                            vibrantColor = coverThemeColor ?: accentColor,
+                            backgroundColor = backgroundColor
+                        )
+                    }
+                }
             }
         }
 
@@ -3405,13 +3446,15 @@ fun LyricWordsCanvasWithWrap(
     val composeFontWeight = mapComposeFontWeight(fontWeight)
     val fontSizePx = with(density) { fontSize.toPx() }
     val configuration = LocalConfiguration.current
-    val screenWidthPx = with(density) { (configuration.screenWidthDp.dp - 56.dp).toPx() } // 减去左右padding
+    val fallbackWrapWidthPx = with(density) { (configuration.screenWidthDp.dp - 56.dp).toPx() }
+    var containerWidthPx by remember { mutableFloatStateOf(0f) }
+    val wrapWidthPx = if (containerWidthPx > 1f) containerWidthPx else fallbackWrapWidthPx
     
     // 创建上抬动画器，使用remember保存状态
     val liftAnimator = remember { WordLiftAnimator() }
     
     // 计算所有单词布局并自动换行
-    val lineLayouts = remember(words, fontSize, fontWeight, showTransliteration, fontFamily) {
+    val lineLayouts = remember(words, fontSize, fontWeight, showTransliteration, fontFamily, wrapWidthPx) {
         // 辅助函数：根据给定的单词列表和允许换行的空格位置来计算布局
         fun calculateLayouts(
             inputWords: List<NewPreviewLyricWord>,
@@ -3528,7 +3571,7 @@ fun LyricWordsCanvasWithWrap(
                 // 1. 当前是空格且在允许换行的位置
                 // 2. 加上当前内容超过屏幕宽度
                 val isBreakableSpace = group.size == 1 && group.first().second.text == " " && breakableSpaceIndices.contains(group.first().first)
-                val shouldWrapByWidth = currentX + groupWidth > screenWidthPx && currentLine.isNotEmpty()
+                val shouldWrapByWidth = currentX + groupWidth > wrapWidthPx && currentLine.isNotEmpty()
                 val isLeadingQuestionMarkGroup = !isBreakableSpace && group.size == 1 && (
                     group.first().second.text == "?" || group.first().second.text == "？"
                 )
@@ -3560,7 +3603,7 @@ fun LyricWordsCanvasWithWrap(
                     isNewLine = false
                 }
                 
-                if ((currentX + groupWidth > screenWidthPx && currentLine.isNotEmpty()) || isBreakableSpace) {
+                if ((currentX + groupWidth > wrapWidthPx && currentLine.isNotEmpty()) || isBreakableSpace) {
                     // 换行前，检查并移除当前行末尾的空格
                     if (currentLine.isNotEmpty()) {
                         val lastLayout = currentLine.last()
@@ -3847,7 +3890,9 @@ fun LyricWordsCanvasWithWrap(
     val totalHeight = lineLayouts.size * lineHeight
     
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onSizeChanged { containerWidthPx = it.width.toFloat() },
         horizontalAlignment = if (isDuet) Alignment.End else Alignment.Start
     ) {
         lineLayouts.forEach { lineWords ->
@@ -4382,7 +4427,9 @@ fun LyricPreviewHeader(
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {},
     mutedColor: Color? = null,
     isDarkTheme: Boolean = false,
-    backgroundColor: Color? = null
+    backgroundColor: Color? = null,
+    showBackButton: Boolean = true,
+    showCoverAndMeta: Boolean = true
 ) {
     val headerBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
     val textColor = getHighContrastBlackOrWhite(headerBackground)
@@ -4395,99 +4442,108 @@ fun LyricPreviewHeader(
     val iconColor = getHighContrastBlackOrWhite(headerBackground)
     var menuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     val density = LocalDensity.current
+    val headerHeight = if (showCoverAndMeta) 150.dp else 64.dp
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp)
+            .height(headerHeight)
             .background(headerBackground)
             .statusBarsPadding()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(150.dp)
+                .height(headerHeight)
                 .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 返回按钮
-            IconButton(
-                onClick = onBackClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.baseline_arrow_back_24),
-                    contentDescription = "返回",
-                    tint = iconColor,
-                    modifier = Modifier.size(28.dp)
-                )
+            if (showBackButton) {
+                // 返回按钮
+                IconButton(
+                    onClick = onBackClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.baseline_arrow_back_24),
+                        contentDescription = "返回",
+                        tint = iconColor,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.size(40.dp))
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        onHeaderClick()
-                    },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 封面
-                if (coverBitmap != null) {
-                    Image(
-                        bitmap = coverBitmap.asImageBitmap(),
-                        contentDescription = "封面",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(75.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(75.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.img),
-                            contentDescription = "音乐",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            if (showCoverAndMeta) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            onHeaderClick()
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 封面
+                    if (coverBitmap != null) {
+                        Image(
+                            bitmap = coverBitmap.asImageBitmap(),
+                            contentDescription = "封面",
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(36.dp)
-                                .align(Alignment.Center)
+                                .size(75.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(75.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.img),
+                                contentDescription = "音乐",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .align(Alignment.Center)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // 标题和艺术家
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = title,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = artist,
+                            fontSize = 16.sp,
+                            color = artistColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                // 标题和艺术家
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = title,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = artist,
-                        fontSize = 16.sp,
-                        color = artistColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
             }
 
             Spacer(modifier = Modifier.width(8.dp))
