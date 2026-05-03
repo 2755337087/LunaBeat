@@ -14,6 +14,28 @@ data class LyricParseResult(
 )
 
 object LyricParsingUtils {
+    private val lrcTimestampTagRegex = Regex("""^\[\d{2}:\d{2}\.\d{2,3}]$""")
+    private val bracketTagRegex = Regex("""\[[^\[\]]*]""")
+    private val bgLineRegex = Regex("""^\[bg:\s*.*]$""", RegexOption.IGNORE_CASE)
+
+    private fun normalizeMillisTo3(rawMillis: String): String {
+        return rawMillis.take(3).padEnd(3, '0')
+    }
+
+    private fun stripNonTimestampBracketTags(line: String, keepBgLineTag: Boolean = false): String {
+        val trimmed = line.trim()
+        if (keepBgLineTag && bgLineRegex.matches(trimmed)) {
+            return trimmed
+        }
+        return bracketTagRegex.replace(line) { match ->
+            if (lrcTimestampTagRegex.matches(match.value)) {
+                match.value
+            } else {
+                ""
+            }
+        }
+    }
+
     fun parseByType(type: LyricParseType, content: String): LyricParseResult {
         return when (type) {
             LyricParseType.SPL_LRC -> {
@@ -33,7 +55,10 @@ object LyricParsingUtils {
     }
 
     fun parseSPLLrcLyrics(content: String): Pair<List<String>, List<LyricLine>> {
-        val lines = content.lines().filter { it.isNotBlank() }
+        val lines = content.lines()
+            .map { stripNonTimestampBracketTags(it) }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
         val lyrics = mutableListOf<String>()
         val lyricLines = mutableListOf<LyricLine>()
         
@@ -43,8 +68,7 @@ object LyricParsingUtils {
             if (parts.size == 3) {
                 val m = parts[0]
                 val s = parts[1]
-                val msStr = parts[2]
-                val ms = if (msStr.length == 2) msStr + "0" else msStr
+                val ms = normalizeMillisTo3(parts[2])
                 return "$m:$s.$ms"
             }
             return timeTag
@@ -152,13 +176,16 @@ object LyricParsingUtils {
     }
 
     fun parseElrcLyrics(content: String): Pair<List<String>, List<LyricLine>> {
-        val lines = content.lines().filter { it.isNotBlank() }
+        val lines = content.lines()
+            .map { stripNonTimestampBracketTags(it, keepBgLineTag = true) }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
         val lyrics = mutableListOf<String>()
         val lyricLines = mutableListOf<LyricLine>()
         
-        // 支持 [mm:ss.sss] 格式（三位毫秒）
-        val timeTagPattern = Regex("<(\\d{2}):(\\d{2})\\.(\\d{3})>")
-        val lineTimePattern = Regex("\\[(\\d{2}):(\\d{2})\\.(\\d{3})\\]")
+        // 支持 [mm:ss.xx]/[mm:ss.xxx] 和 <mm:ss.xx>/<mm:ss.xxx>
+        val timeTagPattern = Regex("<(\\d{2}):(\\d{2})\\.(\\d{2,3})>")
+        val lineTimePattern = Regex("\\[(\\d{2}):(\\d{2})\\.(\\d{2,3})\\]")
         val agentPattern = Regex("^(v1|v2):\\s*")
         val bgPattern = Regex("^\\[bg:\\s*(.*?)\\]\\s*$", RegexOption.DOT_MATCHES_ALL)
         
@@ -187,10 +214,10 @@ object LyricParsingUtils {
             val lineTimeMatch = lineTimePattern.find(processedLine)
             val lineTime = if (lineTimeMatch != null) {
                 lineTimeMatch.groupValues.let {
-                    String.format("%02d:%02d.%03d",
+                    String.format("%02d:%02d.%s",
                         it[1].toIntOrNull() ?: 0,
                         it[2].toIntOrNull() ?: 0,
-                        it[3].toIntOrNull() ?: 0
+                        normalizeMillisTo3(it[3])
                     )
                 }
             } else {
@@ -230,10 +257,10 @@ object LyricParsingUtils {
             for (i in timeMatches.indices) {
                 val currentMatch = timeMatches[i]
                 val startTime = currentMatch.groupValues.let {
-                    String.format("%02d:%02d.%03d",
+                    String.format("%02d:%02d.%s",
                         it[1].toIntOrNull() ?: 0,
                         it[2].toIntOrNull() ?: 0,
-                        it[3].toIntOrNull() ?: 0
+                        normalizeMillisTo3(it[3])
                     )
                 }
                 
@@ -243,10 +270,10 @@ object LyricParsingUtils {
                 
                 val endTime = if (i + 1 < timeMatches.size) {
                     timeMatches[i + 1].groupValues.let {
-                        String.format("%02d:%02d.%03d",
+                        String.format("%02d:%02d.%s",
                             it[1].toIntOrNull() ?: 0,
                             it[2].toIntOrNull() ?: 0,
-                            it[3].toIntOrNull() ?: 0
+                            normalizeMillisTo3(it[3])
                         )
                     }
                 } else {
