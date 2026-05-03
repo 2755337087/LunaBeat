@@ -30,6 +30,19 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.歌词转换"
         android:networkSecurityConfig="@xml/network_security_config">
+        <meta-data
+            android:name="lyricon_module"
+            android:value="true" />
+        <meta-data
+            android:name="lyricon_module_author"
+            android:value="2755337087" />
+        <meta-data
+            android:name="lyricon_module_description"
+            android:value="LyricBox状态栏歌词支持" />
+        <meta-data
+            android:name="lyricon_module_tags"
+            android:resource="@array/lyricon_module_tags" />
+
         <activity
             android:name=".PermissionGuideActivity"
             android:exported="true"

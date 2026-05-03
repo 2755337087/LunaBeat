@@ -343,11 +343,13 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_FONT_WEIGHT = "font_weight"
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
+        const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_FONT_WEIGHT = 400 // Normal
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
+        const val DEFAULT_LYRICON_STATUS_BAR = false
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
@@ -618,6 +620,15 @@ class LyricPreviewActivity : ComponentActivity() {
                         { sharedPlaybackController?.skipToNext() }
                     } else {
                         null
+                    },
+                    canSkipNextTrack = if (useSharedPlayback) {
+                        val controller = sharedPlaybackController
+                        controller != null &&
+                            controller.isReady &&
+                            controller.currentIndex >= 0 &&
+                            controller.currentIndex < (controller.mediaCount - 1)
+                    } else {
+                        true
                     },
                     onSeekTo = { position -> 
                         if (useSharedPlayback) {
@@ -1078,38 +1089,17 @@ private fun applyAndroidFontWeight(
     paint: android.graphics.Paint,
     fontWeight: Int
 ) {
-    when (fontWeight) {
-        300 -> {
-            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
-            paint.isFakeBoldText = false
-            paint.style = android.graphics.Paint.Style.FILL
-        }
-        400 -> {
-            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
-            paint.isFakeBoldText = false
-            paint.style = android.graphics.Paint.Style.FILL
-        }
-        500 -> {
-            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
-            paint.isFakeBoldText = true
-            paint.style = android.graphics.Paint.Style.FILL
-        }
-        600 -> {
-            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            paint.isFakeBoldText = true
-            paint.style = android.graphics.Paint.Style.FILL
-        }
-        700 -> {
-            paint.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            paint.isFakeBoldText = true
-            paint.style = android.graphics.Paint.Style.FILL
-        }
-        else -> {
-            paint.typeface = android.graphics.Typeface.DEFAULT
-            paint.isFakeBoldText = false
-            paint.style = android.graphics.Paint.Style.FILL
+    val safeWeight = fontWeight.coerceIn(100, 900)
+    paint.typeface = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, safeWeight, false)
+    } else {
+        when {
+            safeWeight >= 600 -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            else -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
         }
     }
+    paint.isFakeBoldText = false
+    paint.style = android.graphics.Paint.Style.FILL
 }
 
 private fun computeLyricLineBlurRadius(
@@ -1119,11 +1109,13 @@ private fun computeLyricLineBlurRadius(
     lineIndex: Int,
     currentPlayingIndex: Int,
     currentTime: Long,
+    isCurrentLineVisible: Boolean,
     isBlurEnabled: Boolean
 ): Float {
     if (!isBlurEnabled) return 0f
     if (line.isInterlude) return 0f
     if (lineIndex == currentPlayingIndex) return 0f
+    if (!isCurrentLineVisible) return 0f
 
     val effectiveEnd = getEffectiveEndTime(line, nextLine)
     val isLineActive = currentTime >= line.begin && currentTime < effectiveEnd
@@ -1143,8 +1135,19 @@ private fun computeLyricLineBlurRadius(
     val isLinePlayed = currentTime >= effectiveEnd
     if (isLinePlayed) return PLAYED_LINE_BLUR_RADIUS
 
-    val distanceFromCurrent = if (currentPlayingIndex >= 0) {
-        (lineIndex - currentPlayingIndex).coerceAtLeast(1)
+    val distanceFromCurrent = if (currentPlayingIndex >= 0 && lineIndex > currentPlayingIndex) {
+        var distance = 0
+        for (idx in (currentPlayingIndex + 1)..lineIndex) {
+            val candidate = lyricLines.getOrNull(idx) ?: continue
+            val candidateVisible = if (candidate.isBackground) {
+                shouldShowBackgroundLine(lyricLines, idx, currentTime)
+            } else {
+                true
+            }
+            if (!candidateVisible) continue
+            distance++
+        }
+        distance.coerceAtLeast(1)
     } else {
         1
     }
@@ -1193,6 +1196,7 @@ fun LyricPreviewScreen(
     onPlayPause: (Boolean) -> Unit,
     onSkipPreviousTrack: (() -> Unit)? = null,
     onSkipNextTrack: (() -> Unit)? = null,
+    canSkipNextTrack: Boolean = true,
     onSeekTo: (Long) -> Unit,
     getCurrentPosition: () -> Long,
     getIsPlayingState: () -> Boolean,
@@ -1229,6 +1233,14 @@ fun LyricPreviewScreen(
             } else {
                 false
             }
+        )
+    }
+    var lyriconStatusBarEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_LYRICON_STATUS_BAR,
+                LyricPreviewActivity.DEFAULT_LYRICON_STATUS_BAR
+            )
         )
     }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1615,6 +1627,11 @@ fun LyricPreviewScreen(
         lyricBlurPreferenceEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, enabled).apply()
         isLyricBlurEnabled = enabled
+    }
+
+    fun saveLyriconStatusBarEnabled(enabled: Boolean) {
+        lyriconStatusBarEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, enabled).apply()
     }
     
     // 更新当前时间
@@ -2008,6 +2025,12 @@ fun LyricPreviewScreen(
                         ) {
                             itemsIndexed(processedLyricLines) { index, line ->
                             val nextLine = if (index < processedLyricLines.size - 1) processedLyricLines[index + 1] else null
+                            // 判断背景歌词是否应该显示（用于渲染和模糊距离计算）
+                            val shouldShowBackground = if (line.isBackground) {
+                                shouldShowBackgroundLine(processedLyricLines, index, currentTime)
+                            } else {
+                                true
+                            }
                             // 计算动态 stiffness - 距离当前行越近，stiffness 越大，动画越快
                             val distance = if (currentLineIndex >= 0) kotlin.math.abs(index - currentLineIndex) else 0
                             val dynamicStiffness = (120f - (distance * 20f)).coerceAtLeast(20f)
@@ -2018,15 +2041,9 @@ fun LyricPreviewScreen(
                                 lineIndex = index,
                                 currentPlayingIndex = currentLineIndex,
                                 currentTime = currentTime,
+                                isCurrentLineVisible = shouldShowBackground,
                                 isBlurEnabled = lyricBlurPreferenceEnabled && isLyricBlurEnabled
                             )
-                            
-                            // 判断背景歌词是否应该显示
-                            val shouldShowBackground = if (line.isBackground) {
-                                shouldShowBackgroundLine(processedLyricLines, index, currentTime)
-                            } else {
-                                true
-                            }
                             
                             // 查找关联的主歌词和位置信息
                             val (mainLine, isAboveMain, _) = if (line.isBackground) {
@@ -2304,6 +2321,7 @@ fun LyricPreviewScreen(
                     },
                     onSkipPreviousClick = { onSkipPreviousTrack?.invoke() },
                     onSkipNextClick = { onSkipNextTrack?.invoke() },
+                    isSkipNextEnabled = canSkipNextTrack,
                     onSeek = { position ->
                         onSeekTo(position)
                         currentTime = position
@@ -2352,12 +2370,14 @@ fun LyricPreviewScreen(
                 showTransliteration = showTransliteration,
                 supportsLyricBlur = supportsLyricBlur,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
+                lyriconStatusBarEnabled = lyriconStatusBarEnabled,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 animationType = animationType,
                 onShowTranslationChange = { saveShowTranslation(it) },
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
+                onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
                 onFontSizeChange = { saveFontSize(it) },
                 onFontWeightChange = { saveFontWeight(it) },
                 onAnimationTypeChange = {
@@ -3284,6 +3304,7 @@ fun LyricWordsCanvasWithWrap(
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val composeFontWeight = mapComposeFontWeight(fontWeight)
     val fontSizePx = with(density) { fontSize.toPx() }
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { (configuration.screenWidthDp.dp - 56.dp).toPx() } // 减去左右padding
@@ -3395,7 +3416,7 @@ fun LyricWordsCanvasWithWrap(
                 
                 val result = textMeasurer.measure(
                     text = processedText,
-                    style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Normal)
+                    style = TextStyle(fontSize = fontSize, fontWeight = composeFontWeight)
                 )
                 val groupWidth = result.size.width.toFloat()
                 val spaceWidth = if (processedText.endsWith(" ")) with(density) { 1.dp.toPx() } else 0f
@@ -3448,7 +3469,7 @@ fun LyricWordsCanvasWithWrap(
                             } else {
                                 val trimmedResult = textMeasurer.measure(
                                     text = trimmedWord,
-                                    style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Normal)
+                                    style = TextStyle(fontSize = fontSize, fontWeight = composeFontWeight)
                                 )
                                 val trimmedWidth = trimmedResult.size.width.toFloat()
                                 val trimmedWordObj = NewPreviewLyricWord(
@@ -3493,7 +3514,7 @@ fun LyricWordsCanvasWithWrap(
                     val charText = word.text
                     val charResult = textMeasurer.measure(
                         text = charText,
-                        style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Normal)
+                        style = TextStyle(fontSize = fontSize, fontWeight = composeFontWeight)
                     )
                     val charWidth = charResult.size.width.toFloat()
                     
@@ -3509,7 +3530,7 @@ fun LyricWordsCanvasWithWrap(
                         }
                         val transResult = textMeasurer.measure(
                             text = textToMeasure,
-                            style = TextStyle(fontSize = transFontSize, fontWeight = FontWeight.Normal)
+                            style = TextStyle(fontSize = transFontSize, fontWeight = composeFontWeight)
                         )
                         val transWidth = transResult.size.width.toFloat()
                         if (transWidth > charWidth) {
@@ -4008,6 +4029,7 @@ fun PlaybackControls(
     onPlayPauseClick: () -> Unit,
     onSkipPreviousClick: (() -> Unit)? = null,
     onSkipNextClick: (() -> Unit)? = null,
+    isSkipNextEnabled: Boolean = true,
     onSeek: (Long) -> Unit,
     vibrantColor: Color? = null,
     backgroundColor: Color? = null
@@ -4161,6 +4183,7 @@ fun PlaybackControls(
             ToggleButton(
                 checked = false,
                 onCheckedChange = {
+                    if (!isSkipNextEnabled) return@ToggleButton
                     if (onSkipNextClick != null) {
                         onSkipNextClick()
                     } else {
@@ -4168,6 +4191,7 @@ fun PlaybackControls(
                         onSeek(target)
                     }
                 },
+                enabled = isSkipNextEnabled,
                 shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
                 modifier = Modifier
                     .weight(1f)

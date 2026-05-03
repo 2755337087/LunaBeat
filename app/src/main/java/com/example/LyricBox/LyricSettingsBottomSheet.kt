@@ -55,12 +55,14 @@ fun LyricSettingsBottomSheet(
     showTransliteration: Boolean,
     supportsLyricBlur: Boolean,
     lyricBlurEnabled: Boolean,
+    lyriconStatusBarEnabled: Boolean,
     fontSize: Float,
     fontWeight: Int,
     animationType: Int,
     onShowTranslationChange: (Boolean) -> Unit,
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
+    onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onFontWeightChange: (Int) -> Unit,
     onAnimationTypeChange: (Int) -> Unit,
@@ -119,6 +121,13 @@ fun LyricSettingsBottomSheet(
                             accentColor = accentColor
                         )
                     }
+                    LyricSettingsSwitchRow(
+                        title = "状态栏歌词（Lyricon）",
+                        checked = lyriconStatusBarEnabled,
+                        onCheckedChange = onLyriconStatusBarEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
                     LyricSettingsActionRow(
                         title = "字体大小 (${fontSize.toInt()}sp)",
                         contentColor = contentColor,

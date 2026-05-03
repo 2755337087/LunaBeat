@@ -6,6 +6,7 @@
         android:gravity="center">
         <bitmap
             android:gravity="fill"
-            android:src="@drawable/foreground"/>
+            android:src="@drawable/foreground"
+            android:tint="@android:color/black" />
     </item>
 </layer-list>

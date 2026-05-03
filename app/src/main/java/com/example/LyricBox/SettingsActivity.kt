@@ -285,6 +285,14 @@ fun SettingsScreen(
             )
         )
     }
+    var lyriconStatusBarEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_LYRICON_STATUS_BAR,
+                LyricPreviewActivity.DEFAULT_LYRICON_STATUS_BAR
+            )
+        )
+    }
     var lyricFontSize by remember {
         mutableFloatStateOf(
             lyricPreviewPrefs.getFloat(
@@ -790,6 +798,7 @@ fun SettingsScreen(
             showTransliteration = lyricShowTransliteration,
             supportsLyricBlur = supportsLyricBlur,
             lyricBlurEnabled = lyricBlurEnabled,
+            lyriconStatusBarEnabled = lyriconStatusBarEnabled,
             fontSize = lyricFontSize,
             fontWeight = lyricFontWeight,
             animationType = lyricAnimationType,
@@ -809,6 +818,12 @@ fun SettingsScreen(
                 lyricBlurEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, it)
+                    .apply()
+            },
+            onLyriconStatusBarEnabledChange = {
+                lyriconStatusBarEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, it)
                     .apply()
             },
             onFontSizeChange = {

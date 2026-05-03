@@ -89,6 +89,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.github.yalantis:ucrop:2.2.11-native")
     implementation("androidx.palette:palette:1.0.0")
+    implementation("io.github.proify.lyricon:provider:0.1.70")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
