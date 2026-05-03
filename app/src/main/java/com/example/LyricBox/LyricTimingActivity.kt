@@ -3468,9 +3468,9 @@ fun LyricTimingScreen(
     var needStoragePermission by remember { mutableStateOf(false) }
     var showNoAudioDialog by remember { mutableStateOf(false) }
     var showEnhancedLrcSaveDialog by remember { mutableStateOf(false) }
-        var showDuetInEnhancedLrc by remember { mutableStateOf(true) }
-        var savedEnhancedLrcContent by remember { mutableStateOf("") }
-        var showEmbedEnhancedLrcDialog by remember { mutableStateOf(false) }
+    var showDuetInEnhancedLrc by remember { mutableStateOf(prefs.getBoolean("showDuetInEnhancedLrc", true)) }
+    var savedEnhancedLrcContent by remember { mutableStateOf("") }
+    var showEmbedEnhancedLrcDialog by remember { mutableStateOf(false) }
     var showTimeInputDialog by remember { mutableStateOf(false) }
     var inputTimeMinutes by remember { mutableStateOf("") }
     var inputTimeSeconds by remember { mutableStateOf("") }
@@ -5821,7 +5821,10 @@ fun LyricTimingScreen(
             onDismiss = { showEnhancedLrcSaveDialog = false },
             lyricLines = lyricLines,
             showDuet = showDuetInEnhancedLrc,
-            onShowDuetChange = { showDuetInEnhancedLrc = it },
+            onShowDuetChange = {
+                showDuetInEnhancedLrc = it
+                prefs.edit().putBoolean("showDuetInEnhancedLrc", it).apply()
+            },
             onCopied = { showCopiedDialog = true }
         )
         
@@ -5830,7 +5833,10 @@ fun LyricTimingScreen(
             onDismiss = { showEmbedEnhancedLrcDialog = false },
             lyricLines = lyricLines,
             showDuet = showDuetInEnhancedLrc,
-            onShowDuetChange = { showDuetInEnhancedLrc = it },
+            onShowDuetChange = {
+                showDuetInEnhancedLrc = it
+                prefs.edit().putBoolean("showDuetInEnhancedLrc", it).apply()
+            },
             onCopied = { showCopiedDialog = true },
             displayTitle = displayTitle,
             sourceAudioPath = sourceAudioPath,

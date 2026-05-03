@@ -287,8 +287,13 @@ object LyricParsingUtils {
             }
             
             if (timeUnits.isNotEmpty()) {
+                val effectiveLineTime = when {
+                    lineTime.isNotEmpty() -> lineTime
+                    timeUnits.isNotEmpty() -> timeUnits.first().startTime
+                    else -> ""
+                }
                 parsedLines.add(ParsedLine(
-                    lineTime = lineTime,
+                    lineTime = effectiveLineTime,
                     agentType = agentType,
                     timeUnits = timeUnits,
                     lineText = lineText.toString(),
