@@ -5,8 +5,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
-import android.media.MediaExtractor
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
@@ -92,18 +90,22 @@ import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.modifier.springPlacement
 import com.example.LyricBox.ui.theme.歌词转换Theme
-import com.example.LyricBox.utils.AudioConverter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileInputStream
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
 
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
@@ -325,7 +327,7 @@ class WordLiftAnimator {
 // ==================== Activity ====================
 
 class LyricPreviewActivity : ComponentActivity() {
-    private var mediaPlayer: MediaPlayer? = null
+    private var mediaPlayer: ExoPlayer? = null
     private var sharedPlaybackController: MusicPlaybackController? = null
     private var useSharedPlayback: Boolean = false
     private var currentPlaybackPosition: Long = 0L
@@ -628,7 +630,7 @@ class LyricPreviewActivity : ComponentActivity() {
                             }
                         } else {
                             if (playing) {
-                                mediaPlayer?.start()
+                                mediaPlayer?.play()
                                 playbackCompleted = false
                             } else {
                                 mediaPlayer?.pause()
@@ -658,7 +660,7 @@ class LyricPreviewActivity : ComponentActivity() {
                         if (useSharedPlayback) {
                             sharedPlaybackController?.seekTo(position)
                         } else {
-                            mediaPlayer?.seekTo(position.toInt())
+                            mediaPlayer?.seekTo(position)
                         }
                         currentPlaybackPosition = position
                     },
@@ -728,12 +730,6 @@ class LyricPreviewActivity : ComponentActivity() {
             return
         }
 
-        val shouldForceTranscode = isAlacEncodedM4a(path)
-        if (shouldForceTranscode) {
-            startFallbackTranscode(path, initialPosition, autoPlay, "detected_alac_m4a")
-            return
-        }
-
         val loaded = tryLoadAudioDirect(path, initialPosition, autoPlay, allowFallback = true)
         if (!loaded) {
             startFallbackTranscode(path, initialPosition, autoPlay, "direct_load_failed")
@@ -748,28 +744,45 @@ class LyricPreviewActivity : ComponentActivity() {
     ): Boolean {
         try {
             mediaPlayer?.release()
-            mediaPlayer = MediaPlayer().apply {
-                setOnErrorListener { _, what, extra ->
-                    Log.e("LyricPreview", "MediaPlayer error: what=$what extra=$extra path=$path")
-                    if (allowFallback) {
-                        val resumePosition = mediaPlayer?.currentPosition?.toLong() ?: currentPlaybackPosition
-                        startFallbackTranscode(path, resumePosition, autoPlay = true, reason = "mediaplayer_error")
+            val renderersFactory = DefaultRenderersFactory(this).apply {
+                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            }
+            mediaPlayer = ExoPlayer.Builder(this, renderersFactory).build().apply {
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        Log.e(
+                            "LyricPreview",
+                            "ExoPlayer error: code=${error.errorCodeName} message=${error.message} path=$path"
+                        )
+                        if (allowFallback) {
+                            val resumePosition = currentPosition.coerceAtLeast(0L)
+                            startFallbackTranscode(path, resumePosition, autoPlay = true, reason = "exoplayer_error")
+                        }
                     }
-                    true
-                }
-                setDataSource(path)
+
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state == Player.STATE_ENDED) {
+                            playbackCompleted = true
+                        } else if (state == Player.STATE_READY) {
+                            previewAudioDuration = duration
+                                .takeIf { it != C.TIME_UNSET && it > 0L }
+                                ?: 0L
+                        }
+                    }
+                })
+                setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(File(path))))
                 prepare()
-                if (initialPosition > 0) {
-                    seekTo(initialPosition.toInt())
+                if (initialPosition > 0L) {
+                    seekTo(initialPosition)
                 }
                 if (autoPlay) {
-                    start()
-                }
-                setOnCompletionListener {
-                    playbackCompleted = true
+                    playWhenReady = true
+                    play()
                 }
             }
-            previewAudioDuration = mediaPlayer?.duration?.toLong() ?: 0L
+            previewAudioDuration = mediaPlayer?.duration
+                ?.takeIf { it != C.TIME_UNSET && it > 0L }
+                ?: 0L
             return true
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to load audio: $path", e)
@@ -778,44 +791,6 @@ class LyricPreviewActivity : ComponentActivity() {
             previewAudioDuration = 0L
         }
         return false
-    }
-
-    private fun isAlacEncodedM4a(path: String): Boolean {
-        val file = File(path)
-        if (!file.exists() || !file.name.lowercase().endsWith(".m4a")) {
-            return false
-        }
-        val extractorDetected = runCatching {
-            val extractor = MediaExtractor()
-            try {
-                extractor.setDataSource(path)
-                for (index in 0 until extractor.trackCount) {
-                    val format = extractor.getTrackFormat(index)
-                    val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
-                    if (mime.contains("alac", ignoreCase = true)) {
-                        return@runCatching true
-                    }
-                }
-                false
-            } finally {
-                extractor.release()
-            }
-        }.getOrDefault(false)
-        if (extractorDetected) return true
-
-        return try {
-            FileInputStream(file).use { input ->
-                val maxProbeBytes = min(1024 * 1024, file.length().toInt().coerceAtLeast(0))
-                if (maxProbeBytes <= 0) return false
-                val buffer = ByteArray(maxProbeBytes)
-                val readCount = input.read(buffer)
-                if (readCount <= 0) return false
-                String(buffer, 0, readCount, Charsets.ISO_8859_1).contains("alac", ignoreCase = true)
-            }
-        } catch (e: Exception) {
-            Log.w("LyricPreview", "ALAC probe failed for: $path", e)
-            false
-        }
     }
 
     private fun getPreviewConvertCacheDir(): File {
@@ -833,12 +808,12 @@ class LyricPreviewActivity : ComponentActivity() {
         reason: String
     ) {
         if (isFallbackTranscoding) {
-            Log.d("LyricPreview", "Transcoding already running, skip new request. reason=$reason")
+            Log.d("LyricPreview", "Fallback already running, skip new request. reason=$reason")
             return
         }
         val inputFile = File(inputPath)
         if (!inputFile.exists()) {
-            Log.e("LyricPreview", "Input file missing for transcode: $inputPath")
+            Log.e("LyricPreview", "Input file missing for fallback: $inputPath")
             return
         }
 
@@ -846,77 +821,22 @@ class LyricPreviewActivity : ComponentActivity() {
         previewAudioDuration = 0L
         mediaPlayer?.release()
         mediaPlayer = null
+        previewConvertedAudioPath = null
         cleanupPreviewConvertCacheFiles()
-
-        val outputFile = File(
-            getPreviewConvertCacheDir(),
-            "preview_transcoded_${System.currentTimeMillis()}_${inputFile.nameWithoutExtension}.wav"
+        Log.w("LyricPreview", "Transcode fallback disabled. reason=$reason input=$inputPath")
+        val loaded = tryLoadAudioDirect(
+            path = inputFile.absolutePath,
+            initialPosition = initialPosition,
+            autoPlay = autoPlay,
+            allowFallback = false
         )
-        previewConvertedAudioPath = outputFile.absolutePath
-
-        Log.d("LyricPreview", "Start fallback transcode. reason=$reason input=$inputPath output=${outputFile.absolutePath}")
-
-        AudioConverter.decodeToWav(
-            inputPath = inputFile.absolutePath,
-            outputPath = outputFile.absolutePath,
-            callback = object : AudioConverter.ConvertCallback {
-                override fun onProgress(progress: Int, time: Long) {
-                    // 预览页无需进度UI，保留回调以便后续扩展
-                }
-
-                override fun onComplete(success: Boolean, message: String) {
-                    runOnUiThread {
-                        isFallbackTranscoding = false
-                        if (!success) {
-                            Log.e("LyricPreview", "Fallback transcode failed: $message")
-                            if (outputFile.exists()) {
-                                outputFile.delete()
-                            }
-                            previewConvertedAudioPath = null
-                            return@runOnUiThread
-                        }
-
-                        if (!outputFile.exists()) {
-                            Log.e("LyricPreview", "Fallback transcode success but output missing")
-                            previewConvertedAudioPath = null
-                            return@runOnUiThread
-                        }
-
-                        val loaded = tryLoadAudioDirect(
-                            path = outputFile.absolutePath,
-                            initialPosition = initialPosition,
-                            autoPlay = autoPlay,
-                            allowFallback = false
-                        )
-                        cleanupPreviewConvertCacheFiles(excludePath = outputFile.absolutePath)
-                        if (!loaded) {
-                            Log.e("LyricPreview", "Failed to play transcoded output: ${outputFile.absolutePath}")
-                        }
-                    }
-                }
-
-                override fun onError(error: String) {
-                    runOnUiThread {
-                        isFallbackTranscoding = false
-                        Log.e("LyricPreview", "Fallback transcode error: $error")
-                        if (outputFile.exists()) {
-                            outputFile.delete()
-                        }
-                        previewConvertedAudioPath = null
-                    }
-                }
-            }
-        )
+        if (!loaded) {
+            Log.e("LyricPreview", "Direct decode retry failed after fallback trigger: $inputPath")
+        }
+        isFallbackTranscoding = false
     }
 
     private fun cleanupPreviewConvertCache() {
-        if (isFallbackTranscoding) {
-            try {
-                AudioConverter.cancelCurrentTask()
-            } catch (e: Exception) {
-                Log.w("LyricPreview", "Failed to cancel converter task", e)
-            }
-        }
         isFallbackTranscoding = false
         cleanupPreviewConvertCacheFiles()
         previewConvertedAudioPath = null

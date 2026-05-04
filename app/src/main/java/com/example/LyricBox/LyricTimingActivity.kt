@@ -3,7 +3,6 @@ package com.example.LyricBox
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -146,6 +145,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.pow
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
 
 class LyricTimingActivity : ComponentActivity() {
     companion object {
@@ -163,7 +169,7 @@ class LyricTimingActivity : ComponentActivity() {
         private const val KEY_SELECTED_WORD_INDEX = "lyric_timing.selected_word_index"
     }
     
-    private var mediaPlayer: MediaPlayer? = null
+    private var mediaPlayer: ExoPlayer? = null
     private var showConfirmDialog by mutableStateOf(false)
     private var hasLyrics by mutableStateOf(false)
     private var showConvertDialog by mutableStateOf(false)
@@ -192,15 +198,7 @@ class LyricTimingActivity : ComponentActivity() {
         it?.let {uri ->
             val fileName = getFileName(uri)
             Log.d("LyricTiming", "Selected audio: $uri, fileName: $fileName")
-            
-            if (fileName.lowercase().endsWith(".m4a") || fileName.lowercase().endsWith(".alac")) {
-                convertProgress = 0
-                convertMessage = "准备解码..."
-                isConverting = true
-                startConversion(uri, fileName)
-            } else {
-                loadAudio(uri)
-            }
+            loadAudio(uri)
         }
     }
     
@@ -231,111 +229,33 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun startConversion(uri: android.net.Uri, fileName: String) {
-        isConverting = true
+        // 兼容旧入口：已改为直解播放，不再执行转码。
+        isConverting = false
+        showConvertDialog = false
         convertProgress = 0
-        convertMessage = "正在复制文件..."
-        
+        convertMessage = "当前版本已改为直解播放，无需转码"
+        convertedAudioPath = ""
         val inputFile = copyUriToTempFile(uri, fileName)
         if (inputFile == null) {
             convertMessage = "文件复制失败"
-            isConverting = false
             return
         }
-
-        // 保留原始音频路径（临时文件），用于后续封面/元数据读取
-        sourceAudioPath = inputFile.absolutePath
-        
-        val outputFileName = fileName.substringBeforeLast(".") + ".wav"
-        val outputFile = java.io.File(cacheDir, outputFileName)
-        convertedAudioPath = outputFile.absolutePath
-        
-        convertMessage = "正在解码..."
-        
-        com.example.LyricBox.utils.AudioConverter.decodeToWav(
-            inputPath = inputFile.absolutePath,
-            outputPath = outputFile.absolutePath,
-            callback = object : com.example.LyricBox.utils.AudioConverter.ConvertCallback {
-                override fun onProgress(progress: Int, time: Long) {
-                    convertProgress = progress
-                    convertMessage = "解码中... $progress%"
-                }
-                
-                override fun onComplete(success: Boolean, message: String) {
-                    isConverting = false
-                    if (success) {
-                        convertMessage = "解码完成"
-                        convertProgress = 100
-
-                        // 使用转码音频播放，但不覆盖原始音频路径
-                        loadAudioFromPath(outputFile.absolutePath, updateSourcePath = false)
-                    } else {
-                        convertMessage = "解码失败: $message"
-                        inputFile.delete()
-                        outputFile.delete()
-                    }
-                }
-                
-                override fun onError(error: String) {
-                    isConverting = false
-                    convertMessage = "错误: $error"
-                    inputFile.delete()
-                    outputFile.delete()
-                }
-            }
-        )
+        loadAudioFromPath(inputFile.absolutePath)
     }
     
     private fun startConversionFromPath(path: String, fileName: String) {
-        isConverting = true
+        // 兼容旧入口：已改为直解播放，不再执行转码。
+        isConverting = false
+        showConvertDialog = false
         convertProgress = 0
-        convertMessage = "正在准备解码..."
-        
+        convertMessage = "当前版本已改为直解播放，无需转码"
+        convertedAudioPath = ""
         val inputFile = java.io.File(path)
         if (!inputFile.exists()) {
             convertMessage = "文件不存在"
-            isConverting = false
             return
         }
-
-        // 保留原始音频路径，避免被转码输出覆盖导致封面读取丢失
-        sourceAudioPath = inputFile.absolutePath
-        
-        val outputFileName = fileName.substringBeforeLast(".") + ".wav"
-        val outputFile = java.io.File(cacheDir, outputFileName)
-        convertedAudioPath = outputFile.absolutePath
-        
-        convertMessage = "正在解码..."
-        
-        com.example.LyricBox.utils.AudioConverter.decodeToWav(
-            inputPath = inputFile.absolutePath,
-            outputPath = outputFile.absolutePath,
-            callback = object : com.example.LyricBox.utils.AudioConverter.ConvertCallback {
-                override fun onProgress(progress: Int, time: Long) {
-                    convertProgress = progress
-                    convertMessage = "解码中... $progress%"
-                }
-                
-                override fun onComplete(success: Boolean, message: String) {
-                    isConverting = false
-                    if (success) {
-                        convertMessage = "解码完成"
-                        convertProgress = 100
-
-                        // 使用转码音频播放，但不覆盖原始音频路径
-                        loadAudioFromPath(outputFile.absolutePath, updateSourcePath = false)
-                    } else {
-                        convertMessage = "解码失败: $message"
-                        outputFile.delete()
-                    }
-                }
-                
-                override fun onError(error: String) {
-                    isConverting = false
-                    convertMessage = "错误: $error"
-                    outputFile.delete()
-                }
-            }
-        )
+        loadAudioFromPath(inputFile.absolutePath)
     }
 
     private fun startManualConversion() {
@@ -346,10 +266,10 @@ class LyricTimingActivity : ComponentActivity() {
         if (!inputFile.exists()) {
             return
         }
-        showConvertDialog = true
+        showConvertDialog = false
         convertProgress = 0
-        convertMessage = "准备解码..."
-        isConverting = true
+        convertMessage = "当前版本已改为直解播放，无需转码"
+        isConverting = false
         startConversionFromPath(sourceAudioPath, inputFile.name)
     }
     
@@ -361,23 +281,10 @@ class LyricTimingActivity : ComponentActivity() {
             return
         }
 
-        // 兜底：缓存失败时直接使用 Uri 播放
-        mediaPlayer?.release()
-        mediaPlayer = MediaPlayer.create(this, uri)
-        if (mediaPlayer == null) {
-            Log.w("LyricTiming", "Direct uri playback init failed, fallback decode: $uri")
-            startConversion(uri, fileName)
-            return
-        }
-        mediaPlayer?.setOnErrorListener { _, what, extra ->
-            Log.e("LyricTiming", "Uri playback error: what=$what extra=$extra uri=$uri, fallback decode")
-            startConversion(uri, fileName)
-            true
-        }
-        mediaPlayer?.setOnCompletionListener {
-            Log.d("LyricTiming", "Audio playback completed")
-            playbackCompleted = true
-        }
+        val player = ensureTimingPlayer()
+        player.setMediaItem(MediaItem.fromUri(uri))
+        player.prepare()
+        playbackCompleted = false
         audioImportCount++
         applyPendingRestoreSeek()
     }
@@ -385,7 +292,7 @@ class LyricTimingActivity : ComponentActivity() {
     private fun applyPendingRestoreSeek() {
         val seekPosition = pendingRestoreSeekMs ?: return
         if (seekPosition > 0L) {
-            mediaPlayer?.seekTo(seekPosition.toInt())
+            mediaPlayer?.seekTo(seekPosition)
             lastKnownPlaybackPositionMs = seekPosition
         }
         pendingRestoreSeekMs = null
@@ -397,31 +304,10 @@ class LyricTimingActivity : ComponentActivity() {
             Log.w("LyricTiming", "Audio file does not exist: $path")
             return
         }
-        mediaPlayer?.release()
-        mediaPlayer = try {
-            MediaPlayer().apply {
-                setDataSource(path)
-                prepare()
-            }
-        } catch (e: Exception) {
-            Log.e("LyricTiming", "Failed to load audio from path: $path", e)
-            if (!path.lowercase().endsWith(".wav")) {
-                Log.w("LyricTiming", "Direct path playback failed, fallback decode: $path")
-                startConversionFromPath(path, targetFile.name)
-            }
-            return
-        }
-        mediaPlayer?.setOnErrorListener { _, what, extra ->
-            Log.e("LyricTiming", "Path playback error: what=$what extra=$extra path=$path, fallback decode")
-            if (!path.lowercase().endsWith(".wav")) {
-                startConversionFromPath(path, targetFile.name)
-            }
-            true
-        }
-        mediaPlayer?.setOnCompletionListener {
-            Log.d("LyricTiming", "Audio playback completed")
-            playbackCompleted = true
-        }
+        val player = ensureTimingPlayer()
+        player.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(targetFile)))
+        player.prepare()
+        playbackCompleted = false
         if (updateSourcePath) {
             sourceAudioPath = path
         }
@@ -444,21 +330,36 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun getAudioDuration(): Long {
-        return mediaPlayer?.duration?.toLong() ?: 0L
+        return mediaPlayer?.duration
+            ?.takeIf { it != C.TIME_UNSET && it > 0L }
+            ?: 0L
     }
     
     private fun setPlaybackSpeed(speed: Float) {
-        mediaPlayer?.let { mp ->
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                val wasPlaying = mp.isPlaying
-                val params = android.media.PlaybackParams()
-                params.setSpeed(speed)
-                mp.playbackParams = params
-                if (!wasPlaying && mp.isPlaying) {
-                    mp.pause()
-                }
-            }
+        mediaPlayer?.setPlaybackParameters(PlaybackParameters(speed))
+    }
+
+    private fun ensureTimingPlayer(): ExoPlayer {
+        mediaPlayer?.let { return it }
+        val renderersFactory = DefaultRenderersFactory(this).apply {
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         }
+        val player = ExoPlayer.Builder(this, renderersFactory).build().apply {
+            addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e("LyricTiming", "ExoPlayer error: code=${error.errorCodeName} message=${error.message}")
+                }
+
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED) {
+                        Log.d("LyricTiming", "Audio playback completed")
+                        playbackCompleted = true
+                    }
+                }
+            })
+        }
+        mediaPlayer = player
+        return player
     }
     
     private val lyricPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) {
@@ -615,21 +516,14 @@ class LyricTimingActivity : ComponentActivity() {
         }
         
         val startupAudioPath = when {
-            convertedAudioPath.isNotEmpty() -> convertedAudioPath
             sourceAudioPath.isNotEmpty() -> sourceAudioPath
+            convertedAudioPath.isNotEmpty() -> convertedAudioPath
             else -> ""
         }
         if (startupAudioPath.isNotEmpty()) {
             val file = java.io.File(startupAudioPath)
             if (file.exists()) {
-                if (startupAudioPath.lowercase().endsWith(".m4a") || startupAudioPath.lowercase().endsWith(".alac")) {
-                    convertProgress = 0
-                    convertMessage = "准备解码..."
-                    isConverting = true
-                    startConversionFromPath(startupAudioPath, file.name)
-                } else {
-                    loadAudioFromPath(startupAudioPath)
-                }
+                loadAudioFromPath(startupAudioPath)
             } else {
                 pendingRestoreSeekMs = null
                 lastKnownPlaybackPositionMs = 0L
@@ -661,14 +555,14 @@ class LyricTimingActivity : ComponentActivity() {
                         onImportAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
                         onPlayPause = { play ->
                             if (play) {
-                                mediaPlayer?.start()
+                                mediaPlayer?.play()
                                 playbackCompleted = false
                             } else {
                                 mediaPlayer?.pause()
                             }
                         },
                         onSeekTo = { timeMs ->
-                            mediaPlayer?.seekTo(timeMs.toInt())
+                            mediaPlayer?.seekTo(timeMs)
                             lastKnownPlaybackPositionMs = timeMs
                         },
                         onSetPlaybackSpeed = { speed -> setPlaybackSpeed(speed) },
@@ -4398,7 +4292,7 @@ fun LyricTimingScreen(
                                         onPlayPause(false)
                                         isPlaying = false
                                     }
-                                    val audioPath = if (convertedAudioPath.isNotEmpty()) convertedAudioPath else sourceAudioPath
+                                    val audioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else convertedAudioPath
                                     val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
                                     val currentPos = getCurrentPosition()
                                     val previewLyricLines = lyricLines.map { line ->
@@ -4701,7 +4595,7 @@ fun LyricTimingScreen(
                                         onPlayPause(false)
                                         isPlaying = false
                                     }
-                                    val audioPath = if (convertedAudioPath.isNotEmpty()) convertedAudioPath else sourceAudioPath
+                                    val audioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else convertedAudioPath
                                     val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
                                     val currentPos = getCurrentPosition()
                                     val previewLyricLines = lyricLines.map { line ->
