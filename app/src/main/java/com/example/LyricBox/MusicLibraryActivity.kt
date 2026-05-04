@@ -72,6 +72,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
@@ -1140,7 +1141,6 @@ fun MusicLibraryScreen(
     val playbackController = rememberMusicPlaybackController()
     val miniPlayerVisible = playbackController.hasCurrentItem
     val miniPlayerHeight = 72.dp
-    val miniPlayerExtraBottomPadding = if (miniPlayerVisible) miniPlayerHeight + 12.dp else 0.dp
     
     val allAudioFiles = remember { mutableStateListOf<AudioFile>() }
     val displayAudioFiles = remember { mutableStateListOf<AudioFile>() }
@@ -1165,6 +1165,11 @@ fun MusicLibraryScreen(
     var isLoadingCache by remember { mutableStateOf(true) }
     var isPreparingInitialCovers by remember { mutableStateOf(false) }
     var isInitialListFadeReady by remember { mutableStateOf(false) }
+    var displayUpdateJob by remember { mutableStateOf<Job?>(null) }
+    var displayUpdateVersion by remember { mutableIntStateOf(0) }
+    val miniPlayerReady = !isLoadingCache && isInitialListFadeReady
+    val showMiniPlayer = miniPlayerVisible && miniPlayerReady
+    val miniPlayerExtraBottomPadding = if (showMiniPlayer) miniPlayerHeight + 12.dp else 0.dp
     var hasTriggeredInitialReveal by remember { mutableStateOf(false) }
     var showScanProgressPopup by remember { mutableStateOf(false) }
     var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
@@ -1305,11 +1310,69 @@ fun MusicLibraryScreen(
     }
 
     fun updateDisplayFiles() {
-        val filtered = buildFilteredDisplayList()
-        displayAudioFiles.clear()
-        displayAudioFiles.addAll(filtered)
-        if (!isAlbumSearchQuery(searchQuery)) {
-            sortAudioFiles(displayAudioFiles, sortType.value, sortOrder.value)
+        val requestVersion = ++displayUpdateVersion
+        displayUpdateJob?.cancel()
+        displayUpdateJob = scope.launch {
+            val querySnapshot = searchQuery
+            val allAudioSnapshot = allAudioFiles.toList()
+            val favoriteSnapshot = favoritePaths.toSet()
+            val sortTypeSnapshot = sortType.value
+            val sortOrderSnapshot = sortOrder.value
+
+            val filtered = withContext(Dispatchers.Default) {
+                val trimmed = querySnapshot.trim()
+                val builtList = when {
+                    trimmed.isEmpty() -> allAudioSnapshot
+                    trimmed.startsWith(FAVORITE_SEARCH_TOKEN, ignoreCase = true) -> {
+                        val keyword = trimmed.removePrefix(FAVORITE_SEARCH_TOKEN).trim()
+                        val favoriteList = allAudioSnapshot.filter { it.path in favoriteSnapshot }
+                        if (keyword.isBlank()) {
+                            favoriteList
+                        } else {
+                            favoriteList.filter {
+                                it.displayTitle.contains(keyword, ignoreCase = true) ||
+                                    it.displayArtist.contains(keyword, ignoreCase = true) ||
+                                    it.displayAlbum.contains(keyword, ignoreCase = true)
+                            }
+                        }
+                    }
+                    isAlbumSearchQuery(trimmed) -> {
+                        val keyword = trimmed
+                            .removePrefix(ALBUM_SEARCH_PREFIX_FULL)
+                            .removePrefix(ALBUM_SEARCH_PREFIX_ASCII)
+                            .trim()
+                        if (keyword.isBlank()) {
+                            emptyList()
+                        } else {
+                            allAudioSnapshot
+                                .filter { it.displayAlbum.contains(keyword, ignoreCase = true) }
+                                .sortedWith(
+                                    compareBy<AudioFile> { resolveTrackSortValue(it) }
+                                        .thenBy { it.displayTitle.lowercase() }
+                                )
+                        }
+                    }
+                    else -> {
+                        allAudioSnapshot.filter {
+                            it.displayTitle.contains(trimmed, ignoreCase = true) ||
+                                it.displayArtist.contains(trimmed, ignoreCase = true) ||
+                                it.album.contains(trimmed, ignoreCase = true)
+                        }
+                    }
+                }
+
+                if (isAlbumSearchQuery(trimmed)) {
+                    builtList
+                } else {
+                    val sorted = builtList.toMutableList()
+                    sortAudioFiles(sorted, sortTypeSnapshot, sortOrderSnapshot)
+                    sorted
+                }
+            }
+
+            if (requestVersion != displayUpdateVersion) return@launch
+            displayAudioFiles.clear()
+            displayAudioFiles.addAll(filtered)
         }
     }
 
@@ -1336,6 +1399,7 @@ fun MusicLibraryScreen(
         if (displayAudioFiles.isEmpty() && isScanning) return@LaunchedEffect
 
         hasTriggeredInitialReveal = true
+        isInitialListFadeReady = true
         isPreparingInitialCovers = true
         val initialSnapshot = displayAudioFiles.toList()
         try {
@@ -1517,7 +1581,6 @@ fun MusicLibraryScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .animateContentSize(animationSpec = tween(durationMillis = 500))
         ) {
             var lastClickTime by remember { mutableStateOf(0L) }
             var showDoubleTapHint by remember { mutableStateOf(false) }
@@ -1701,7 +1764,7 @@ fun MusicLibraryScreen(
                 }
             )
             
-            val shouldShowLibraryLoading = isLoadingCache || isPreparingInitialCovers || !isInitialListFadeReady
+            val shouldShowLibraryLoading = isLoadingCache || !isInitialListFadeReady
 
             if (shouldShowLibraryLoading) {
                 Box(
@@ -1798,8 +1861,8 @@ fun MusicLibraryScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(displayAudioFiles, key = { it.path }) { audio ->
-                                val index = displayAudioFiles.indexOf(audio) + 1
+                            itemsIndexed(displayAudioFiles, key = { _, audio -> audio.path }) { itemIndex, audio ->
+                                val index = itemIndex + 1
                                 val isSelected = selectedPaths.contains(audio.path)
                                 AudioFileItem(
                                     audio = audio,
@@ -2125,7 +2188,7 @@ fun MusicLibraryScreen(
             }
         }
         AnimatedVisibility(
-            visible = miniPlayerVisible && !isMultiSelectMode,
+            visible = showMiniPlayer && !isMultiSelectMode,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -3638,21 +3701,26 @@ private fun LyricsPreviewDialog(
     )
 }
 
-private fun loadCachedAudioFiles(context: Context, audioFiles: MutableList<AudioFile>): Boolean {
-    val prefs = context.getSharedPreferences("MusicLibraryCache", Context.MODE_PRIVATE)
-    val cacheJson = prefs.getString("audioFilesCache", null) ?: return false
-    
-    try {
-        val jsonArray = JSONArray(cacheJson)
-        for (i in 0 until jsonArray.length()) {
-            val json = jsonArray.getJSONObject(i)
-            audioFiles.add(AudioFile.fromJson(json))
+private suspend fun loadCachedAudioFiles(context: Context, audioFiles: MutableList<AudioFile>): Boolean {
+    val cachedFiles = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("MusicLibraryCache", Context.MODE_PRIVATE)
+        val cacheJson = prefs.getString("audioFilesCache", null) ?: return@withContext emptyList<AudioFile>()
+
+        try {
+            val jsonArray = JSONArray(cacheJson)
+            buildList(jsonArray.length()) {
+                for (i in 0 until jsonArray.length()) {
+                    add(AudioFile.fromJson(jsonArray.getJSONObject(i)))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MusicLibrary", "Error loading cache", e)
+            emptyList()
         }
-        return audioFiles.isNotEmpty()
-    } catch (e: Exception) {
-        Log.e("MusicLibrary", "Error loading cache", e)
-        return false
     }
+    if (cachedFiles.isEmpty()) return false
+    audioFiles.addAll(cachedFiles)
+    return true
 }
 
 private fun saveCachedAudioFiles(context: Context, audioFiles: List<AudioFile>) {

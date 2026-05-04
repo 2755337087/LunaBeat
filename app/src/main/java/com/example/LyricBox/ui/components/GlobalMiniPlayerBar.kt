@@ -2,6 +2,7 @@ package com.example.LyricBox.ui.components
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.Context
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -32,11 +33,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,10 +61,14 @@ fun GlobalMiniPlayerBar(
     onExpand: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     var dragOffsetY by remember { mutableStateOf(0f) }
     val isDarkTheme = colorLuminance(MaterialTheme.colorScheme.background) < 0.5f
+    val coverThemeCacheKey = remember(controller.currentCoverCachePath, controller.currentMediaId) {
+        buildMiniPlayerColorCacheKey(controller.currentCoverCachePath, controller.currentMediaId)
+    }
 
     LaunchedEffect(controller.currentCoverCachePath, controller.currentArtworkData) {
         coverBitmap = withContext(Dispatchers.IO) {
@@ -69,9 +76,16 @@ fun GlobalMiniPlayerBar(
                 ?: decodeCoverBitmapFromBytes(controller.currentArtworkData, reqWidth = 112, reqHeight = 112)
         }
     }
-    LaunchedEffect(coverBitmap, isDarkTheme) {
-        coverThemeColor = withContext(Dispatchers.IO) {
+    LaunchedEffect(coverThemeCacheKey) {
+        coverThemeColor = readMiniPlayerThemeColorCache(context, coverThemeCacheKey)
+    }
+    LaunchedEffect(coverBitmap, isDarkTheme, coverThemeCacheKey) {
+        val computedColor = withContext(Dispatchers.IO) {
             coverBitmap?.let { extractMutedCoverColor(it, preferDark = isDarkTheme) }
+        }
+        if (computedColor != null) {
+            coverThemeColor = computedColor
+            writeMiniPlayerThemeColorCache(context, coverThemeCacheKey, computedColor)
         }
     }
 
@@ -233,4 +247,27 @@ private fun calculateInSampleSize(
         }
     }
     return inSampleSize.coerceAtLeast(1)
+}
+
+private const val MINI_PLAYER_THEME_PREFS = "MiniPlayerThemeCache"
+private const val MINI_PLAYER_THEME_PREFIX = "cover_theme_"
+
+private fun buildMiniPlayerColorCacheKey(coverCachePath: String?, mediaId: String?): String {
+    return when {
+        !coverCachePath.isNullOrBlank() -> "coverPath:$coverCachePath"
+        !mediaId.isNullOrBlank() -> "mediaId:$mediaId"
+        else -> "default"
+    }
+}
+
+private fun readMiniPlayerThemeColorCache(context: Context, key: String): Color? {
+    val prefs = context.getSharedPreferences(MINI_PLAYER_THEME_PREFS, Context.MODE_PRIVATE)
+    if (!prefs.contains(MINI_PLAYER_THEME_PREFIX + key)) return null
+    val argb = prefs.getInt(MINI_PLAYER_THEME_PREFIX + key, 0)
+    return Color(argb)
+}
+
+private fun writeMiniPlayerThemeColorCache(context: Context, key: String, color: Color) {
+    val prefs = context.getSharedPreferences(MINI_PLAYER_THEME_PREFS, Context.MODE_PRIVATE)
+    prefs.edit().putInt(MINI_PLAYER_THEME_PREFIX + key, color.toArgb()).apply()
 }
