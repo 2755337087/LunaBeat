@@ -581,11 +581,6 @@ fun SpecialThanksBottomSheet(
         //     description = "AI助手，提供技术问答支持"
         // ),
         OpenSourceProject(
-            name = "FFmpegKit",
-            url = "https://github.com/arthenica/ffmpeg-kit",
-            description = "FFmpeg工具包，用于音视频处理"
-        ),
-        OpenSourceProject(
             name = "TagLib",
             url = "https://github.com/taglib/taglib",
             description = "音频元数据读写库"

@@ -10,7 +10,6 @@ kotlin = "2.2.10"
 composeBom = "2026.04.01"
 foundationLayout = "1.10.4"
 splashscreen = "1.0.1"
-ffmpegKit = "6.0-2"
 foundationLayoutVersion = "1.10.5"
 uiText = "1.10.5"
 ui = "1.10.5"
@@ -46,7 +45,6 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundationLayoutVersion" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
-ffmpeg-kit-audio = { group = "com.arthenica", name = "ffmpeg-kit-audio", version.ref = "ffmpegKit" }
 androidx-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayoutVersion" }
 androidx-compose-ui-text = { group = "androidx.compose.ui", name = "ui-text", version.ref = "uiText" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }

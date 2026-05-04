@@ -16,8 +16,8 @@ android {
         applicationId = "com.example.LyricBox"
         minSdk = 24
         targetSdk = 36
-        versionCode = 24
-        versionName = "1.9.0"
+        versionCode = 25
+        versionName = "1.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -71,7 +71,6 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.core.splashscreen)
-    implementation(libs.ffmpeg.kit.audio)
     implementation(libs.androidx.foundation.layout)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)

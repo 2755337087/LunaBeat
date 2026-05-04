@@ -4,21 +4,14 @@ import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
-import com.example.LyricBox.utils.AudioConverter
 import java.io.File
 import java.io.FileInputStream
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 object PlaybackAlacTranscodeManager {
 
     private const val TAG = "PlaybackAlacTranscode"
     private const val CACHE_DIR_NAME = "playback_audio_cache"
     private const val CACHE_PREFIX = "playback_transcoded_"
-
-    private val lock = Any()
-    private val cachedOutputBySource = mutableMapOf<String, String>()
 
     fun isAlacEncodedM4a(path: String): Boolean {
         val file = File(path)
@@ -66,96 +59,26 @@ object PlaybackAlacTranscodeManager {
     ): String? {
         val sourceFile = File(sourcePath)
         if (!sourceFile.exists()) return null
-        val shouldTranscode = if (forceForM4aFailure) {
+        val shouldLegacyTranscode = if (forceForM4aFailure) {
             sourceFile.name.lowercase().endsWith(".m4a")
         } else {
             isAlacEncodedM4a(sourcePath)
         }
-        if (!shouldTranscode) return sourcePath
-
-        synchronized(lock) {
-            val cached = cachedOutputBySource[sourcePath]
-            if (cached != null && File(cached).exists()) {
-                cleanupCacheFiles(context, keepPath = cached)
-                return cached
-            }
-            cachedOutputBySource.remove(sourcePath)
+        if (shouldLegacyTranscode) {
+            Log.i(TAG, "Legacy transcode disabled, use direct decode path: $sourcePath")
         }
-
-        val outputPath = synchronized(lock) {
-            val cacheDir = getCacheDir(context)
-            cleanupCacheFiles(context, keepPath = null)
-            val output = File(
-                cacheDir,
-                "${CACHE_PREFIX}${System.currentTimeMillis()}_${sourceFile.nameWithoutExtension}.wav"
-            )
-            output.absolutePath
-        }
-
-        val outputFile = File(outputPath)
-        val done = CountDownLatch(1)
-        val callbackHandled = AtomicBoolean(false)
-        val successFlag = AtomicBoolean(false)
-
-        AudioConverter.decodeToWav(
-            inputPath = sourcePath,
-            outputPath = outputPath,
-            callback = object : AudioConverter.ConvertCallback {
-                override fun onProgress(progress: Int, time: Long) = Unit
-
-                override fun onComplete(successState: Boolean, message: String) {
-                    successFlag.set(successState)
-                    if (callbackHandled.compareAndSet(false, true)) {
-                        done.countDown()
-                    }
-                    if (!successState) {
-                        Log.e(TAG, "Playback fallback transcode failed: $message")
-                    }
-                }
-
-                override fun onError(error: String) {
-                    successFlag.set(false)
-                    if (callbackHandled.compareAndSet(false, true)) {
-                        done.countDown()
-                    }
-                    Log.e(TAG, "Playback fallback transcode error: $error")
-                }
-            }
-        )
-
-        val finished = runCatching { done.await(8, TimeUnit.MINUTES) }.getOrDefault(false)
-        if (!finished || !successFlag.get() || !outputFile.exists()) {
-            if (outputFile.exists()) {
-                outputFile.delete()
-            }
-            synchronized(lock) {
-                cachedOutputBySource.remove(sourcePath)
-                cleanupCacheFiles(context, keepPath = null)
-            }
-            return null
-        }
-
-        synchronized(lock) {
-            cachedOutputBySource.clear()
-            cachedOutputBySource[sourcePath] = outputFile.absolutePath
-            cleanupCacheFiles(context, keepPath = outputFile.absolutePath)
-        }
-        return outputFile.absolutePath
+        cleanupCacheFiles(context, keepPath = null)
+        return sourcePath
     }
 
     fun cleanupCacheFiles(context: Context, keepPath: String? = null) {
-        synchronized(lock) {
-            val dir = getCacheDir(context)
-            dir.listFiles()?.forEach { file ->
-                if (keepPath != null && file.absolutePath == keepPath) return@forEach
-                if (file.name.startsWith(CACHE_PREFIX) || file.name.startsWith("temp_")) {
-                    if (!file.delete()) {
-                        Log.w(TAG, "Failed to delete playback cache file: ${file.absolutePath}")
-                    }
+        val dir = getCacheDir(context)
+        dir.listFiles()?.forEach { file ->
+            if (keepPath != null && file.absolutePath == keepPath) return@forEach
+            if (file.name.startsWith(CACHE_PREFIX) || file.name.startsWith("temp_")) {
+                if (!file.delete()) {
+                    Log.w(TAG, "Failed to delete playback cache file: ${file.absolutePath}")
                 }
-            }
-            cachedOutputBySource.entries.removeAll { (_, outputPath) ->
-                keepPath != outputPath && !File(outputPath).exists()
             }
         }
     }
