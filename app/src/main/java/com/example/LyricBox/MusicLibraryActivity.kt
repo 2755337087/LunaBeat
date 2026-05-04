@@ -1520,12 +1520,13 @@ fun MusicLibraryScreen(
     }
     
     LaunchedEffect(Unit) {
-        favoritePaths.clear()
-        favoritePaths.addAll(
+        val favoritePathsSnapshot = withContext(Dispatchers.IO) {
             LocalPlaylistStore.loadFavoritePaths(context).filter { path ->
                 runCatching { File(path).exists() }.getOrDefault(false)
             }
-        )
+        }
+        favoritePaths.clear()
+        favoritePaths.addAll(favoritePathsSnapshot)
         val hasCache = loadCachedAudioFiles(context, allAudioFiles)
         if (hasCache) {
             isFromCache = true
@@ -3959,91 +3960,99 @@ private suspend fun scanAudioFilesFromFolders(
             }
         }
 
-        val validPaths = allFiles.map { it.absolutePath }.toSet()
-        withContext(Dispatchers.Main) {
-            val removedFiles = audioFiles.filter { it.path !in validPaths }
-            removedCount = removedFiles.size
-            audioFiles.removeAll(removedFiles)
+        val existingSnapshot = withContext(Dispatchers.Main) {
+            audioFiles.associateBy { it.path }
+        }
+        val distinctFiles = allFiles.distinctBy { it.absolutePath }
+        val mergedByPath = LinkedHashMap<String, AudioFile>(distinctFiles.size)
+        val progressStep = 25
+        var lastProgressReported = -progressStep
+        suspend fun reportProgress(current: Int, total: Int) {
+            val shouldReport = current == 0 || current >= total || current - lastProgressReported >= progressStep
+            if (!shouldReport) return
+            lastProgressReported = current
+            withContext(Dispatchers.Main) {
+                onProgress(current, total)
+            }
         }
 
-        val total = allFiles.size
-        allFiles.forEachIndexed { index, file ->
-            withContext(Dispatchers.Main) {
-                onProgress(index + 1, total)
-            }
-
+        val total = distinctFiles.size
+        reportProgress(0, total)
+        distinctFiles.forEachIndexed { index, file ->
+            val path = file.absolutePath
+            val existing = existingSnapshot[path]
             try {
-                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, file.absolutePath)
+                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, path)
                 val duration = metadata.duration
-                if (!excludeShortAudio || duration >= 60000) {
+                if (!excludeShortAudio || duration >= 60000L) {
                     val fileSize = file.length()
                     val fileLastModified = file.lastModified()
-                    var coverCachePath: String? = null
-                    if (metadata.cover != null) {
-                        coverCachePath = saveCoverToCache(context, file.absolutePath, metadata.cover)
+                    val coverCachePath = metadata.cover?.let { coverBytes ->
+                        saveCoverToCache(context, path, coverBytes)
                     }
-
-                    withContext(Dispatchers.Main) {
-                        val existingIndex = audioFiles.indexOfFirst { it.path == file.absolutePath }
-                        if (existingIndex >= 0) {
-                            val existing = audioFiles[existingIndex]
-                            val changed = hasAudioMetadataChanged(
-                                existing = existing,
-                                title = metadata.title,
-                                artist = metadata.artist,
-                                album = metadata.album,
-                                duration = duration,
-                                fileSize = fileSize,
-                                lastModified = fileLastModified,
-                                year = metadata.year,
-                                coverCachePath = coverCachePath,
-                                mediaStoreId = -1L
-                            )
-                            audioFiles[existingIndex] = existing.copy(
-                                title = metadata.title,
-                                artist = metadata.artist,
-                                album = metadata.album,
-                                duration = duration,
-                                fileSize = fileSize,
-                                lastModified = fileLastModified,
-                                coverCachePath = coverCachePath ?: existing.coverCachePath,
-                                year = metadata.year,
-                                mediaStoreId = -1L
-                            )
-                            if (changed) {
-                                updatedCount++
-                            }
-                        } else {
-                            val audioFile = AudioFile(
-                                path = file.absolutePath,
-                                title = metadata.title,
-                                artist = metadata.artist,
-                                album = metadata.album,
-                                duration = duration,
-                                fileSize = fileSize,
-                                lastModified = fileLastModified,
-                                addedTime = System.currentTimeMillis(),
-                                coverCachePath = coverCachePath,
-                                year = metadata.year,
-                                mediaStoreId = -1L
-                            )
-                            audioFiles.add(audioFile)
-                            addedCount++
+                    if (existing != null) {
+                        val changed = hasAudioMetadataChanged(
+                            existing = existing,
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            duration = duration,
+                            fileSize = fileSize,
+                            lastModified = fileLastModified,
+                            year = metadata.year,
+                            coverCachePath = coverCachePath,
+                            mediaStoreId = -1L
+                        )
+                        if (changed) {
+                            updatedCount++
                         }
+                        mergedByPath[path] = existing.copy(
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            duration = duration,
+                            fileSize = fileSize,
+                            lastModified = fileLastModified,
+                            coverCachePath = coverCachePath ?: existing.coverCachePath,
+                            year = metadata.year,
+                            mediaStoreId = -1L
+                        )
+                    } else {
+                        mergedByPath[path] = AudioFile(
+                            path = path,
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            duration = duration,
+                            fileSize = fileSize,
+                            lastModified = fileLastModified,
+                            addedTime = System.currentTimeMillis(),
+                            coverCachePath = coverCachePath,
+                            year = metadata.year,
+                            mediaStoreId = -1L
+                        )
+                        addedCount++
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MusicLibrary", "Error reading file: ${file.absolutePath}", e)
+                Log.e("MusicLibrary", "Error reading file: $path", e)
+                if (existing != null) {
+                    mergedByPath[path] = existing
+                }
+            } finally {
+                reportProgress(index + 1, total)
             }
         }
 
-        val validCoverPaths = withContext(Dispatchers.Main) {
-            audioFiles.mapNotNull { it.coverCachePath }.toSet()
-        }
+        removedCount = existingSnapshot.keys.count { it !in mergedByPath.keys }
+        val mergedList = mergedByPath.values.toList()
+        val validCoverPaths = mergedList.mapNotNull { it.coverCachePath }.toSet()
         clearOldCoverCache(context, validCoverPaths)
+        saveCachedAudioFiles(context, mergedList)
 
         withContext(Dispatchers.Main) {
-            saveCachedAudioFiles(context, audioFiles)
+            audioFiles.clear()
+            audioFiles.addAll(mergedList)
             prefs.edit().putStringSet("lastScannedFolders", folders).apply()
             onComplete(
                 ScanSummary(
@@ -4076,38 +4085,35 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
         val mediaEntries = queryNativeMediaAudioEntries(context)
             .filter { entry -> shouldIncludeLibraryPath(entry.path, includeFolders, excludeFolders) }
             .filter { entry -> !excludeShortAudio || entry.duration >= 60000L }
-
-        val validPaths = mediaEntries.map { it.path }.toSet()
-        withContext(Dispatchers.Main) {
-            val removedFiles = audioFiles.filter { it.path !in validPaths }
-            removedCount += removedFiles.size
-            audioFiles.removeAll(removedFiles)
-        }
+            .distinctBy { it.path }
 
         val existingSnapshot = withContext(Dispatchers.Main) {
             audioFiles.associateBy { it.path }
         }
-        val entriesToProcess = mediaEntries.filter { entry ->
-            isNativeMediaEntryChanged(existingSnapshot[entry.path], entry)
-        }
-
-        withContext(Dispatchers.Main) {
-            onProgress(0, entriesToProcess.size)
-        }
-
-        entriesToProcess.forEachIndexed { index, entry ->
+        val mergedByPath = LinkedHashMap<String, AudioFile>(mediaEntries.size)
+        val progressStep = 25
+        var lastProgressReported = -progressStep
+        suspend fun reportProgress(current: Int, total: Int) {
+            val shouldReport = current == 0 || current >= total || current - lastProgressReported >= progressStep
+            if (!shouldReport) return
+            lastProgressReported = current
             withContext(Dispatchers.Main) {
-                onProgress(index + 1, entriesToProcess.size)
+                onProgress(current, total)
             }
+        }
 
+        val total = mediaEntries.size
+        reportProgress(0, total)
+        mediaEntries.forEachIndexed { index, entry ->
+            val existing = existingSnapshot[entry.path]
+            if (existing != null && !isNativeMediaEntryChanged(existing, entry)) {
+                mergedByPath[entry.path] = existing
+                reportProgress(index + 1, total)
+                return@forEachIndexed
+            }
             try {
                 val file = File(entry.path)
                 if (!file.exists()) {
-                    withContext(Dispatchers.Main) {
-                        val beforeSize = audioFiles.size
-                        audioFiles.removeAll { it.path == entry.path }
-                        removedCount += (beforeSize - audioFiles.size)
-                    }
                     return@forEachIndexed
                 }
 
@@ -4118,82 +4124,77 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
                 )
                 val duration = if (metadata.duration > 0) metadata.duration else entry.duration
                 if (excludeShortAudio && duration < 60000L) {
-                    withContext(Dispatchers.Main) {
-                        val beforeSize = audioFiles.size
-                        audioFiles.removeAll { it.path == entry.path }
-                        removedCount += (beforeSize - audioFiles.size)
-                    }
                     return@forEachIndexed
                 }
 
-                var coverCachePath: String? = null
-                if (metadata.cover != null) {
-                    coverCachePath = saveCoverToCache(context, entry.path, metadata.cover)
+                val coverCachePath = metadata.cover?.let { coverBytes ->
+                    saveCoverToCache(context, entry.path, coverBytes)
                 }
+                val targetFileSize = if (entry.fileSize > 0) entry.fileSize else file.length()
+                val targetLastModified = if (entry.lastModified > 0) entry.lastModified else file.lastModified()
 
-                withContext(Dispatchers.Main) {
-                    val existingIndex = audioFiles.indexOfFirst { it.path == entry.path }
-                    if (existingIndex >= 0) {
-                        val existing = audioFiles[existingIndex]
-                        val targetFileSize = if (entry.fileSize > 0) entry.fileSize else file.length()
-                        val targetLastModified = if (entry.lastModified > 0) entry.lastModified else file.lastModified()
-                        val changed = hasAudioMetadataChanged(
-                            existing = existing,
-                            title = metadata.title,
-                            artist = metadata.artist,
-                            album = metadata.album,
-                            duration = duration,
-                            fileSize = targetFileSize,
-                            lastModified = targetLastModified,
-                            year = metadata.year,
-                            coverCachePath = coverCachePath,
-                            mediaStoreId = entry.mediaStoreId
-                        )
-                        audioFiles[existingIndex] = existing.copy(
-                            title = metadata.title,
-                            artist = metadata.artist,
-                            album = metadata.album,
-                            duration = duration,
-                            fileSize = targetFileSize,
-                            lastModified = targetLastModified,
-                            coverCachePath = coverCachePath ?: existing.coverCachePath,
-                            year = metadata.year,
-                            mediaStoreId = entry.mediaStoreId
-                        )
-                        if (changed) {
-                            updatedCount++
-                        }
-                    } else {
-                        audioFiles.add(
-                            AudioFile(
-                                path = entry.path,
-                                title = metadata.title,
-                                artist = metadata.artist,
-                                album = metadata.album,
-                                duration = duration,
-                                fileSize = if (entry.fileSize > 0) entry.fileSize else file.length(),
-                                lastModified = if (entry.lastModified > 0) entry.lastModified else file.lastModified(),
-                                addedTime = System.currentTimeMillis(),
-                                coverCachePath = coverCachePath,
-                                year = metadata.year,
-                                mediaStoreId = entry.mediaStoreId
-                            )
-                        )
-                        addedCount++
+                if (existing != null) {
+                    val changed = hasAudioMetadataChanged(
+                        existing = existing,
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        album = metadata.album,
+                        duration = duration,
+                        fileSize = targetFileSize,
+                        lastModified = targetLastModified,
+                        year = metadata.year,
+                        coverCachePath = coverCachePath,
+                        mediaStoreId = entry.mediaStoreId
+                    )
+                    if (changed) {
+                        updatedCount++
                     }
+                    mergedByPath[entry.path] = existing.copy(
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        album = metadata.album,
+                        duration = duration,
+                        fileSize = targetFileSize,
+                        lastModified = targetLastModified,
+                        coverCachePath = coverCachePath ?: existing.coverCachePath,
+                        year = metadata.year,
+                        mediaStoreId = entry.mediaStoreId
+                    )
+                } else {
+                    mergedByPath[entry.path] = AudioFile(
+                        path = entry.path,
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        album = metadata.album,
+                        duration = duration,
+                        fileSize = targetFileSize,
+                        lastModified = targetLastModified,
+                        addedTime = System.currentTimeMillis(),
+                        coverCachePath = coverCachePath,
+                        year = metadata.year,
+                        mediaStoreId = entry.mediaStoreId
+                    )
+                    addedCount++
                 }
             } catch (e: Exception) {
                 Log.e("MusicLibrary", "Error syncing native media entry: ${entry.path}", e)
+                if (existing != null) {
+                    mergedByPath[entry.path] = existing
+                }
+            } finally {
+                reportProgress(index + 1, total)
             }
         }
 
-        val validCoverPaths = withContext(Dispatchers.Main) {
-            audioFiles.mapNotNull { it.coverCachePath }.toSet()
-        }
+        removedCount = existingSnapshot.keys.count { it !in mergedByPath.keys }
+        val mergedList = mergedByPath.values.toList()
+        val validCoverPaths = mergedList.mapNotNull { it.coverCachePath }.toSet()
         clearOldCoverCache(context, validCoverPaths)
+        saveCachedAudioFiles(context, mergedList)
 
         withContext(Dispatchers.Main) {
-            saveCachedAudioFiles(context, audioFiles)
+            audioFiles.clear()
+            audioFiles.addAll(mergedList)
             prefs.edit().putLong("lastNativeMediaSyncAt", System.currentTimeMillis()).apply()
             onComplete(
                 ScanSummary(
