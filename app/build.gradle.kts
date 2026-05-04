@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("com.google.devtools.ksp") version "2.2.10-2.0.2"
 }
 
 android {
@@ -89,6 +90,12 @@ dependencies {
     implementation("androidx.window:window:1.4.0")
     implementation("com.github.yalantis:ucrop:2.2.11-native")
     implementation("androidx.palette:palette:1.0.0")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    implementation("androidx.room:room-paging:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
+    implementation("androidx.paging:paging-runtime-ktx:3.3.6")
+    implementation("androidx.paging:paging-compose:3.3.6")
     implementation("io.github.proify.lyricon:provider:0.1.70")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

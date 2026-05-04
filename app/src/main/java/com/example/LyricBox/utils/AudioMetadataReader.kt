@@ -94,7 +94,7 @@ object AudioMetadataReader {
         }
     }
     
-    fun readMetadata(filePath: String): AudioMetadata {
+    fun readMetadata(filePath: String, includeCover: Boolean = true): AudioMetadata {
         val file = File(filePath)
         if (!file.exists()) {
             return AudioMetadata()
@@ -102,9 +102,9 @@ object AudioMetadataReader {
         
         return try {
             val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val result = readMetadataFromPfd(pfd)
+            val result = readMetadataFromPfd(pfd, includeCover = includeCover)
             pfd.close()
-            if (result.cover != null) {
+            if (!includeCover || result.cover != null) {
                 result
             } else {
                 result.copy(cover = extractCoverWithRetriever(filePath))
@@ -115,15 +115,15 @@ object AudioMetadataReader {
         }
     }
     
-    fun readMetadataFromUri(context: Context, uri: Uri): AudioMetadata {
+    fun readMetadataFromUri(context: Context, uri: Uri, includeCover: Boolean = true): AudioMetadata {
         return try {
             val pfd = context.contentResolver.openFileDescriptor(uri, "r")
             if (pfd == null) {
                 return AudioMetadata()
             }
-            val result = readMetadataFromPfd(pfd)
+            val result = readMetadataFromPfd(pfd, includeCover = includeCover)
             pfd.close()
-            if (result.cover != null) {
+            if (!includeCover || result.cover != null) {
                 result
             } else {
                 result.copy(cover = extractCoverWithRetriever(context, uri))
@@ -134,19 +134,24 @@ object AudioMetadataReader {
         }
     }
 
-    fun readMetadata(context: Context, filePath: String, mediaStoreId: Long = -1L): AudioMetadata {
-        val fromFile = readMetadata(filePath)
-        if (!shouldFallbackToUri(fromFile)) {
+    fun readMetadata(
+        context: Context,
+        filePath: String,
+        mediaStoreId: Long = -1L,
+        includeCover: Boolean = true
+    ): AudioMetadata {
+        val fromFile = readMetadata(filePath, includeCover = includeCover)
+        if (!shouldFallbackToUri(fromFile, includeCover = includeCover)) {
             return fromFile
         }
 
         val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId) ?: return fromFile
-        val fromUri = readMetadataFromUri(context, mediaUri)
+        val fromUri = readMetadataFromUri(context, mediaUri, includeCover = includeCover)
         return mergePreferPrimary(fromFile, fromUri)
     }
 
-    private fun shouldFallbackToUri(metadata: AudioMetadata): Boolean {
-        return metadata.cover == null ||
+    private fun shouldFallbackToUri(metadata: AudioMetadata, includeCover: Boolean): Boolean {
+        return (includeCover && metadata.cover == null) ||
             metadata.title.isBlank() ||
             metadata.artist.isBlank() ||
             metadata.album.isBlank() ||
@@ -200,7 +205,7 @@ object AudioMetadataReader {
         }
     }
     
-    private fun readMetadataFromPfd(pfd: ParcelFileDescriptor): AudioMetadata {
+    private fun readMetadataFromPfd(pfd: ParcelFileDescriptor, includeCover: Boolean = true): AudioMetadata {
         return try {
             val nativeFd = pfd.dup().detachFd()
             
@@ -208,10 +213,13 @@ object AudioMetadataReader {
             val metaFd = pfd.dup().detachFd()
             val metadata = TagLib.getMetadata(metaFd, false)
             
-            // 获取封面
-            val coverFd = pfd.dup().detachFd()
-            val coverPicture = TagLib.getFrontCover(coverFd)
-            val coverData = coverPicture?.data
+            val coverData = if (includeCover) {
+                val coverFd = pfd.dup().detachFd()
+                val coverPicture = TagLib.getFrontCover(coverFd)
+                coverPicture?.data
+            } else {
+                null
+            }
             
             if (metadata == null) {
                 return AudioMetadata(cover = coverData)

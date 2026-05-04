@@ -2,10 +2,12 @@ package com.example.LyricBox
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.StrictMode
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
@@ -754,13 +756,28 @@ class MusicLibraryActivity : ComponentActivity() {
             val cacheSize = maxMemory / 8
             resize(cacheSize)
         }
+        private val noCoverCachePaths = java.util.Collections.synchronizedSet(mutableSetOf<String>())
         
         fun getCoverFromCache(cachePath: String): Bitmap? = coverCache.get(cachePath)
         fun putCoverToCache(cachePath: String, bitmap: Bitmap) {
+            clearNoCoverMark(cachePath)
             coverCache.put(cachePath, bitmap)
         }
         fun removeCoverFromCache(cachePath: String) {
             coverCache.remove(cachePath)
+            clearNoCoverMark(cachePath)
+        }
+        fun isNoCoverMarked(cachePath: String): Boolean = noCoverCachePaths.contains(cachePath)
+        fun markNoCover(cachePath: String) {
+            noCoverCachePaths.add(cachePath)
+        }
+        fun clearNoCoverMark(cachePath: String) {
+            noCoverCachePaths.remove(cachePath)
+        }
+        fun retainNoCoverMarks(validPaths: Set<String>) {
+            synchronized(noCoverCachePaths) {
+                noCoverCachePaths.retainAll(validPaths)
+            }
         }
         
         fun calculateInSampleSize(
@@ -787,6 +804,15 @@ class MusicLibraryActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .penaltyLog()
+                    .build()
+            )
+        }
         enableEdgeToEdge()
         
         val checkResult = PiracyChecker.checkAll(this)
@@ -1246,7 +1272,8 @@ fun MusicLibraryScreen(
             val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
                 context,
                 audio.path,
-                audio.mediaStoreId
+                audio.mediaStoreId,
+                includeCover = false
             )
             parseTrackNumberValue(metadata.trackNumber)
         }.getOrDefault(Int.MAX_VALUE)
@@ -1372,7 +1399,18 @@ fun MusicLibraryScreen(
 
             if (requestVersion != displayUpdateVersion) return@launch
             displayAudioFiles.clear()
-            displayAudioFiles.addAll(filtered)
+            if (filtered.isEmpty()) return@launch
+            val batchSize = 200
+            var start = 0
+            while (start < filtered.size) {
+                if (requestVersion != displayUpdateVersion) return@launch
+                val end = minOf(start + batchSize, filtered.size)
+                displayAudioFiles.addAll(filtered.subList(start, end))
+                start = end
+                if (start < filtered.size) {
+                    kotlinx.coroutines.yield()
+                }
+            }
         }
     }
 
@@ -1537,11 +1575,16 @@ fun MusicLibraryScreen(
         val useNativeMediaLibrary = prefs.getBoolean("useNativeMediaLibrary", true)
         val currentFolders = prefs.getStringSet("musicFolders", emptySet()) ?: emptySet()
         val lastScannedFolders = prefs.getStringSet("lastScannedFolders", emptySet()) ?: emptySet()
+        val nowMs = System.currentTimeMillis()
+        val lastNativeMediaSyncAt = prefs.getLong("lastNativeMediaSyncAt", 0L)
+        val nativeAutoSyncIntervalMs = 10 * 60 * 1000L
         
         // 检查目录是否有变化（新增或减少）
         val foldersChanged = currentFolders != lastScannedFolders
         val shouldScan = if (useNativeMediaLibrary) {
-            true
+            !hasCache ||
+                autoScanEnabled ||
+                (nowMs - lastNativeMediaSyncAt) >= nativeAutoSyncIntervalMs
         } else {
             foldersChanged || autoScanEnabled
         }
@@ -1549,6 +1592,10 @@ fun MusicLibraryScreen(
         // 原生媒体库模式默认自动增量同步；目录模式按原逻辑触发扫描
         if (shouldScan) {
             scanJob = launch {
+                if (hasCache && useNativeMediaLibrary) {
+                    // 先展示缓存列表，避免页面进入瞬间抢占资源导致触控无响应。
+                    delay(1200)
+                }
                 isScanning = true
                 showScanComplete = false
                 startScanPopupDelay()
@@ -1766,8 +1813,11 @@ fun MusicLibraryScreen(
             )
             
             val shouldShowLibraryLoading = isLoadingCache || !isInitialListFadeReady
+            val shouldShowScanBootstrapLoading =
+                !shouldShowLibraryLoading && isScanning && displayAudioFiles.isEmpty()
+            val shouldShowMusicListLoading = shouldShowLibraryLoading || shouldShowScanBootstrapLoading
 
-            if (shouldShowLibraryLoading) {
+            if (shouldShowMusicListLoading) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -1777,7 +1827,7 @@ fun MusicLibraryScreen(
             }
 
             AnimatedVisibility(
-                visible = !shouldShowLibraryLoading,
+                visible = !shouldShowMusicListLoading,
                 enter = fadeIn(animationSpec = tween(durationMillis = 320)),
                 exit = fadeOut(animationSpec = tween(durationMillis = 120))
             ) {
@@ -2917,15 +2967,21 @@ fun AudioFileItem(
     LaunchedEffect(audio.coverCachePath, audio.lastModified) {
         coverBitmap = null
         audio.coverCachePath?.let { cachePath ->
+            if (MusicLibraryActivity.isNoCoverMarked(cachePath)) {
+                return@let
+            }
             val cached = MusicLibraryActivity.getCoverFromCache(cachePath)
             if (cached != null) {
                 coverBitmap = cached
             } else {
-                delay(100)
                 val bitmap = withContext(Dispatchers.IO) {
                     try {
-                        loadCoverBitmapFromCache(cachePath, targetSizePx, targetSizePx)
-                            ?: rebuildCoverCacheBitmap(context, audio, cachePath, targetSizePx)
+                        val fromCache = loadCoverBitmapFromCache(cachePath, targetSizePx, targetSizePx)
+                        when {
+                            fromCache != null -> fromCache
+                            MusicLibraryActivity.isNoCoverMarked(cachePath) -> null
+                            else -> rebuildCoverCacheBitmap(context, audio, cachePath, targetSizePx)
+                        }
                     } catch (e: Exception) {
                         Log.e("MusicLibrary", "Error loading cover bitmap", e)
                         null
@@ -3703,7 +3759,16 @@ private fun LyricsPreviewDialog(
 }
 
 private suspend fun loadCachedAudioFiles(context: Context, audioFiles: MutableList<AudioFile>): Boolean {
-    val cachedFiles = withContext(Dispatchers.IO) {
+    val roomCachedFiles = withContext(Dispatchers.IO) {
+        musicLibraryCacheStore(context).loadAllPaged()
+    }
+    if (roomCachedFiles.isNotEmpty()) {
+        audioFiles.addAll(roomCachedFiles)
+        return true
+    }
+
+    // 兼容历史版本：首次升级时将 SharedPreferences 缓存迁移到 Room。
+    val legacyCachedFiles = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences("MusicLibraryCache", Context.MODE_PRIVATE)
         val cacheJson = prefs.getString("audioFilesCache", null) ?: return@withContext emptyList<AudioFile>()
 
@@ -3719,18 +3784,20 @@ private suspend fun loadCachedAudioFiles(context: Context, audioFiles: MutableLi
             emptyList()
         }
     }
-    if (cachedFiles.isEmpty()) return false
-    audioFiles.addAll(cachedFiles)
+    if (legacyCachedFiles.isEmpty()) return false
+    audioFiles.addAll(legacyCachedFiles)
+    saveCachedAudioFiles(context, legacyCachedFiles)
     return true
 }
 
 private fun saveCachedAudioFiles(context: Context, audioFiles: List<AudioFile>) {
-    val prefs = context.getSharedPreferences("MusicLibraryCache", Context.MODE_PRIVATE)
-    val jsonArray = JSONArray()
-    audioFiles.forEach { audio ->
-        jsonArray.put(audio.toJson())
+    musicLibraryCacheStore(context).saveAllAsync(audioFiles)
+}
+
+private suspend fun saveCachedAudioFilesBlocking(context: Context, audioFiles: List<AudioFile>) {
+    withContext(Dispatchers.IO) {
+        musicLibraryCacheStore(context).saveAllBlocking(audioFiles)
     }
-    prefs.edit().putString("audioFilesCache", jsonArray.toString()).apply()
 }
 
 private fun sortAudioFiles(
@@ -3965,7 +4032,7 @@ private suspend fun scanAudioFilesFromFolders(
         }
         val distinctFiles = allFiles.distinctBy { it.absolutePath }
         val mergedByPath = LinkedHashMap<String, AudioFile>(distinctFiles.size)
-        val progressStep = 25
+        val progressStep = 100
         var lastProgressReported = -progressStep
         suspend fun reportProgress(current: Int, total: Int) {
             val shouldReport = current == 0 || current >= total || current - lastProgressReported >= progressStep
@@ -3982,14 +4049,20 @@ private suspend fun scanAudioFilesFromFolders(
             val path = file.absolutePath
             val existing = existingSnapshot[path]
             try {
-                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, path)
+                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                    context = context,
+                    filePath = path,
+                    includeCover = false
+                )
                 val duration = metadata.duration
                 if (!excludeShortAudio || duration >= 60000L) {
                     val fileSize = file.length()
                     val fileLastModified = file.lastModified()
-                    val coverCachePath = metadata.cover?.let { coverBytes ->
-                        saveCoverToCache(context, path, coverBytes)
-                    }
+                    val coverCachePath = resolveCoverCachePath(
+                        context = context,
+                        audioFilePath = path,
+                        cacheDiscriminator = fileLastModified.toString()
+                    )
                     if (existing != null) {
                         val changed = hasAudioMetadataChanged(
                             existing = existing,
@@ -4013,7 +4086,7 @@ private suspend fun scanAudioFilesFromFolders(
                             duration = duration,
                             fileSize = fileSize,
                             lastModified = fileLastModified,
-                            coverCachePath = coverCachePath ?: existing.coverCachePath,
+                            coverCachePath = coverCachePath,
                             year = metadata.year,
                             mediaStoreId = -1L
                         )
@@ -4048,11 +4121,22 @@ private suspend fun scanAudioFilesFromFolders(
         val mergedList = mergedByPath.values.toList()
         val validCoverPaths = mergedList.mapNotNull { it.coverCachePath }.toSet()
         clearOldCoverCache(context, validCoverPaths)
-        saveCachedAudioFiles(context, mergedList)
+        saveCachedAudioFilesBlocking(context, mergedList)
 
         withContext(Dispatchers.Main) {
             audioFiles.clear()
-            audioFiles.addAll(mergedList)
+            if (mergedList.isNotEmpty()) {
+                val batchSize = 200
+                var start = 0
+                while (start < mergedList.size) {
+                    val end = minOf(start + batchSize, mergedList.size)
+                    audioFiles.addAll(mergedList.subList(start, end))
+                    start = end
+                    if (start < mergedList.size) {
+                        kotlinx.coroutines.yield()
+                    }
+                }
+            }
             prefs.edit().putStringSet("lastScannedFolders", folders).apply()
             onComplete(
                 ScanSummary(
@@ -4091,7 +4175,7 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
             audioFiles.associateBy { it.path }
         }
         val mergedByPath = LinkedHashMap<String, AudioFile>(mediaEntries.size)
-        val progressStep = 25
+        val progressStep = 100
         var lastProgressReported = -progressStep
         suspend fun reportProgress(current: Int, total: Int) {
             val shouldReport = current == 0 || current >= total || current - lastProgressReported >= progressStep
@@ -4107,7 +4191,21 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
         mediaEntries.forEachIndexed { index, entry ->
             val existing = existingSnapshot[entry.path]
             if (existing != null && !isNativeMediaEntryChanged(existing, entry)) {
-                mergedByPath[entry.path] = existing
+                val resolvedCoverCachePath = if (existing.coverCachePath.isNullOrBlank()) {
+                    resolveCoverCachePath(
+                        context = context,
+                        audioFilePath = entry.path,
+                        cacheDiscriminator = entry.lastModified.toString()
+                    )
+                } else {
+                    existing.coverCachePath
+                }
+                if (resolvedCoverCachePath != existing.coverCachePath) {
+                    updatedCount++
+                    mergedByPath[entry.path] = existing.copy(coverCachePath = resolvedCoverCachePath)
+                } else {
+                    mergedByPath[entry.path] = existing
+                }
                 reportProgress(index + 1, total)
                 return@forEachIndexed
             }
@@ -4120,18 +4218,21 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
                 val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
                     context = context,
                     filePath = entry.path,
-                    mediaStoreId = entry.mediaStoreId
+                    mediaStoreId = entry.mediaStoreId,
+                    includeCover = false
                 )
                 val duration = if (metadata.duration > 0) metadata.duration else entry.duration
                 if (excludeShortAudio && duration < 60000L) {
                     return@forEachIndexed
                 }
 
-                val coverCachePath = metadata.cover?.let { coverBytes ->
-                    saveCoverToCache(context, entry.path, coverBytes)
-                }
                 val targetFileSize = if (entry.fileSize > 0) entry.fileSize else file.length()
                 val targetLastModified = if (entry.lastModified > 0) entry.lastModified else file.lastModified()
+                val coverCachePath = resolveCoverCachePath(
+                    context = context,
+                    audioFilePath = entry.path,
+                    cacheDiscriminator = targetLastModified.toString()
+                )
 
                 if (existing != null) {
                     val changed = hasAudioMetadataChanged(
@@ -4156,7 +4257,7 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
                         duration = duration,
                         fileSize = targetFileSize,
                         lastModified = targetLastModified,
-                        coverCachePath = coverCachePath ?: existing.coverCachePath,
+                        coverCachePath = coverCachePath,
                         year = metadata.year,
                         mediaStoreId = entry.mediaStoreId
                     )
@@ -4190,11 +4291,22 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
         val mergedList = mergedByPath.values.toList()
         val validCoverPaths = mergedList.mapNotNull { it.coverCachePath }.toSet()
         clearOldCoverCache(context, validCoverPaths)
-        saveCachedAudioFiles(context, mergedList)
+        saveCachedAudioFilesBlocking(context, mergedList)
 
         withContext(Dispatchers.Main) {
             audioFiles.clear()
-            audioFiles.addAll(mergedList)
+            if (mergedList.isNotEmpty()) {
+                val batchSize = 200
+                var start = 0
+                while (start < mergedList.size) {
+                    val end = minOf(start + batchSize, mergedList.size)
+                    audioFiles.addAll(mergedList.subList(start, end))
+                    start = end
+                    if (start < mergedList.size) {
+                        kotlinx.coroutines.yield()
+                    }
+                }
+            }
             prefs.edit().putLong("lastNativeMediaSyncAt", System.currentTimeMillis()).apply()
             onComplete(
                 ScanSummary(
@@ -4309,7 +4421,12 @@ private fun rebuildCoverCacheBitmap(
         filePath = audio.path,
         mediaStoreId = audio.mediaStoreId
     )
-    val coverData = metadata.cover ?: return null
+    val coverData = metadata.cover ?: run {
+        MusicLibraryActivity.removeCoverFromCache(cachePath)
+        MusicLibraryActivity.markNoCover(cachePath)
+        return null
+    }
+    MusicLibraryActivity.clearNoCoverMark(cachePath)
     val cacheFile = File(cachePath)
     return if (writeCoverThumbnailToFile(cacheFile, coverData)) {
         MusicLibraryActivity.removeCoverFromCache(cachePath)
@@ -4327,6 +4444,21 @@ private fun getCoverCacheDir(context: Context): File {
     return cacheDir
 }
 
+private fun resolveCoverCachePath(
+    context: Context,
+    audioFilePath: String,
+    cacheDiscriminator: String? = null
+): String {
+    val cacheDir = getCoverCacheDir(context)
+    val baseHash = audioFilePath.hashCode().toString()
+    val fileName = if (cacheDiscriminator.isNullOrBlank()) {
+        "$baseHash.jpg"
+    } else {
+        "${baseHash}_${cacheDiscriminator.hashCode()}.jpg"
+    }
+    return File(cacheDir, fileName).absolutePath
+}
+
 private fun saveCoverToCache(
     context: Context,
     audioFilePath: String,
@@ -4334,16 +4466,10 @@ private fun saveCoverToCache(
     cacheDiscriminator: String? = null
 ): String? {
     return try {
-        val cacheDir = getCoverCacheDir(context)
-        val baseHash = audioFilePath.hashCode().toString()
-        val fileName = if (cacheDiscriminator.isNullOrBlank()) {
-            "$baseHash.jpg"
-        } else {
-            "${baseHash}_${cacheDiscriminator.hashCode()}.jpg"
-        }
-        val cacheFile = File(cacheDir, fileName)
+        val cacheFile = File(resolveCoverCachePath(context, audioFilePath, cacheDiscriminator))
 
         if (writeCoverThumbnailToFile(cacheFile, coverData)) {
+            MusicLibraryActivity.clearNoCoverMark(cacheFile.absolutePath)
             cacheFile.absolutePath
         } else {
             null
@@ -4431,6 +4557,7 @@ private fun clearOldCoverCache(context: Context, validPaths: Set<String>) {
                 file.delete()
             }
         }
+        MusicLibraryActivity.retainNoCoverMarks(validPaths)
     } catch (e: Exception) {
         Log.e("MusicLibrary", "Error clearing old cover cache", e)
     }
