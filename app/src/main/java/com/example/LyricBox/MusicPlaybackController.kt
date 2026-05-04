@@ -16,13 +16,16 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.example.LyricBox.utils.AudioMetadataReader
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
 import java.io.File
+import java.util.concurrent.Executors
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
@@ -32,6 +35,8 @@ private const val KEY_LAST_TITLE = "last_title"
 private const val KEY_LAST_ARTIST = "last_artist"
 private const val KEY_LAST_COVER_CACHE_PATH = "last_cover_cache_path"
 private const val KEY_PLAYBACK_MODE = "playback_mode"
+@Volatile
+private var cachedDirectAlacDecodeSupport: Boolean? = null
 
 enum class PlaybackMode {
     SEQUENTIAL,
@@ -43,6 +48,7 @@ class MusicPlaybackController(private val context: Context) {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private val transcodeQueueExecutor = Executors.newSingleThreadExecutor()
     private val playbackStatePrefs by lazy {
         context.getSharedPreferences(PLAYBACK_STATE_PREFS, Context.MODE_PRIVATE)
     }
@@ -122,6 +128,7 @@ class MusicPlaybackController(private val context: Context) {
         controller = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
+        transcodeQueueExecutor.shutdownNow()
         isReady = false
     }
 
@@ -146,16 +153,26 @@ class MusicPlaybackController(private val context: Context) {
         val player = controller ?: return
         if (queue.isEmpty()) return
         val startIndex = queue.indexOfFirst { it.path == startPath }.coerceAtLeast(0)
-        val mediaItems = queue.map { audio ->
-            audio.toPlayableMediaItem(
-                context = context,
-                preferOriginalCover = audio.path == startPath
-            )
+        val queueSnapshot = queue.toList()
+        transcodeQueueExecutor.execute {
+            val playablePathBySource = queueSnapshot.associate { audio ->
+                audio.path to resolvePlayablePathForPlayback(context, audio.path)
+            }
+            val mediaItems = queueSnapshot.map { audio ->
+                audio.toPlayableMediaItem(
+                    context = context,
+                    preferOriginalCover = audio.path == startPath,
+                    playbackPathOverride = playablePathBySource[audio.path]
+                )
+            }
+            ContextCompat.getMainExecutor(context).execute {
+                val latestPlayer = controller ?: return@execute
+                latestPlayer.setMediaItems(mediaItems, startIndex, 0L)
+                latestPlayer.prepare()
+                latestPlayer.playWhenReady = true
+                latestPlayer.play()
+            }
         }
-        player.setMediaItems(mediaItems, startIndex, 0L)
-        player.prepare()
-        player.playWhenReady = true
-        player.play()
         LocalPlaylistStore.savePlaybackQueue(
             context,
             queue.map {
@@ -176,15 +193,23 @@ class MusicPlaybackController(private val context: Context) {
         } else {
             player.mediaItemCount
         }
-        val mediaItem = audio.toPlayableMediaItem(
-            context = context,
-            preferOriginalCover = false
-        )
-        player.addMediaItem(insertIndex, mediaItem)
-        if (player.playbackState == Player.STATE_IDLE) {
-            player.prepare()
+        transcodeQueueExecutor.execute {
+            val playbackPath = resolvePlayablePathForPlayback(context, audio.path)
+            val mediaItem = audio.toPlayableMediaItem(
+                context = context,
+                preferOriginalCover = false,
+                playbackPathOverride = playbackPath
+            )
+            ContextCompat.getMainExecutor(context).execute {
+                val latestPlayer = controller ?: return@execute
+                val safeInsertIndex = insertIndex.coerceIn(0, latestPlayer.mediaItemCount)
+                latestPlayer.addMediaItem(safeInsertIndex, mediaItem)
+                if (latestPlayer.playbackState == Player.STATE_IDLE) {
+                    latestPlayer.prepare()
+                }
+                persistCurrentQueue(latestPlayer)
+            }
         }
-        persistCurrentQueue(player)
     }
 
     fun skipToNext() {
@@ -194,18 +219,15 @@ class MusicPlaybackController(private val context: Context) {
         val count = player.mediaItemCount
         if (count <= 0) return
         if (playbackMode == PlaybackMode.SINGLE_REPEAT) {
-            val nextIndex = current + 1
-            if (nextIndex in 0 until count) {
-                player.seekToDefaultPosition(nextIndex)
-            } else {
-                player.seekToDefaultPosition(0)
-            }
+            val nextIndex = if (current + 1 in 0 until count) current + 1 else 0
+            playQueueItemWithPreTranscode(nextIndex, forcePlay = true)
             return
         }
-        if (player.hasNextMediaItem()) {
-            player.seekToNextMediaItem()
+        val nextIndex = player.nextMediaItemIndex
+        if (nextIndex in 0 until count) {
+            playQueueItemWithPreTranscode(nextIndex, forcePlay = true)
         } else {
-            player.seekToDefaultPosition(0)
+            playQueueItemWithPreTranscode(0, forcePlay = true)
         }
     }
 
@@ -213,13 +235,18 @@ class MusicPlaybackController(private val context: Context) {
         val player = controller ?: return
         val current = player.currentMediaItemIndex
         if (playbackMode == PlaybackMode.SINGLE_REPEAT && current > 0 && player.currentPosition <= 5_000L) {
-            player.seekToDefaultPosition(current - 1)
+            playQueueItemWithPreTranscode(current - 1, forcePlay = true)
             return
         }
         if (player.currentPosition > 5_000L) {
             player.seekTo(0L)
         } else {
-            player.seekToPreviousMediaItem()
+            val previousIndex = player.previousMediaItemIndex
+            if (previousIndex in 0 until player.mediaItemCount) {
+                playQueueItemWithPreTranscode(previousIndex, forcePlay = true)
+            } else if (player.mediaItemCount > 0) {
+                playQueueItemWithPreTranscode(player.mediaItemCount - 1, forcePlay = true)
+            }
         }
     }
 
@@ -228,14 +255,57 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun playAtQueueIndex(index: Int) {
+        playQueueItemWithPreTranscode(index, forcePlay = true)
+    }
+
+    private fun playQueueItemWithPreTranscode(index: Int, forcePlay: Boolean) {
         val player = controller ?: return
         if (index !in 0 until player.mediaItemCount) return
-        player.seekToDefaultPosition(index)
-        if (player.playbackState == Player.STATE_IDLE) {
-            player.prepare()
+
+        val sourceItem = player.getMediaItemAt(index)
+        val sourcePath = sourceItem.resolveSourcePath()
+        val shouldPlay = forcePlay || player.isPlaying || player.playWhenReady
+
+        if (sourcePath.isNullOrBlank()) {
+            player.seekToDefaultPosition(index)
+            if (player.playbackState == Player.STATE_IDLE) {
+                player.prepare()
+            }
+            player.playWhenReady = shouldPlay
+            if (shouldPlay) {
+                player.play()
+            }
+            return
         }
-        player.playWhenReady = true
-        player.play()
+
+        transcodeQueueExecutor.execute {
+            val playbackPath = resolvePlayablePathForPlayback(context, sourcePath)
+            ContextCompat.getMainExecutor(context).execute {
+                val latestPlayer = controller ?: return@execute
+                if (index !in 0 until latestPlayer.mediaItemCount) return@execute
+                val latestItem = latestPlayer.getMediaItemAt(index)
+                if (latestItem.resolveSourcePath() != sourcePath) return@execute
+
+                if (playbackPath.isNotBlank() && File(playbackPath).exists()) {
+                    val currentUriPath = latestItem.localConfiguration?.uri?.path
+                    if (currentUriPath != playbackPath) {
+                        val updatedItem = latestItem.buildUpon()
+                            .setUri(Uri.fromFile(File(playbackPath)))
+                            .build()
+                        latestPlayer.replaceMediaItem(index, updatedItem)
+                    }
+                }
+
+                latestPlayer.seekToDefaultPosition(index)
+                if (latestPlayer.playbackState == Player.STATE_IDLE) {
+                    latestPlayer.prepare()
+                }
+                latestPlayer.playWhenReady = shouldPlay
+                if (shouldPlay) {
+                    latestPlayer.play()
+                }
+            }
+        }
     }
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
@@ -620,11 +690,11 @@ class MusicPlaybackController(private val context: Context) {
         when (mode) {
             PlaybackMode.SEQUENTIAL -> {
                 player.shuffleModeEnabled = false
-                player.repeatMode = Player.REPEAT_MODE_OFF
+                player.repeatMode = Player.REPEAT_MODE_ALL
             }
             PlaybackMode.SHUFFLE -> {
                 player.shuffleModeEnabled = true
-                player.repeatMode = Player.REPEAT_MODE_OFF
+                player.repeatMode = Player.REPEAT_MODE_ALL
             }
             PlaybackMode.SINGLE_REPEAT -> {
                 player.shuffleModeEnabled = false
@@ -636,8 +706,12 @@ class MusicPlaybackController(private val context: Context) {
 
 private fun AudioFile.toPlayableMediaItem(
     context: Context,
-    preferOriginalCover: Boolean
+    preferOriginalCover: Boolean,
+    playbackPathOverride: String? = null
 ): MediaItem {
+    val playbackPath = playbackPathOverride
+        ?.takeIf { it.isNotBlank() && File(it).exists() }
+        ?: path
     val metadataBuilder = MediaMetadata.Builder()
         .setTitle(displayTitle)
         .setArtist(displayArtist)
@@ -661,9 +735,40 @@ private fun AudioFile.toPlayableMediaItem(
 
     return MediaItem.Builder()
         .setMediaId(path)
-        .setUri(Uri.fromFile(File(path)))
+        .setUri(Uri.fromFile(File(playbackPath)))
         .setMediaMetadata(metadata)
         .build()
+}
+
+private fun MediaItem.resolveSourcePath(): String? {
+    return mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+        ?: mediaId.takeIf { it.isNotBlank() }
+}
+
+private fun resolvePlayablePathForPlayback(context: Context, sourcePath: String): String {
+    val normalizedPath = sourcePath.trim()
+    if (normalizedPath.isEmpty()) return sourcePath
+    if (!normalizedPath.lowercase().endsWith(".m4a")) return sourcePath
+    if (supportsDirectAlacDecode()) {
+        return sourcePath
+    }
+    val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(normalizedPath)
+    if (!isDetectedAlac) return sourcePath
+    Log.d("MusicPlaybackController", "ALAC direct decode unavailable, fallback transcode: $normalizedPath")
+    return PlaybackAlacTranscodeManager.ensureTranscodedPath(
+        context = context.applicationContext,
+        sourcePath = normalizedPath,
+        forceForM4aFailure = true
+    ) ?: sourcePath
+}
+
+private fun supportsDirectAlacDecode(): Boolean {
+    cachedDirectAlacDecodeSupport?.let { return it }
+    val detected = runCatching {
+        FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_ALAC)
+    }.getOrDefault(false)
+    cachedDirectAlacDecodeSupport = detected
+    return detected
 }
 
 private fun AudioFile.resolvePlaybackArtworkData(

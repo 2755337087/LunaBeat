@@ -14,16 +14,22 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionResult
 import com.example.LyricBox.utils.AudioMetadataReader
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import java.io.File
 import java.util.concurrent.Executors
+import android.view.KeyEvent
+import androidx.media3.common.util.UnstableApi
 
 class MusicPlaybackService : MediaSessionService() {
 
@@ -31,6 +37,7 @@ class MusicPlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val transcodeExecutor = Executors.newSingleThreadExecutor()
+    private val artworkExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile
     private var isTranscodingCurrentItem = false
@@ -40,6 +47,11 @@ class MusicPlaybackService : MediaSessionService() {
     private var isUpdatingArtwork = false
     private var lastFailedAlacPath: String? = null
     private var lastFailedAlacAtMs: Long = 0L
+    private var lastTransitionSourcePath: String? = null
+    private var lastTransitionIndex: Int = -1
+    private var lastTransitionAtMs: Long = 0L
+    @Volatile
+    private var cachedDirectAlacDecodeSupport: Boolean? = null
     private var lastArtworkUpdatedSourcePath: String? = null
     private val lyricExecutor = Executors.newSingleThreadExecutor()
     private val lyricPreviewPrefs by lazy {
@@ -85,7 +97,10 @@ class MusicPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        player = ExoPlayer.Builder(this).build().apply {
+        val renderersFactory = DefaultRenderersFactory(this).apply {
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        }
+        player = ExoPlayer.Builder(this, renderersFactory).build().apply {
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .setUsage(C.USAGE_MEDIA)
@@ -94,8 +109,11 @@ class MusicPlaybackService : MediaSessionService() {
             setHandleAudioBecomingNoisy(true)
             addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    maybeEnsureCurrentArtworkMetadata(this@apply)
+                    lastTransitionSourcePath = mediaItem?.resolveOriginalAudioPath()
+                    lastTransitionIndex = this@apply.currentMediaItemIndex
+                    lastTransitionAtMs = SystemClock.elapsedRealtime()
                     maybeHandleCurrentAlacPlayback(this@apply, reason = "transition_$reason")
+                    maybeEnsureCurrentArtworkMetadata(this@apply)
                     if (lyriconEnabled) {
                         pushLyriconSongForCurrentItem(forceReloadLyrics = true)
                         pushLyriconPlayback(isSeek = true)
@@ -103,7 +121,21 @@ class MusicPlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    maybeHandleCurrentAlacPlayback(this@apply, reason = "player_error_${error.errorCode}")
+                    val currentSourcePath = currentMediaItem?.resolveOriginalAudioPath()
+                    val fallbackSourcePath = lastTransitionSourcePath
+                    val preferLastTransition = !fallbackSourcePath.isNullOrBlank() &&
+                        fallbackSourcePath != currentSourcePath &&
+                        (SystemClock.elapsedRealtime() - lastTransitionAtMs) <= 2500L
+                    if (preferLastTransition) {
+                        maybeHandleAlacPlaybackForPath(
+                            player = this@apply,
+                            sourcePath = fallbackSourcePath!!,
+                            resumeIndexHint = lastTransitionIndex,
+                            reason = "player_error_${error.errorCode}"
+                        )
+                    } else {
+                        maybeHandleCurrentAlacPlayback(this@apply, reason = "player_error_${error.errorCode}")
+                    }
                     if (lyriconEnabled) {
                         pushLyriconPlayback(isSeek = false)
                     }
@@ -138,6 +170,39 @@ class MusicPlaybackService : MediaSessionService() {
                     val resolved = mediaItems.map { it.ensurePlayable() }.toMutableList()
                     return Futures.immediateFuture(resolved)
                 }
+
+                @UnstableApi
+                override fun onMediaButtonEvent(
+                    session: MediaSession,
+                    controllerInfo: MediaSession.ControllerInfo,
+                    intent: Intent
+                ): Boolean {
+                    val keyEvent = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
+                    val servicePlayer = this@MusicPlaybackService.player ?: return false
+                    val handled = when (keyEvent.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_NEXT -> handleNotificationSkipNext(servicePlayer)
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> handleNotificationSkipPrevious(servicePlayer)
+                        else -> false
+                    }
+                    return handled
+                }
+
+                @Deprecated("Handled to keep notification skipping consistent with transcoding.")
+                override fun onPlayerCommandRequest(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    playerCommand: Int
+                ): Int {
+                    val servicePlayer = this@MusicPlaybackService.player ?: return SessionResult.RESULT_SUCCESS
+                    val handled = when (playerCommand) {
+                        Player.COMMAND_SEEK_TO_NEXT -> handleNotificationSkipNext(servicePlayer)
+                        Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> handleNotificationSkipNext(servicePlayer)
+                        Player.COMMAND_SEEK_TO_PREVIOUS -> handleNotificationSkipPrevious(servicePlayer)
+                        Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> handleNotificationSkipPrevious(servicePlayer)
+                        else -> false
+                    }
+                    return if (handled) SessionResult.RESULT_ERROR_NOT_SUPPORTED else SessionResult.RESULT_SUCCESS
+                }
             })
             .build()
 
@@ -162,6 +227,7 @@ class MusicPlaybackService : MediaSessionService() {
         lyriconBridge.release()
         lyricExecutor.shutdownNow()
         transcodeExecutor.shutdownNow()
+        artworkExecutor.shutdownNow()
         mediaSession?.run {
             player.release()
             release()
@@ -258,6 +324,119 @@ class MusicPlaybackService : MediaSessionService() {
                 pushLyriconPlayback(isSeek = true)
             }
         }
+    }
+
+    private fun handleNotificationSkipNext(player: ExoPlayer): Boolean {
+        val count = player.mediaItemCount
+        if (count <= 0) return false
+        val currentIndex = player.currentMediaItemIndex
+        if (currentIndex < 0) return false
+        if (player.repeatMode == Player.REPEAT_MODE_ONE) {
+            val targetIndex = if (currentIndex + 1 in 0 until count) currentIndex + 1 else 0
+            playQueueItemWithPreTranscode(player, targetIndex, forcePlay = true)
+            return true
+        }
+        val targetIndex = player.nextMediaItemIndex.let { next ->
+            if (next in 0 until count) next else 0
+        }
+        playQueueItemWithPreTranscode(player, targetIndex, forcePlay = true)
+        return true
+    }
+
+    private fun handleNotificationSkipPrevious(player: ExoPlayer): Boolean {
+        val count = player.mediaItemCount
+        if (count <= 0) return false
+        val currentIndex = player.currentMediaItemIndex
+        if (currentIndex < 0) return false
+
+        if (player.currentPosition > 5_000L) {
+            player.seekTo(currentIndex, 0L)
+            return true
+        }
+        if (player.repeatMode == Player.REPEAT_MODE_ONE) {
+            val targetIndex = if (currentIndex - 1 in 0 until count) currentIndex - 1 else (count - 1)
+            playQueueItemWithPreTranscode(player, targetIndex, forcePlay = true)
+            return true
+        }
+
+        val targetIndex = player.previousMediaItemIndex.let { prev ->
+            if (prev in 0 until count) prev else (count - 1)
+        }
+        playQueueItemWithPreTranscode(player, targetIndex, forcePlay = true)
+        return true
+    }
+
+    private fun playQueueItemWithPreTranscode(
+        player: ExoPlayer,
+        index: Int,
+        forcePlay: Boolean
+    ) {
+        if (index !in 0 until player.mediaItemCount) return
+        val targetItem = player.getMediaItemAt(index)
+        val sourcePath = targetItem.resolveOriginalAudioPath()
+        val shouldPlay = forcePlay || player.isPlaying || player.playWhenReady
+
+        if (sourcePath.isNullOrBlank()) {
+            player.seekToDefaultPosition(index)
+            if (player.playbackState == Player.STATE_IDLE) {
+                player.prepare()
+            }
+            player.playWhenReady = shouldPlay
+            if (shouldPlay) player.play()
+            return
+        }
+
+        transcodeExecutor.execute {
+            val playbackPath = resolvePlayablePathForNotification(sourcePath)
+            mainHandler.post {
+                if (index !in 0 until player.mediaItemCount) return@post
+                val latestItem = player.getMediaItemAt(index)
+                val latestSourcePath = latestItem.resolveOriginalAudioPath()
+                if (latestSourcePath != sourcePath) return@post
+
+                if (playbackPath.isNotBlank() && File(playbackPath).exists()) {
+                    val currentUriPath = latestItem.localConfiguration?.uri?.path
+                    if (currentUriPath != playbackPath) {
+                        val updatedItem = latestItem.buildUpon()
+                            .setUri(Uri.fromFile(File(playbackPath)))
+                            .build()
+                        player.replaceMediaItem(index, updatedItem)
+                    }
+                }
+
+                player.seekToDefaultPosition(index)
+                if (player.playbackState == Player.STATE_IDLE) {
+                    player.prepare()
+                }
+                player.playWhenReady = shouldPlay
+                if (shouldPlay) {
+                    player.play()
+                }
+            }
+        }
+    }
+
+    private fun resolvePlayablePathForNotification(sourcePath: String): String {
+        val normalizedPath = sourcePath.trim()
+        if (normalizedPath.isEmpty()) return sourcePath
+        if (!normalizedPath.lowercase().endsWith(".m4a")) return sourcePath
+        if (supportsDirectAlacDecode()) return sourcePath
+        val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(normalizedPath)
+        if (!isDetectedAlac) return sourcePath
+        return PlaybackAlacTranscodeManager.ensureTranscodedPath(
+            context = applicationContext,
+            sourcePath = normalizedPath,
+            forceForM4aFailure = true
+        ) ?: sourcePath
+    }
+
+    private fun supportsDirectAlacDecode(): Boolean {
+        cachedDirectAlacDecodeSupport?.let { return it }
+        val detected = runCatching {
+            FfmpegLibrary.supportsFormat(MimeTypes.AUDIO_ALAC)
+        }.getOrDefault(false)
+        cachedDirectAlacDecodeSupport = detected
+        return detected
     }
 
     private fun loadLyriconRawLyrics(sourcePath: String): String {
@@ -408,20 +587,51 @@ class MusicPlaybackService : MediaSessionService() {
 
         val currentItem = player.currentMediaItem ?: return
         val sourcePath = currentItem.resolveOriginalAudioPath() ?: return
+        maybeHandleAlacPlaybackForPath(
+            player = player,
+            sourcePath = sourcePath,
+            resumeIndexHint = index,
+            reason = reason
+        )
+    }
+
+    private fun maybeHandleAlacPlaybackForPath(
+        player: ExoPlayer,
+        sourcePath: String,
+        resumeIndexHint: Int,
+        reason: String
+    ) {
+        val sourceIndex = findMediaItemIndexBySourcePath(player, sourcePath).let { found ->
+            if (found >= 0) found else resumeIndexHint
+        }
+        if (sourceIndex !in 0 until player.mediaItemCount) return
+        val sourceItem = player.getMediaItemAt(sourceIndex)
 
         val sourceFileNameLower = sourcePath.lowercase()
         val sourceIsM4a = sourceFileNameLower.endsWith(".m4a")
-        val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(sourcePath)
-        val forceTranscodeForFailure = !isDetectedAlac && sourceIsM4a && reason.startsWith("player_error")
+        val directAlacDecodeSupported = supportsDirectAlacDecode()
+        val forceTranscodeForM4aFailure = sourceIsM4a && reason.startsWith("player_error")
+        // 直解码优先：正常切歌下，m4a 直接交给 FFmpeg/系统解码器；仅在解码报错时再回退转码。
+        if (sourceIsM4a && directAlacDecodeSupported && !forceTranscodeForM4aFailure) {
+            lastFailedAlacPath = null
+            pendingPlayAfterTranscode = false
+            return
+        }
+        val isDetectedAlac = if (sourceIsM4a) {
+            PlaybackAlacTranscodeManager.isAlacEncodedM4a(sourcePath)
+        } else {
+            false
+        }
+        val shouldTranscode = isDetectedAlac || forceTranscodeForM4aFailure
 
-        if (!isDetectedAlac && !forceTranscodeForFailure) {
+        if (!shouldTranscode) {
             lastFailedAlacPath = null
             pendingPlayAfterTranscode = false
             PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
             return
         }
 
-        val currentUriPath = currentItem.localConfiguration?.uri?.path
+        val currentUriPath = sourceItem.localConfiguration?.uri?.path
         if (PlaybackAlacTranscodeManager.isPlaybackCachePath(this, currentUriPath)) {
             if (!currentUriPath.isNullOrBlank() && !File(currentUriPath).exists()) {
                 // 缓存路径已失效，需要重新触发转码而不是直接返回。
@@ -442,10 +652,19 @@ class MusicPlaybackService : MediaSessionService() {
             }
         }
 
-        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+        val resumePosition = if (sourceIndex == player.currentMediaItemIndex) {
+            player.currentPosition.coerceAtLeast(0L)
+        } else {
+            0L
+        }
         val requestedPlayAtStart = player.playWhenReady || player.isPlaying
         if (requestedPlayAtStart) {
             pendingPlayAfterTranscode = true
+        }
+        // 当切换到需要转码的曲目时，先冻结播放意图，避免解码失败后被播放器自动跳过到下一首。
+        if (reason.startsWith("transition_")) {
+            player.pause()
+            player.playWhenReady = false
         }
         isTranscodingCurrentItem = true
 
@@ -453,33 +672,39 @@ class MusicPlaybackService : MediaSessionService() {
             val transcodedPath = PlaybackAlacTranscodeManager.ensureTranscodedPath(
                 context = this,
                 sourcePath = sourcePath,
-                forceForM4aFailure = forceTranscodeForFailure
+                forceForM4aFailure = forceTranscodeForM4aFailure
             )
             mainHandler.post {
                 isTranscodingCurrentItem = false
                 if (transcodedPath.isNullOrBlank()) {
                     lastFailedAlacPath = sourcePath
                     lastFailedAlacAtMs = SystemClock.elapsedRealtime()
+                    val keepPlaying = pendingPlayAfterTranscode
                     pendingPlayAfterTranscode = false
-                    return@post
-                }
-
-                val latestItem = player.currentMediaItem ?: return@post
-                val latestSourcePath = latestItem.resolveOriginalAudioPath() ?: return@post
-                if (latestSourcePath != sourcePath) {
-                    pendingPlayAfterTranscode = false
+                    if (keepPlaying) {
+                        player.playWhenReady = true
+                    }
                     return@post
                 }
 
                 lastFailedAlacPath = null
                 lastFailedAlacAtMs = 0L
+                val latestSourceIndex = findMediaItemIndexBySourcePath(player, sourcePath)
+                if (latestSourceIndex !in 0 until player.mediaItemCount) {
+                    pendingPlayAfterTranscode = false
+                    return@post
+                }
+                val latestItem = player.getMediaItemAt(latestSourceIndex)
                 val updatedItem = latestItem.buildUpon()
                     .setUri(Uri.fromFile(File(transcodedPath)))
                     .build()
 
-                player.replaceMediaItem(player.currentMediaItemIndex, updatedItem)
+                player.replaceMediaItem(latestSourceIndex, updatedItem)
                 player.prepare()
-                player.seekTo(player.currentMediaItemIndex, resumePosition)
+                val shouldReturnToRecoveredItem = reason.startsWith("player_error")
+                if (shouldReturnToRecoveredItem || latestSourceIndex == player.currentMediaItemIndex) {
+                    player.seekTo(latestSourceIndex, resumePosition)
+                }
                 val shouldPlayNow = pendingPlayAfterTranscode || player.playWhenReady || player.isPlaying
                 player.playWhenReady = shouldPlayNow
                 if (shouldPlayNow) {
@@ -490,6 +715,17 @@ class MusicPlaybackService : MediaSessionService() {
                 PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = transcodedPath)
             }
         }
+    }
+
+    private fun findMediaItemIndexBySourcePath(player: Player, sourcePath: String): Int {
+        for (index in 0 until player.mediaItemCount) {
+            val item = player.getMediaItemAt(index)
+            val itemSourcePath = item.resolveOriginalAudioPath() ?: continue
+            if (itemSourcePath == sourcePath) {
+                return index
+            }
+        }
+        return -1
     }
 
     private fun maybeEnsureCurrentArtworkMetadata(
@@ -514,7 +750,7 @@ class MusicPlaybackService : MediaSessionService() {
         val shouldPlay = player.playWhenReady
         isUpdatingArtwork = true
 
-        transcodeExecutor.execute {
+        artworkExecutor.execute {
             val coverData = runCatching {
                 AudioMetadataReader.readMetadata(this, sourcePath).cover
             }.getOrNull()

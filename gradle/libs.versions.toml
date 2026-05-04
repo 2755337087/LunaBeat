@@ -20,8 +20,7 @@ remoteCreationCore = "1.0.0-alpha06"
 okhttp = "4.12.0"
 kotlinxCoroutines = "1.7.3"
 kotlinxSerializationJson = "1.6.0"
-media3 = "1.3.1"
-media3Exoplayer = "1.10.0"
+media3 = "1.9.3"
 markdown = "0.24.0"
 coil = "2.5.0"
 securityCrypto = "1.1.0-alpha06"
@@ -59,7 +58,8 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3Exoplayer" }
+androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
+androidx-media3-exoplayer-ffmpeg = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version = "1.9.0+1" }
 markdown = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
