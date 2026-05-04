@@ -330,7 +330,17 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun getAudioDuration(): Long {
-        return mediaPlayer?.duration
+        val player = mediaPlayer ?: return 0L
+        val duration = runCatching { player.duration }
+            .onFailure { throwable ->
+                if (throwable is IllegalStateException) {
+                    Log.w("LyricTiming", "getAudioDuration called before player is ready", throwable)
+                } else {
+                    Log.e("LyricTiming", "Failed to read audio duration", throwable)
+                }
+            }
+            .getOrNull()
+        return duration
             ?.takeIf { it != C.TIME_UNSET && it > 0L }
             ?: 0L
     }
