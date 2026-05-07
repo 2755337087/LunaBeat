@@ -185,8 +185,8 @@ fun LyricSettingsBottomSheet(
                     Slider(
                         value = tempFontSize,
                         onValueChange = { tempFontSize = it },
-                        valueRange = 18f..40f,
-                        steps = 21,
+                        valueRange = 18f..50f,
+                        steps = 31,
                         colors = SliderDefaults.colors(
                             thumbColor = accentColor,
                             activeTrackColor = accentColor,
@@ -201,8 +201,8 @@ fun LyricSettingsBottomSheet(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("18sp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("29sp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("40sp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("34sp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("50sp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
                     }
                 }
 

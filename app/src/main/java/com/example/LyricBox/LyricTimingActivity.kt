@@ -12667,8 +12667,8 @@ fun LyricPreviewOverlay(
                         Slider(
                             value = fontSize.value,
                             onValueChange = { fontSize = it.sp },
-                            valueRange = 18f..40f,
-                            steps = 22
+                            valueRange = 18f..50f,
+                            steps = 31
                         )
                     }
                 },
