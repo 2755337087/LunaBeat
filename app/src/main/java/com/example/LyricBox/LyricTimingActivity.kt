@@ -1364,6 +1364,7 @@ private fun MoveLineBottomSheet(
 
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
 
     val hasChanges = moveLineTargetIndex != originalMoveLineTargetIndex || moveLinePosition != originalMoveLinePosition
     val requestDismiss = {
@@ -1377,17 +1378,21 @@ private fun MoveLineBottomSheet(
 
     if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
         val currentLineText = lyricLines[menuLineIndex].timeUnits.joinToString("") { it.text }
-        val moveLineSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
-
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = { requestDismiss() },
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
-                    .height(moveLineSheetHeight)
+                    .fillMaxHeight()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
                     text = "移动行",
@@ -1402,7 +1407,11 @@ private fun MoveLineBottomSheet(
                 Text("请选择需要移动到哪一行：", fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .nestedScroll(scrollBlocker)
+                ) {
                     items(lyricLines.size) { lineIndex ->
                         val line = lyricLines[lineIndex]
                         val lineText = line.timeUnits.joinToString("") { it.text }
@@ -1471,9 +1480,6 @@ private fun MoveLineBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(onClick = { requestDismiss() }) {
-                        Text("取消")
-                    }
                     Button(
                         onClick = {
                             if (moveLineTargetIndex >= 0 && moveLineTargetIndex != menuLineIndex) {
@@ -1582,8 +1588,11 @@ private fun SplitToMultipleLinesBottomSheet(
     if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
         val currentLine = lyricLines[menuLineIndex]
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = { requestDismiss() },
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -1628,9 +1637,6 @@ private fun SplitToMultipleLinesBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(onClick = { requestDismiss() }) {
-                        Text("取消")
-                    }
                     Button(
                         onClick = {
                             if (!splitText.contains("\n")) {
@@ -2582,6 +2588,8 @@ private fun ImportLyricsBottomSheets(
     val lyricInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showLyricInputDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (lyricInput.isNotEmpty()) {
                     onPendingLyricInputDismissChange(true)
@@ -2590,7 +2598,8 @@ private fun ImportLyricsBottomSheets(
                     onShowLyricInputDialogChange(false)
                 }
             },
-            sheetState = lyricInputSheetState
+            sheetState = lyricInputSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -2598,6 +2607,9 @@ private fun ImportLyricsBottomSheets(
                     .padding(16.dp)
                     .navigationBarsPadding()
             ) {
+                var lyricInputMenuExpanded by remember { mutableStateOf(false) }
+                var lyricInputMenuAnchor by remember { mutableStateOf<MenuAnchorPosition?>(null) }
+                val density = LocalDensity.current
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2607,14 +2619,49 @@ private fun ImportLyricsBottomSheets(
                         text = "导入歌词",
                         style = MaterialTheme.typography.titleLarge
                     )
-                    IconButton(onClick = { onShowImportExampleDialogChange(true) }) {
+                    IconButton(
+                        onClick = { lyricInputMenuExpanded = true },
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            val bounds = coordinates.boundsInRoot()
+                            lyricInputMenuAnchor = MenuAnchorPosition(
+                                x = with(density) { bounds.center.x.toDp().value },
+                                y = with(density) { bounds.center.y.toDp().value }
+                            )
+                        }
+                    ) {
                         Icon(
-                            painter = painterResource(id = android.R.drawable.ic_menu_help),
-                            contentDescription = "帮助",
-                            tint = MaterialTheme.colorScheme.primary
+                            painter = painterResource(id = R.drawable.more),
+                            contentDescription = "更多",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
+                CustomDropdownMenu(
+                    expanded = lyricInputMenuExpanded,
+                    onDismissRequest = { lyricInputMenuExpanded = false },
+                    items = listOf(
+                        MenuItem(
+                            title = "导入示例",
+                            onClick = {
+                                lyricInputMenuExpanded = false
+                                onShowImportExampleDialogChange(true)
+                            }
+                        ),
+                        MenuItem(
+                            title = "关闭页面",
+                            onClick = {
+                                lyricInputMenuExpanded = false
+                                if (lyricInput.isNotEmpty()) {
+                                    onPendingLyricInputDismissChange(true)
+                                    onShowCancelLyricInputConfirmChange(true)
+                                } else {
+                                    onShowLyricInputDialogChange(false)
+                                }
+                            }
+                        )
+                    ),
+                    anchorPosition = lyricInputMenuAnchor ?: MenuAnchorPosition(0f, 0f)
+                )
                 Spacer(modifier = Modifier.height(16.dp))
                 ThemedTextField(
                     value = lyricInput,
@@ -2650,18 +2697,6 @@ private fun ImportLyricsBottomSheets(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (lyricInput.isNotEmpty()) {
-                                onPendingLyricInputDismissChange(true)
-                                onShowCancelLyricInputConfirmChange(true)
-                            } else {
-                                onShowLyricInputDialogChange(false)
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     val context = LocalContext.current
                     OutlinedButton(
                         onClick = {
@@ -2730,6 +2765,8 @@ private fun ImportLyricsBottomSheets(
     val splLrcInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showSPLLrcInputDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (splLrcInput.isNotEmpty()) {
                     onPendingSpllrcInputDismissChange(true)
@@ -2738,7 +2775,8 @@ private fun ImportLyricsBottomSheets(
                     onShowSPLLrcInputDialogChange(false)
                 }
             },
-            sheetState = splLrcInputSheetState
+            sheetState = splLrcInputSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -2766,18 +2804,6 @@ private fun ImportLyricsBottomSheets(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (splLrcInput.isNotEmpty()) {
-                                onPendingSpllrcInputDismissChange(true)
-                                onShowCancelSpllrcInputConfirmChange(true)
-                            } else {
-                                onShowSPLLrcInputDialogChange(false)
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     val context = LocalContext.current
                     OutlinedButton(
                         onClick = {
@@ -2841,6 +2867,8 @@ private fun ImportLyricsBottomSheets(
     val elrcInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showElrcInputDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (elrcInput.isNotEmpty()) {
                     onPendingElrcInputDismissChange(true)
@@ -2849,7 +2877,8 @@ private fun ImportLyricsBottomSheets(
                     onShowElrcInputDialogChange(false)
                 }
             },
-            sheetState = elrcInputSheetState
+            sheetState = elrcInputSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -2883,18 +2912,6 @@ private fun ImportLyricsBottomSheets(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (elrcInput.isNotEmpty()) {
-                                onPendingElrcInputDismissChange(true)
-                                onShowCancelElrcInputConfirmChange(true)
-                            } else {
-                                onShowElrcInputDialogChange(false)
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     val context = LocalContext.current
                     OutlinedButton(
                         onClick = {
@@ -2959,6 +2976,8 @@ private fun ImportLyricsBottomSheets(
     val ttmlInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showTtmlInputDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (ttmlInput.isNotEmpty()) {
                     onPendingTtmlInputDismissChange(true)
@@ -2967,7 +2986,8 @@ private fun ImportLyricsBottomSheets(
                     onShowTtmlInputDialogChange(false)
                 }
             },
-            sheetState = ttmlInputSheetState
+            sheetState = ttmlInputSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -3001,18 +3021,6 @@ private fun ImportLyricsBottomSheets(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (ttmlInput.isNotEmpty()) {
-                                onPendingTtmlInputDismissChange(true)
-                                onShowCancelTtmlInputConfirmChange(true)
-                            } else {
-                                onShowTtmlInputDialogChange(false)
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     val context = LocalContext.current
                     OutlinedButton(
                         onClick = {
@@ -3162,6 +3170,8 @@ private fun SetTimestampBottomSheet(
         } else null
 
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime) {
                     onPendingDismissChange(true)
@@ -3171,7 +3181,8 @@ private fun SetTimestampBottomSheet(
                     onShowTimeEditorChange(false)
                 }
             },
-            sheetState = setTimestampSheetState
+            sheetState = setTimestampSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -3368,17 +3379,6 @@ private fun SetTimestampBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                     ) {
-                        TextButton(
-                            onClick = {
-                                if (tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime) {
-                                    onPendingDismissChange(true)
-                                    onShowCancelConfirmChange(true)
-                                } else {
-                                    onDismissSheet()
-                                    onShowTimeEditorChange(false)
-                                }
-                            }
-                        ) { Text("关闭") }
                         Button(
                             onClick = {
                                 val updatedLines = lyricLines.toMutableList()
@@ -3668,6 +3668,8 @@ private fun SplitLyricBottomSheet(
     val splitLyricSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showSheet) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (splitLyricText != originalSplitLyricText) {
                     onPendingDismissChange(true)
@@ -3676,7 +3678,8 @@ private fun SplitLyricBottomSheet(
                     onDismissSheet()
                 }
             },
-            sheetState = splitLyricSheetState
+            sheetState = splitLyricSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -3705,18 +3708,6 @@ private fun SplitLyricBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (splitLyricText != originalSplitLyricText) {
-                                onPendingDismissChange(true)
-                                onShowCancelConfirmChange(true)
-                            } else {
-                                onDismissSheet()
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     OutlinedButton(
                         onClick = {
                             val segmentedWords = smartSegmentLyric(splitLyricText)
@@ -3912,6 +3903,8 @@ private fun AddTranslationBottomSheet(
         val lineText = currentLine.timeUnits.joinToString("") { it.text }
 
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (addTranslationText != originalAddTranslationText) {
                     onPendingDismissChange(true)
@@ -3920,7 +3913,8 @@ private fun AddTranslationBottomSheet(
                     onDismissSheet()
                 }
             },
-            sheetState = addTranslationSheetState
+            sheetState = addTranslationSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -3964,18 +3958,6 @@ private fun AddTranslationBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (addTranslationText != originalAddTranslationText) {
-                                onPendingDismissChange(true)
-                                onShowCancelConfirmChange(true)
-                            } else {
-                                onDismissSheet()
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     Button(
                         onClick = {
                             if (menuLineIndex < lyricLines.size) {
@@ -4152,6 +4134,10 @@ private fun MergeLyricBottomSheet(
         val displayTimeUnits = if (mergeLyricPreview.isNotEmpty()) mergeLyricPreview else currentLine.timeUnits
 
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (hasChanges) {
                     onPendingDismissChange(true)
@@ -4161,12 +4147,15 @@ private fun MergeLyricBottomSheet(
                     resetState()
                 }
             },
-            sheetState = mergeLyricSheetState
+            sheetState = mergeLyricSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .fillMaxHeight()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
                     text = "合并歌词",
@@ -4212,19 +4201,6 @@ private fun MergeLyricBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (hasChanges) {
-                                onPendingDismissChange(true)
-                                onShowCancelConfirmChange(true)
-                            } else {
-                                onDismissSheet()
-                                resetState()
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     OutlinedButton(
                         onClick = {
                             val sortedIndices = mergeSelectedUnits.sorted()
@@ -4362,13 +4338,12 @@ private fun MergeLinesBottomSheet(
 ) {
     val mergeLinesSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val mergeLinesScrollState = rememberLazyListState()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
     var mergeLinesError by remember { mutableStateOf("") }
 
     val hasChanges = mergeLinesPreview != originalMergeLinesPreview || mergeLinesSelected != originalMergeLinesSelected
     val displayLines = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreview else lyricLines
     val displaySelected = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreviewSelected else mergeLinesSelected
-    val mergeLinesSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
-
     fun resetState() {
         onMergeLinesPreviewChange(emptyList())
         onMergeLinesPreviewSelectedChange(emptySet())
@@ -4389,6 +4364,10 @@ private fun MergeLinesBottomSheet(
         }
 
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (hasChanges) {
                     onPendingDismissChange(true)
@@ -4398,13 +4377,15 @@ private fun MergeLinesBottomSheet(
                     resetState()
                 }
             },
-            sheetState = mergeLinesSheetState
+            sheetState = mergeLinesSheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
-                    .height(mergeLinesSheetHeight)
+                    .fillMaxHeight()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
                     text = "合并行",
@@ -4416,7 +4397,9 @@ private fun MergeLinesBottomSheet(
 
                 LazyColumn(
                     state = mergeLinesScrollState,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .nestedScroll(scrollBlocker)
                 ) {
                     items(displayLines.size) { lineIndex ->
                         val line = displayLines[lineIndex]
@@ -4491,19 +4474,6 @@ private fun MergeLinesBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
-                        onClick = {
-                            if (hasChanges) {
-                                onPendingDismissChange(true)
-                                onShowCancelConfirmChange(true)
-                            } else {
-                                onDismissSheet()
-                                resetState()
-                            }
-                        }
-                    ) {
-                        Text("取消")
-                    }
                     OutlinedButton(
                         onClick = {
                             val currentSelected = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreviewSelected else mergeLinesSelected
@@ -6632,8 +6602,11 @@ fun EnhancedLrcSaveDialog(
     }
     if (showDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = onDismiss,
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -6671,12 +6644,6 @@ fun EnhancedLrcSaveDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(
-                        onClick = onDismiss
-                    ) {
-                        Text("关闭")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
                     val context = LocalContext.current
                     Button(
                         onClick = {
@@ -6714,8 +6681,11 @@ fun EmbedEnhancedLrcDialog(
     val scrollState = rememberScrollState()
     if (showDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = onDismiss,
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -6759,12 +6729,6 @@ fun EmbedEnhancedLrcDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(
-                        onClick = onDismiss
-                    ) {
-                        Text("取消")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
                     val context = LocalContext.current
                     OutlinedButton(
                         onClick = {
@@ -6818,8 +6782,11 @@ fun LineLyricSaveDialog(
     
     if (showDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = onDismiss,
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -6857,12 +6824,6 @@ fun LineLyricSaveDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(
-                        onClick = onDismiss
-                    ) {
-                        Text("关闭")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
                     val context = LocalContext.current
                     Button(
                         onClick = {
@@ -6891,8 +6852,11 @@ fun TtmlSaveDialog(
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = onDismiss,
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -6924,12 +6888,6 @@ fun TtmlSaveDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(
-                        onClick = onDismiss
-                    ) {
-                        Text("关闭")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
                     val context = LocalContext.current
                     Button(
                         onClick = {
@@ -6958,8 +6916,11 @@ fun WordLyricSaveDialog(
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     if (showDialog) {
         androidx.compose.material3.ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = onDismiss,
-            sheetState = sheetState
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
                 modifier = Modifier
@@ -6991,12 +6952,6 @@ fun WordLyricSaveDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(
-                        onClick = onDismiss
-                    ) {
-                        Text("关闭")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
                     val context = LocalContext.current
                     Button(
                         onClick = {
@@ -8855,8 +8810,11 @@ fun LyricTimingScreen(
             val scrollState = rememberScrollState()
             
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = { showEmbedLrcWordDialog = false },
-                sheetState = embedLrcWordSheetState
+                sheetState = embedLrcWordSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
@@ -8894,12 +8852,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(
-                            onClick = { showEmbedLrcWordDialog = false }
-                        ) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
                         val context = LocalContext.current
                         OutlinedButton(
                             onClick = {
@@ -8949,8 +8901,11 @@ fun LyricTimingScreen(
             val scrollState = rememberScrollState()
             
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = { showEmbedLrcLineDialog = false },
-                sheetState = embedLrcLineSheetState
+                sheetState = embedLrcLineSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
@@ -8994,12 +8949,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(
-                            onClick = { showEmbedLrcLineDialog = false }
-                        ) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
                         val context = LocalContext.current
                         OutlinedButton(
                             onClick = {
@@ -9049,8 +8998,11 @@ fun LyricTimingScreen(
             val scrollState = rememberScrollState()
             
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = { showEmbedTtmlDialog = false },
-                sheetState = embedTtmlSheetState
+                sheetState = embedTtmlSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
@@ -9088,12 +9040,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(
-                            onClick = { showEmbedTtmlDialog = false }
-                        ) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
                         val context = LocalContext.current
                         OutlinedButton(
                             onClick = {
@@ -9145,8 +9091,11 @@ fun LyricTimingScreen(
             val ttmlFileName = audioFile.nameWithoutExtension + ".ttml"
             
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = { showSaveTtmlFileDialog = false },
-                sheetState = saveTtmlFileSheetState
+                sheetState = saveTtmlFileSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
@@ -9184,10 +9133,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { showSaveTtmlFileDialog = false }) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 val success = LyricSaveEmbedUtils.saveTtmlFile(sourceAudioPath, ttmlContent)
@@ -10239,6 +10184,8 @@ fun LyricTimingScreen(
         
         if (showEditUnitDialog) {
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = {
                     if (hasUnsavedChanges()) {
                         pendingDismiss = true
@@ -10247,12 +10194,14 @@ fun LyricTimingScreen(
                         showEditUnitDialog = false
                     }
                 },
-                sheetState = editUnitSheetState
+                sheetState = editUnitSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
+                        .navigationBarsPadding()
                         .verticalScroll(rememberScrollState())
                         .animateContentSize(animationSpec = tween(300))
                 ) {
@@ -10440,20 +10389,6 @@ fun LyricTimingScreen(
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                         ) {
-                            // 关闭按钮
-                            TextButton(
-                                onClick = {
-                                    if (hasUnsavedChanges()) {
-                                        pendingDismiss = true
-                                        showEditUnitCancelConfirm = true
-                                    } else {
-                                        showEditUnitDialog = false
-                                    }
-                                }
-                            ) {
-                                Text("关闭")
-                            }
-                            
                             // 保存按钮
                             Button(
                                 onClick = {
@@ -10599,6 +10534,8 @@ fun LyricTimingScreen(
         var pendingAddLyricDismiss by remember { mutableStateOf(false) }
         if (showAddLyricDialog) {
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = {
                     if (addLyricText != originalAddLyricText || addLyricPosition != 1) {
                         pendingAddLyricDismiss = true
@@ -10607,12 +10544,14 @@ fun LyricTimingScreen(
                         showAddLyricDialog = false
                     }
                 },
-                sheetState = addLyricSheetState
+                sheetState = addLyricSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
+                        .navigationBarsPadding()
                 ) {
                     Text(
                         text = "新增歌词",
@@ -10638,18 +10577,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                     ) {
-                        TextButton(
-                            onClick = {
-                                if (addLyricText != originalAddLyricText || addLyricPosition != 1) {
-                                    pendingAddLyricDismiss = true
-                                    showAddLyricCancelConfirm = true
-                                } else {
-                                    showAddLyricDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
                         Button(
                             onClick = {
                                 if (addLyricText.isNotBlank() && menuLineIndex < lyricLines.size) {
@@ -10726,6 +10653,8 @@ fun LyricTimingScreen(
         var pendingAddLineDismiss by remember { mutableStateOf(false) }
         if (showAddLineDialog) {
             androidx.compose.material3.ModalBottomSheet(
+                modifier = Modifier.statusBarsPadding(),
+                sheetMaxWidth = Dp.Unspecified,
                 onDismissRequest = {
                     if (addLineText != originalAddLineText || addLinePosition != 1) {
                         pendingAddLineDismiss = true
@@ -10734,12 +10663,14 @@ fun LyricTimingScreen(
                         showAddLineDialog = false
                     }
                 },
-                sheetState = addLineSheetState
+                sheetState = addLineSheetState,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
+                        .navigationBarsPadding()
                         .animateContentSize(
                             animationSpec = tween(
                                 durationMillis = 220
@@ -10773,18 +10704,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                     ) {
-                        TextButton(
-                            onClick = {
-                                if (addLineText != originalAddLineText || addLinePosition != 1) {
-                                    pendingAddLineDismiss = true
-                                    showAddLineCancelConfirm = true
-                                } else {
-                                    showAddLineDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
                         Button(
                             onClick = {
                                 if (addLineText.isNotBlank()) {
