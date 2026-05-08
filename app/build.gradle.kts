@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.LyricBox"
+        applicationId = "com.example.LyricBox1"
         minSdk = 24
         targetSdk = 36
         versionCode = 25
@@ -30,6 +30,9 @@ android {
         
         ndk {
             abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("armeabi-v7a")
+            abiFilters += listOf("x86")
+            abiFilters += listOf("x86_64")
         }
     }
 

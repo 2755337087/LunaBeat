@@ -69,6 +69,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -108,6 +109,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -116,6 +120,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalDensity
@@ -746,7 +751,8 @@ private fun clearAllLyricLineTransliterations(lines: List<LyricLine>): List<Lyri
 @Composable
 private fun ImportTransliterationSheetHeader(
     onImportKanaRomaClick: () -> Unit,
-    onDeleteAllClick: () -> Unit
+    onDeleteAllClick: () -> Unit,
+    onClosePageClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var menuAnchor by remember { mutableStateOf(MenuAnchorPosition(0f, 0f)) }
@@ -799,10 +805,3911 @@ private fun ImportTransliterationSheetHeader(
                     showMenu = false
                     onDeleteAllClick()
                 }
+            ),
+            MenuItem(
+                title = "关闭页面",
+                onClick = {
+                    showMenu = false
+                    onClosePageClick()
+                }
             )
         ),
         anchorPosition = menuAnchor
     )
+}
+
+@Composable
+private fun ImportTranslationSheetContent(
+    lyricLines: List<LyricLine>,
+    translationInput: String,
+    onTranslationInputChange: (String) -> Unit,
+    onConfirmClick: () -> Unit,
+    scrollBlocker: NestedScrollConnection
+) {
+    val lyricScrollState = rememberLazyListState()
+    val translationScrollState = rememberScrollState()
+    val translationLineCount = if (translationInput.isEmpty()) 1 else translationInput.lines().size
+    val density = LocalDensity.current
+    val lineHeightPx = with(density) { 20.dp.toPx() }
+
+    LaunchedEffect(lyricScrollState.firstVisibleItemScrollOffset, lyricScrollState.firstVisibleItemIndex) {
+        val targetOffset = (lyricScrollState.firstVisibleItemIndex * lineHeightPx + lyricScrollState.firstVisibleItemScrollOffset).toInt()
+        if (translationScrollState.value != targetOffset) {
+            translationScrollState.scrollTo(targetOffset)
+        }
+    }
+
+    LaunchedEffect(translationScrollState.value) {
+        val targetIndex = (translationScrollState.value / lineHeightPx).toInt()
+        val targetOffset = (translationScrollState.value % lineHeightPx).toInt()
+        if (lyricScrollState.firstVisibleItemIndex != targetIndex || lyricScrollState.firstVisibleItemScrollOffset != targetOffset) {
+            lyricScrollState.scrollToItem(targetIndex, targetOffset)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "通过文本导入翻译",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            LazyColumn(
+                state = lyricScrollState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(end = 4.dp)
+                    .nestedScroll(scrollBlocker),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                itemsIndexed(lyricLines) { index, line ->
+                    val lineText = line.timeUnits.joinToString("") { it.text }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            fontSize = 14.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text(
+                            text = lineText,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(24.dp)
+                        .fillMaxHeight()
+                        .verticalScroll(translationScrollState)
+                        .nestedScroll(scrollBlocker)
+                        .padding(start = 4.dp, top = 4.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    repeat(maxOf(translationLineCount, lyricLines.size)) { index ->
+                        Text(
+                            text = "${index + 1}",
+                            fontSize = 14.sp,
+                            color = Color.Gray,
+                            modifier = Modifier
+                                .height(20.dp)
+                                .wrapContentHeight(Alignment.CenterVertically)
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    val translationHorizontalScrollState = rememberScrollState()
+                    BasicTextField(
+                        value = translationInput,
+                        onValueChange = onTranslationInputChange,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(translationScrollState)
+                            .horizontalScroll(translationHorizontalScrollState)
+                            .nestedScroll(scrollBlocker),
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
+                            ) {
+                                if (translationInput.isEmpty()) {
+                                    Text(
+                                        text = "输入翻译，一行一句",
+                                        fontSize = 14.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Button(onClick = onConfirmClick) {
+                Text("确定")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImportTranslationBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    translationInput: String,
+    onTranslationInputChange: (String) -> Unit,
+    onApplyTranslations: (List<String>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet) return
+
+    val scope = rememberCoroutineScope()
+    var allowSheetHide by remember { mutableStateOf(false) }
+    var showCancelConfirm by remember { mutableStateOf(false) }
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { targetValue ->
+            targetValue != androidx.compose.material3.SheetValue.Hidden ||
+                allowSheetHide ||
+                translationInput.isEmpty()
+        }
+    )
+
+    val closeSheet = {
+        allowSheetHide = true
+        hideSheetAndDismiss(scope, sheetState) {
+            onDismissSheet()
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = { },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认取消") },
+            text = { Text("输入框中有内容，确定要取消吗？") },
+            confirmButton = {
+                Button(onClick = { showCancelConfirm = false }) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCancelConfirm = false
+                    closeSheet()
+                }) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            if (translationInput.isNotEmpty()) {
+                showCancelConfirm = true
+            } else {
+                closeSheet()
+            }
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        ImportTranslationSheetContent(
+            lyricLines = lyricLines,
+            translationInput = translationInput,
+            onTranslationInputChange = onTranslationInputChange,
+            scrollBlocker = scrollBlocker,
+            onConfirmClick = {
+                onApplyTranslations(translationInput.lines())
+                closeSheet()
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImportTransliterationBottomSheet(
+    showSheet: Boolean,
+    transliterationInput: String,
+    onTransliterationInputChange: (String) -> Unit,
+    lyricLines: List<LyricLine>,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onResultStateChange: (Boolean, String) -> Unit,
+    onShowResultDialog: () -> Unit,
+    onImportKanaRomaClick: () -> Unit,
+    onDeleteAllClick: () -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet) return
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val closeSheet = {
+        hideSheetAndDismiss(scope, sheetState) {
+            onDismissSheet()
+        }
+    }
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier.statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            closeSheet()
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .navigationBarsPadding()
+        ) {
+            ImportTransliterationSheetHeader(
+                onImportKanaRomaClick = onImportKanaRomaClick,
+                onDeleteAllClick = onDeleteAllClick,
+                onClosePageClick = { closeSheet() }
+            )
+            ThemedTextField(
+                value = transliterationInput,
+                onValueChange = onTransliterationInputChange,
+                placeholder = "输入格式：\n歌词：注音\n注意：请输入单个字符对应的注音，一行一个。\n示例：\n你：ni\n好：hao",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(250.dp),
+                singleLine = false,
+                maxLines = 10
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = clipboard.primaryClip
+                        if (clip != null && clip.itemCount > 0) {
+                            onTransliterationInputChange(clip.getItemAt(0).text.toString())
+                        }
+                    }
+                ) {
+                    Text("粘贴")
+                }
+                OutlinedButton(
+                    onClick = { onTransliterationInputChange("") }
+                ) {
+                    Text("清空")
+                }
+                Button(
+                    onClick = {
+                        val (transliterationMap, parseError) = parseTransliterationInput(transliterationInput)
+                        if (parseError) {
+                            onResultStateChange(false, "解析失败，请检查格式是否正确")
+                            onShowResultDialog()
+                            closeSheet()
+                        } else if (transliterationMap.isEmpty()) {
+                            onResultStateChange(false, "未输入任何注音")
+                            onShowResultDialog()
+                            closeSheet()
+                        } else {
+                            val oldLines = lyricLines.toList()
+                            val (updatedLyricLines, matchCount) = applyTransliterationMapToLyrics(
+                                lyricLines = lyricLines,
+                                transliterationMap = transliterationMap
+                            )
+                            onLyricLinesChange(updatedLyricLines)
+
+                            undoRedoManager.pushAction(
+                                UndoAction(
+                                    actionType = UndoActionType.MULTI_CHANGE,
+                                    lineIndex = 0,
+                                    oldValue = oldLines,
+                                    newValue = updatedLyricLines
+                                )
+                            )
+                            updateUndoRedoState()
+
+                            if (matchCount == 0) {
+                                onResultStateChange(false, "未找到对应歌词")
+                            } else {
+                                onResultStateChange(true, "成功对${matchCount}个字符完成注音")
+                            }
+                            onShowResultDialog()
+                            closeSheet()
+                        }
+                    }
+                ) {
+                    Text("确定")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeleteMultipleLinesBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    selectedLineIndices: Set<Int>,
+    onSelectedLineIndicesChange: (Set<Int>) -> Unit,
+    originalSelectedLineIndices: Set<Int>,
+    selectedLineIndex: Int,
+    onSelectedLineIndexChange: (Int) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet) return
+
+    val scope = rememberCoroutineScope()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val closeSheet = {
+        hideSheetAndDismiss(scope, sheetState) {
+            if (selectedLineIndices != originalSelectedLineIndices) {
+                onSelectedLineIndicesChange(originalSelectedLineIndices)
+            }
+            onDismissSheet()
+        }
+    }
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            closeSheet()
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            BatchEditSheetMenuHeader(
+                title = "删除多行",
+                onSelectAll = { onSelectedLineIndicesChange(lyricLines.indices.toSet()) },
+                onInvertSelect = {
+                    onSelectedLineIndicesChange(lyricLines.indices.toSet() - selectedLineIndices)
+                },
+                onClosePage = { closeSheet() }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "已选择 ${selectedLineIndices.size} 行",
+                fontSize = 14.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            Text("请选择要删除的行：", fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .nestedScroll(scrollBlocker)
+            ) {
+                itemsIndexed(lyricLines) { lineIndex, line ->
+                    val lineText = line.timeUnits.joinToString("") { it.text }
+                    val isSelected = lineIndex in selectedLineIndices
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable {
+                                onSelectedLineIndicesChange(
+                                    if (isSelected) {
+                                        selectedLineIndices - lineIndex
+                                    } else {
+                                        selectedLineIndices + lineIndex
+                                    }
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${lineIndex + 1}",
+                            modifier = Modifier.padding(end = 8.dp),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = lineText,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = {
+                        if (selectedLineIndices.isNotEmpty() && selectedLineIndices.size < lyricLines.size) {
+                            val actions = mutableListOf<UndoAction>()
+                            val sortedIndices = selectedLineIndices.sortedDescending()
+                            sortedIndices.forEach { index ->
+                                if (index < lyricLines.size) {
+                                    actions.add(
+                                        UndoAction(
+                                            actionType = UndoActionType.LINE_DELETE,
+                                            lineIndex = index,
+                                            unitIndex = -1,
+                                            oldValue = lyricLines[index],
+                                            newValue = null
+                                        )
+                                    )
+                                }
+                            }
+                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, "删除多行"))
+                            updateUndoRedoState()
+                            val newLines = lyricLines.toMutableList()
+                            sortedIndices.forEach { index ->
+                                newLines.removeAt(index)
+                            }
+                            onLyricLinesChange(newLines)
+                            if (selectedLineIndex >= newLines.size) {
+                                onSelectedLineIndexChange(newLines.size - 1)
+                            }
+                        }
+                        closeSheet()
+                    },
+                    enabled = selectedLineIndices.isNotEmpty() && selectedLineIndices.size < lyricLines.size
+                ) {
+                    Text("确定删除")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MoveLineBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    menuLineIndex: Int,
+    moveLineTargetIndex: Int,
+    onMoveLineTargetIndexChange: (Int) -> Unit,
+    originalMoveLineTargetIndex: Int,
+    moveLinePosition: Int,
+    onMoveLinePositionChange: (Int) -> Unit,
+    originalMoveLinePosition: Int,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onSelectedLineIndexChange: (Int) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet && !showCancelConfirm) return
+
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    val hasChanges = moveLineTargetIndex != originalMoveLineTargetIndex || moveLinePosition != originalMoveLinePosition
+    val requestDismiss = {
+        if (hasChanges) {
+            onPendingDismissChange(true)
+            onShowCancelConfirmChange(true)
+        } else {
+            onDismissSheet()
+        }
+    }
+
+    if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
+        val currentLineText = lyricLines[menuLineIndex].timeUnits.joinToString("") { it.text }
+        val moveLineSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
+
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { requestDismiss() },
+            sheetState = sheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .height(moveLineSheetHeight)
+            ) {
+                Text(
+                    text = "移动行",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Text(
+                    text = "当前行：${menuLineIndex + 1} | $currentLineText",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text("请选择需要移动到哪一行：", fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(lyricLines.size) { lineIndex ->
+                        val line = lyricLines[lineIndex]
+                        val lineText = line.timeUnits.joinToString("") { it.text }
+                        val isCurrentLine = lineIndex == menuLineIndex
+                        val isSelected = lineIndex == moveLineTargetIndex
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    when {
+                                        isCurrentLine -> Color(0x40FFA500)
+                                        isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    }
+                                )
+                                .clickable(enabled = !isCurrentLine) {
+                                    onMoveLineTargetIndexChange(lineIndex)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${lineIndex + 1}",
+                                modifier = Modifier.padding(end = 8.dp),
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = when {
+                                    isCurrentLine -> Color.White
+                                    isSelected -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            Text(
+                                text = lineText,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = when {
+                                    isCurrentLine -> Color.White
+                                    isSelected -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            if (isCurrentLine) {
+                                Text(
+                                    text = " (当前行)",
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("位置：", fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                CustomRadioButtonGroup(
+                    options = listOf("上方", "下方"),
+                    selectedIndex = moveLinePosition,
+                    onSelect = onMoveLinePositionChange
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(onClick = { requestDismiss() }) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = {
+                            if (moveLineTargetIndex >= 0 && moveLineTargetIndex != menuLineIndex) {
+                                val newLines = lyricLines.toMutableList()
+                                val lineToMove = newLines[menuLineIndex]
+                                newLines.removeAt(menuLineIndex)
+                                val insertIndex = if (moveLineTargetIndex > menuLineIndex) {
+                                    if (moveLinePosition == 0) moveLineTargetIndex - 1 else moveLineTargetIndex
+                                } else {
+                                    if (moveLinePosition == 0) moveLineTargetIndex else moveLineTargetIndex + 1
+                                }
+                                val finalIndex = insertIndex.coerceIn(0, newLines.size)
+                                newLines.add(finalIndex, lineToMove)
+                                onLyricLinesChange(newLines)
+                                onSelectedLineIndexChange(finalIndex.coerceIn(0, newLines.size - 1))
+                            }
+                            onDismissSheet()
+                        },
+                        enabled = moveLineTargetIndex >= 0 && moveLineTargetIndex != menuLineIndex
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已修改了移动行的选择，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            scope.launch { sheetState.show() }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SplitToMultipleLinesBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    menuLineIndex: Int,
+    splitText: String,
+    onSplitTextChange: (String) -> Unit,
+    originalSplitText: String,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onSelectedLineIndexChange: (Int) -> Unit,
+    onSelectedWordIndexChange: (Int) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet && !showCancelConfirm) return
+
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    var splitError by remember { mutableStateOf("") }
+
+    val hasChanges = splitText != originalSplitText
+    val requestDismiss = {
+        if (hasChanges) {
+            onPendingDismissChange(true)
+            onShowCancelConfirmChange(true)
+        } else {
+            onDismissSheet()
+            splitError = ""
+        }
+    }
+
+    if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
+        val currentLine = lyricLines[menuLineIndex]
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { requestDismiss() },
+            sheetState = sheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "拆分为多行",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Text("当前歌词：", fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                ThemedTextField(
+                    value = splitText,
+                    onValueChange = onSplitTextChange,
+                    placeholder = "歌词内容",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    singleLine = false,
+                    minLines = 5,
+                    maxLines = 10
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "提示：请通过输入换行符将歌词拆分为多行。每一行将成为新的歌词行。",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+                if (splitError.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = splitError,
+                        color = Color.Red,
+                        fontSize = 12.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(onClick = { requestDismiss() }) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = {
+                            if (!splitText.contains("\n")) {
+                                splitError = "未检测到换行符，无法拆分"
+                                return@Button
+                            }
+
+                            val lines = splitText.split("\n").filter { it.isNotBlank() }
+                            if (lines.size < 2) {
+                                splitError = "拆分后至少需要两行有效歌词"
+                                return@Button
+                            }
+
+                            val newLines = lyricLines.toMutableList()
+                            val currentTimeUnits = currentLine.timeUnits
+                            val newLyricLines = mutableListOf<LyricLine>()
+
+                            if (currentTimeUnits.size > 1) {
+                                var currentTextIndex = 0
+                                lines.forEach { lineText ->
+                                    val lineTimeUnits = mutableListOf<LyricTimeUnit>()
+                                    var remainingText = lineText
+
+                                    while (remainingText.isNotEmpty() && currentTextIndex < currentTimeUnits.size) {
+                                        val unit = currentTimeUnits[currentTextIndex]
+                                        if (remainingText.startsWith(unit.text)) {
+                                            lineTimeUnits.add(unit)
+                                            remainingText = remainingText.substring(unit.text.length)
+                                            currentTextIndex++
+                                        } else if (unit.text.startsWith(remainingText)) {
+                                            val matchedPart = unit.text.substring(0, remainingText.length)
+                                            val remainingPart = unit.text.substring(remainingText.length)
+                                            lineTimeUnits.add(LyricTimeUnit(matchedPart, unit.startTime, unit.endTime))
+                                            currentTimeUnits.toMutableList()[currentTextIndex] =
+                                                LyricTimeUnit(remainingPart, unit.startTime, unit.endTime)
+                                            remainingText = ""
+                                        } else {
+                                            lineTimeUnits.add(unit)
+                                            remainingText = remainingText.substring(unit.text.length.coerceAtMost(remainingText.length))
+                                            currentTextIndex++
+                                        }
+                                    }
+
+                                    if (lineTimeUnits.isNotEmpty()) {
+                                        newLyricLines.add(LyricLine(lineTimeUnits, "", LyricAgentType.LEFT, ""))
+                                    }
+                                }
+
+                                while (currentTextIndex < currentTimeUnits.size) {
+                                    val lastLine = newLyricLines.lastOrNull()
+                                    if (lastLine != null) {
+                                        val updatedUnits = lastLine.timeUnits.toMutableList()
+                                        updatedUnits.add(currentTimeUnits[currentTextIndex])
+                                        newLyricLines[newLyricLines.size - 1] = lastLine.copy(timeUnits = updatedUnits)
+                                    }
+                                    currentTextIndex++
+                                }
+                            } else {
+                                lines.forEach { lineText ->
+                                    newLyricLines.add(
+                                        LyricLine(
+                                            listOf(LyricTimeUnit(lineText, "00:00.000", "00:00.000")),
+                                            "",
+                                            LyricAgentType.LEFT,
+                                            ""
+                                        )
+                                    )
+                                }
+                            }
+
+                            if (newLyricLines.isNotEmpty()) {
+                                newLines.removeAt(menuLineIndex)
+                                newLines.addAll(menuLineIndex, newLyricLines)
+                                onLyricLinesChange(newLines)
+                                onSelectedLineIndexChange(menuLineIndex)
+                                onSelectedWordIndexChange(0)
+                            }
+
+                            onDismissSheet()
+                            splitError = ""
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已修改了歌词内容，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            scope.launch { sheetState.show() }
+        }
+    }
+}
+
+private fun segmentUnitWithTransliteration(unit: LyricTimeUnit): List<LyricTimeUnit> {
+    val segmentedWords = smartSegmentLyric(unit.text)
+    if (segmentedWords.size <= 1) {
+        return listOf(unit)
+    }
+
+    val startTimeMs = parseTimeToMs(unit.startTime)
+    val endTimeMs = parseTimeToMs(unit.endTime)
+    val totalDuration = endTimeMs - startTimeMs
+
+    var charIndex = 0
+    val wordCharRanges = segmentedWords.map { word ->
+        val start = charIndex
+        charIndex += word.length
+        start until charIndex
+    }
+
+    fun createNewUnit(word: String, charRange: IntRange, startMs: Long, endMs: Long): LyricTimeUnit {
+        val newCharTransliterations = mutableMapOf<Int, String>()
+        charRange.forEachIndexed { newIdx, oldIdx ->
+            unit.charTransliterations[oldIdx]?.let { translit ->
+                newCharTransliterations[newIdx] = translit
+            }
+        }
+        val newTransliteration = if (word.length == 1 && newCharTransliterations.isNotEmpty()) {
+            newCharTransliterations[0] ?: ""
+        } else {
+            ""
+        }
+        return LyricTimeUnit(
+            text = word,
+            startTime = formatTime(startMs),
+            endTime = formatTime(endMs),
+            transliteration = newTransliteration,
+            charTransliterations = newCharTransliterations.toMap()
+        )
+    }
+
+    if (totalDuration > 0) {
+        val unitCount = segmentedWords.size
+        val unitDuration = totalDuration / unitCount
+        return segmentedWords.mapIndexed { wordIndex, word ->
+            val unitStartMs = startTimeMs + unitDuration * wordIndex
+            val unitEndMs = if (wordIndex == unitCount - 1) {
+                endTimeMs
+            } else {
+                startTimeMs + unitDuration * (wordIndex + 1)
+            }
+            createNewUnit(word, wordCharRanges[wordIndex], unitStartMs, unitEndMs)
+        }
+    }
+
+    return segmentedWords.mapIndexed { wordIndex, word ->
+        val unitStartMs = if (wordIndex == 0) startTimeMs else 0L
+        val unitEndMs = if (wordIndex == segmentedWords.size - 1) endTimeMs else 0L
+        createNewUnit(word, wordCharRanges[wordIndex], unitStartMs, unitEndMs)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BatchSegmentBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    selectedLines: Set<Int>,
+    onSelectedLinesChange: (Set<Int>) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet || lyricLines.isEmpty()) return
+
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            onDismissSheet()
+            onSelectedLinesChange(emptySet())
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            BatchEditSheetMenuHeader(
+                title = "一键分词",
+                onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
+                onInvertSelect = {
+                    onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
+                },
+                onClosePage = {
+                    hideSheetAndDismiss(scope, sheetState) {
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                }
+            )
+            Text(
+                text = "选择需要分词的歌词行：",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .nestedScroll(scrollBlocker)
+            ) {
+                items(lyricLines.size) { index ->
+                    val line = lyricLines[index]
+                    val lineText = line.timeUnits.joinToString("") { it.text }
+                    val isSelected = selectedLines.contains(index)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable {
+                                onSelectedLinesChange(
+                                    if (isSelected) selectedLines - index else selectedLines + index
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            modifier = Modifier.padding(end = 8.dp),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = lineText,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+            ) {
+                Button(
+                    onClick = {
+                        if (selectedLines.isNotEmpty()) {
+                            val actions = mutableListOf<UndoAction>()
+                            selectedLines.forEach { lineIdx ->
+                                if (lineIdx < lyricLines.size) {
+                                    val line = lyricLines[lineIdx]
+                                    val newTimeUnits = line.timeUnits.flatMap { unit ->
+                                        segmentUnitWithTransliteration(unit)
+                                    }
+                                    actions.add(
+                                        UndoAction(
+                                            actionType = UndoActionType.BATCH_SEGMENT,
+                                            lineIndex = lineIdx,
+                                            unitIndex = -1,
+                                            oldValue = line.timeUnits,
+                                            newValue = newTimeUnits
+                                        )
+                                    )
+                                }
+                            }
+                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, "一键分词"))
+                            updateUndoRedoState()
+                            val newLyricLines = lyricLines.mapIndexed { index, line ->
+                                if (selectedLines.contains(index)) {
+                                    val newTimeUnits = line.timeUnits.flatMap { unit ->
+                                        segmentUnitWithTransliteration(unit)
+                                    }
+                                    line.copy(timeUnits = newTimeUnits)
+                                } else {
+                                    line
+                                }
+                            }
+                            onLyricLinesChange(newLyricLines)
+                        }
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                ) {
+                    Text("确定")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MergeUnitsBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    selectedLines: Set<Int>,
+    onSelectedLinesChange: (Set<Int>) -> Unit,
+    mergeThreshold: Long,
+    onMergeThresholdChange: (Long) -> Unit,
+    showThresholdMenu: Boolean,
+    onShowThresholdMenuChange: (Boolean) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet || lyricLines.isEmpty()) return
+
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    var mergeThresholdMenuAnchor by remember { mutableStateOf(MenuAnchorPosition(0f, 0f)) }
+    val density = LocalDensity.current
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            onDismissSheet()
+            onSelectedLinesChange(emptySet())
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            BatchEditSheetMenuHeader(
+                title = "一键合并歌词",
+                onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
+                onInvertSelect = {
+                    onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
+                },
+                onClosePage = {
+                    hideSheetAndDismiss(scope, sheetState) {
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                }
+            )
+            Text(
+                text = "选择需要合并歌词单元的歌词行：",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "合并阈值：±",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Box {
+                    TextButton(
+                        onClick = { onShowThresholdMenuChange(true) },
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            val bounds = coordinates.boundsInRoot()
+                            mergeThresholdMenuAnchor = MenuAnchorPosition(
+                                x = with(density) { bounds.center.x.toDp().value },
+                                y = with(density) { bounds.center.y.toDp().value }
+                            )
+                        }
+                    ) {
+                        Text("$mergeThreshold 毫秒")
+                    }
+                    CustomDropdownMenu(
+                        expanded = showThresholdMenu,
+                        onDismissRequest = { onShowThresholdMenuChange(false) },
+                        items = listOf(10L, 30L, 50L, 70L, 100L).map { threshold ->
+                            MenuItem(
+                                title = "$threshold 毫秒",
+                                onClick = {
+                                    onMergeThresholdChange(threshold)
+                                    onShowThresholdMenuChange(false)
+                                }
+                            )
+                        },
+                        anchorPosition = mergeThresholdMenuAnchor
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .nestedScroll(scrollBlocker)
+            ) {
+                items(lyricLines.size) { index ->
+                    val line = lyricLines[index]
+                    val lineText = line.timeUnits.joinToString("") { it.text }
+                    val isSelected = selectedLines.contains(index)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable {
+                                onSelectedLinesChange(
+                                    if (isSelected) selectedLines - index else selectedLines + index
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            modifier = Modifier.padding(end = 8.dp),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = lineText,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+            ) {
+                Button(
+                    onClick = {
+                        if (selectedLines.isNotEmpty()) {
+                            val actions = mutableListOf<UndoAction>()
+                            selectedLines.forEach { lineIdx ->
+                                if (lineIdx < lyricLines.size) {
+                                    val line = lyricLines[lineIdx]
+                                    actions.add(
+                                        UndoAction(
+                                            actionType = UndoActionType.BATCH_MERGE_UNITS,
+                                            lineIndex = lineIdx,
+                                            unitIndex = -1,
+                                            oldValue = line.timeUnits,
+                                            newValue = mergeCloseTimeUnits(line.timeUnits, mergeThreshold)
+                                        )
+                                    )
+                                }
+                            }
+                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, "一键合并歌词"))
+                            updateUndoRedoState()
+                            val newLyricLines = lyricLines.mapIndexed { index, line ->
+                                if (selectedLines.contains(index)) {
+                                    line.copy(timeUnits = mergeCloseTimeUnits(line.timeUnits, mergeThreshold))
+                                } else {
+                                    line
+                                }
+                            }
+                            onLyricLinesChange(newLyricLines)
+                        }
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                ) {
+                    Text("确定")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimestampShiftBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    selectedLines: Set<Int>,
+    onSelectedLinesChange: (Set<Int>) -> Unit,
+    shiftValue: String,
+    onShiftValueChange: (String) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet || lyricLines.isEmpty()) return
+
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            onDismissSheet()
+            onSelectedLinesChange(emptySet())
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            BatchEditSheetMenuHeader(
+                title = "平移时间戳",
+                onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
+                onInvertSelect = {
+                    onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
+                },
+                onClosePage = {
+                    hideSheetAndDismiss(scope, sheetState) {
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                }
+            )
+            Text(
+                text = "选择需要平移时间戳的歌词行：",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .nestedScroll(scrollBlocker)
+            ) {
+                items(lyricLines.size) { index ->
+                    val line = lyricLines[index]
+                    val lineText = line.timeUnits.joinToString("") { it.text }
+                    val isSelected = selectedLines.contains(index)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable {
+                                onSelectedLinesChange(
+                                    if (isSelected) selectedLines - index else selectedLines + index
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            modifier = Modifier.padding(end = 8.dp),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = lineText,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val currentValue = shiftValue.toIntOrNull() ?: 0
+                        if (currentValue >= 50) {
+                            onShiftValueChange((currentValue - 50).toString())
+                        }
+                    },
+                    modifier = Modifier.weight(0.2f)
+                ) {
+                    Text("-")
+                }
+                ThemedTextField(
+                    value = shiftValue,
+                    onValueChange = { input ->
+                        onShiftValueChange(filterDigits(input))
+                    },
+                    placeholder = "偏移值",
+                    modifier = Modifier.weight(0.6f),
+                    singleLine = true
+                )
+                Button(
+                    onClick = {
+                        val currentValue = shiftValue.toIntOrNull() ?: 0
+                        onShiftValueChange((currentValue + 50).toString())
+                    },
+                    modifier = Modifier.weight(0.2f)
+                ) {
+                    Text("+")
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "单位：毫秒",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.End
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            if (selectedLines.isNotEmpty()) {
+                                val shiftMs = shiftValue.toLongOrNull() ?: 0L
+                                val actions = mutableListOf<UndoAction>()
+                                selectedLines.forEach { lineIdx ->
+                                    if (lineIdx < lyricLines.size) {
+                                        lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
+                                            actions.add(
+                                                UndoAction(
+                                                    actionType = UndoActionType.TIME_CHANGE,
+                                                    lineIndex = lineIdx,
+                                                    unitIndex = unitIdx,
+                                                    oldValue = unit,
+                                                    newValue = unit.copy(
+                                                        startTime = LyricBatchEditUtils.adjustTime(unit.startTime, -shiftMs),
+                                                        endTime = LyricBatchEditUtils.adjustTime(unit.endTime, -shiftMs)
+                                                    )
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
+                                updateUndoRedoState()
+                                onLyricLinesChange(LyricBatchEditUtils.shiftTimestamps(lyricLines, selectedLines, -shiftMs))
+                            }
+                            onDismissSheet()
+                            onSelectedLinesChange(emptySet())
+                        }
+                    ) {
+                        Text("提前（-）")
+                    }
+                    Button(
+                        onClick = {
+                            if (selectedLines.isNotEmpty()) {
+                                val shiftMs = shiftValue.toLongOrNull() ?: 0L
+                                val actions = mutableListOf<UndoAction>()
+                                selectedLines.forEach { lineIdx ->
+                                    if (lineIdx < lyricLines.size) {
+                                        lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
+                                            actions.add(
+                                                UndoAction(
+                                                    actionType = UndoActionType.TIME_CHANGE,
+                                                    lineIndex = lineIdx,
+                                                    unitIndex = unitIdx,
+                                                    oldValue = unit,
+                                                    newValue = unit.copy(
+                                                        startTime = LyricBatchEditUtils.adjustTime(unit.startTime, shiftMs),
+                                                        endTime = LyricBatchEditUtils.adjustTime(unit.endTime, shiftMs)
+                                                    )
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
+                                updateUndoRedoState()
+                                onLyricLinesChange(LyricBatchEditUtils.shiftTimestamps(lyricLines, selectedLines, shiftMs))
+                            }
+                            onDismissSheet()
+                            onSelectedLinesChange(emptySet())
+                        }
+                    ) {
+                        Text("延后（+）")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConvertToSimplifiedBottomSheet(
+    showSheet: Boolean,
+    lyricLines: List<LyricLine>,
+    selectedLines: Set<Int>,
+    onSelectedLinesChange: (Set<Int>) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    if (!showSheet || lyricLines.isEmpty()) return
+
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val scrollBlocker = rememberBottomSheetListScrollBlocker()
+
+    androidx.compose.material3.ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        sheetMaxWidth = Dp.Unspecified,
+        onDismissRequest = {
+            onDismissSheet()
+            onSelectedLinesChange(emptySet())
+        },
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            BatchEditSheetMenuHeader(
+                title = "转换为简体",
+                onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
+                onInvertSelect = {
+                    onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
+                },
+                onClosePage = {
+                    hideSheetAndDismiss(scope, sheetState) {
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                }
+            )
+            Text(
+                text = "选择需要转换为简体的歌词行：",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .nestedScroll(scrollBlocker)
+            ) {
+                items(lyricLines.size) { index ->
+                    val line = lyricLines[index]
+                    val lineText = line.timeUnits.joinToString("") { it.text }
+                    val isSelected = selectedLines.contains(index)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable {
+                                onSelectedLinesChange(
+                                    if (isSelected) selectedLines - index else selectedLines + index
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            modifier = Modifier.padding(end = 8.dp),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = lineText,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+            ) {
+                Button(
+                    onClick = {
+                        if (selectedLines.isNotEmpty()) {
+                            val actions = mutableListOf<UndoAction>()
+                            selectedLines.forEach { lineIdx ->
+                                if (lineIdx < lyricLines.size) {
+                                    lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
+                                        val simplifiedText = LyricBatchEditUtils.toSimplifiedText(unit.text)
+                                        if (simplifiedText != unit.text) {
+                                            actions.add(
+                                                UndoAction(
+                                                    actionType = UndoActionType.BATCH_CONVERT_TO_SIMPLIFIED,
+                                                    lineIndex = lineIdx,
+                                                    unitIndex = unitIdx,
+                                                    oldValue = unit,
+                                                    newValue = unit.copy(text = simplifiedText)
+                                                )
+                                            )
+                                        }
+                                    }
+                                    val oldTranslation = lyricLines[lineIdx].translation
+                                    val newTranslation = LyricBatchEditUtils.toSimplifiedText(oldTranslation)
+                                    if (newTranslation != oldTranslation) {
+                                        actions.add(
+                                            UndoAction(
+                                                actionType = UndoActionType.BATCH_CONVERT_TO_SIMPLIFIED,
+                                                lineIndex = lineIdx,
+                                                unitIndex = -1,
+                                                oldValue = oldTranslation,
+                                                newValue = newTranslation
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            if (actions.isNotEmpty()) {
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "转换为简体"))
+                                updateUndoRedoState()
+                            }
+                            onLyricLinesChange(LyricBatchEditUtils.convertToSimplified(lyricLines, selectedLines))
+                        }
+                        onDismissSheet()
+                        onSelectedLinesChange(emptySet())
+                    }
+                ) {
+                    Text("确定")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImportLyricsBottomSheets(
+    showLyricInputDialog: Boolean,
+    onShowLyricInputDialogChange: (Boolean) -> Unit,
+    lyricInput: String,
+    onLyricInputChange: (String) -> Unit,
+    useSpaceSplit: Boolean,
+    onUseSpaceSplitChange: (Boolean) -> Unit,
+    showImportExampleDialog: Boolean,
+    onShowImportExampleDialogChange: (Boolean) -> Unit,
+    showCancelLyricInputConfirm: Boolean,
+    onShowCancelLyricInputConfirmChange: (Boolean) -> Unit,
+    pendingLyricInputDismiss: Boolean,
+    onPendingLyricInputDismissChange: (Boolean) -> Unit,
+    showSPLLrcInputDialog: Boolean,
+    onShowSPLLrcInputDialogChange: (Boolean) -> Unit,
+    splLrcInput: String,
+    onSplLrcInputChange: (String) -> Unit,
+    showCancelSpllrcInputConfirm: Boolean,
+    onShowCancelSpllrcInputConfirmChange: (Boolean) -> Unit,
+    pendingSpllrcInputDismiss: Boolean,
+    onPendingSpllrcInputDismissChange: (Boolean) -> Unit,
+    showElrcInputDialog: Boolean,
+    onShowElrcInputDialogChange: (Boolean) -> Unit,
+    elrcInput: String,
+    onElrcInputChange: (String) -> Unit,
+    showCancelElrcInputConfirm: Boolean,
+    onShowCancelElrcInputConfirmChange: (Boolean) -> Unit,
+    pendingElrcInputDismiss: Boolean,
+    onPendingElrcInputDismissChange: (Boolean) -> Unit,
+    showTtmlInputDialog: Boolean,
+    onShowTtmlInputDialogChange: (Boolean) -> Unit,
+    ttmlInput: String,
+    onTtmlInputChange: (String) -> Unit,
+    showCancelTtmlInputConfirm: Boolean,
+    onShowCancelTtmlInputConfirmChange: (Boolean) -> Unit,
+    pendingTtmlInputDismiss: Boolean,
+    onPendingTtmlInputDismissChange: (Boolean) -> Unit,
+    onApplyLyricInput: (String, Boolean) -> Unit,
+    onApplySplInput: (String) -> Unit,
+    onApplyElrcInput: (String) -> Unit,
+    onApplyTtmlInput: (String) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+
+    val lyricInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (showLyricInputDialog) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (lyricInput.isNotEmpty()) {
+                    onPendingLyricInputDismissChange(true)
+                    onShowCancelLyricInputConfirmChange(true)
+                } else {
+                    onShowLyricInputDialogChange(false)
+                }
+            },
+            sheetState = lyricInputSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "导入歌词",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    IconButton(onClick = { onShowImportExampleDialogChange(true) }) {
+                        Icon(
+                            painter = painterResource(id = android.R.drawable.ic_menu_help),
+                            contentDescription = "帮助",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                ThemedTextField(
+                    value = lyricInput,
+                    onValueChange = onLyricInputChange,
+                    placeholder = "一行一句歌词\n每行格式：歌词=翻译（翻译可选）",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    singleLine = false,
+                    maxLines = 5
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                CustomCheckbox(
+                    checked = useSpaceSplit,
+                    onCheckedChange = onUseSpaceSplitChange,
+                    label = "使用空格分割歌词(高级)"
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                ) {
+                    Text(
+                        text = if (useSpaceSplit) "按空格分割歌词单元，若需要保留歌词中原有空格，需要两个空格"
+                        else "每行作为一个整体歌词单元，可通过菜单中的“一键分词”功能快速分割（推荐）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (lyricInput.isNotEmpty()) {
+                                onPendingLyricInputDismissChange(true)
+                                onShowCancelLyricInputConfirmChange(true)
+                            } else {
+                                onShowLyricInputDialogChange(false)
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    val context = LocalContext.current
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = clipboard.primaryClip
+                            if (clip != null && clip.itemCount > 0) {
+                                onLyricInputChange(clip.getItemAt(0).text.toString())
+                            }
+                        }
+                    ) {
+                        Text("粘贴")
+                    }
+                    OutlinedButton(onClick = { onLyricInputChange("") }) {
+                        Text("清空")
+                    }
+                    Button(
+                        onClick = {
+                            onApplyLyricInput(lyricInput, useSpaceSplit)
+                            onShowLyricInputDialogChange(false)
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelLyricInputConfirm) {
+        AlertDialog(
+            onDismissRequest = { onShowCancelLyricInputConfirmChange(false) },
+            title = { Text("确认取消") },
+            text = { Text("输入框中有内容，确定要取消吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelLyricInputConfirmChange(false)
+                        coroutineScope.launch {
+                            lyricInputSheetState.show()
+                        }
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelLyricInputConfirmChange(false)
+                        onShowLyricInputDialogChange(false)
+                        onLyricInputChange("")
+                        onPendingLyricInputDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    ImportExampleDialog(
+        showDialog = showImportExampleDialog,
+        onDismiss = { onShowImportExampleDialogChange(false) }
+    )
+
+    val splLrcInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (showSPLLrcInputDialog) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (splLrcInput.isNotEmpty()) {
+                    onPendingSpllrcInputDismissChange(true)
+                    onShowCancelSpllrcInputConfirmChange(true)
+                } else {
+                    onShowSPLLrcInputDialogChange(false)
+                }
+            },
+            sheetState = splLrcInputSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = "导入 LRC 逐行/逐字歌词",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                ThemedTextField(
+                    value = splLrcInput,
+                    onValueChange = onSplLrcInputChange,
+                    placeholder = "输入LRC 逐行/逐字歌词\n例如：[00:00.000]歌词[00:00.000]",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    singleLine = false,
+                    maxLines = 10
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (splLrcInput.isNotEmpty()) {
+                                onPendingSpllrcInputDismissChange(true)
+                                onShowCancelSpllrcInputConfirmChange(true)
+                            } else {
+                                onShowSPLLrcInputDialogChange(false)
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    val context = LocalContext.current
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = clipboard.primaryClip
+                            if (clip != null && clip.itemCount > 0) {
+                                onSplLrcInputChange(clip.getItemAt(0).text.toString())
+                            }
+                        }
+                    ) {
+                        Text("粘贴")
+                    }
+                    OutlinedButton(onClick = { onSplLrcInputChange("") }) {
+                        Text("清空")
+                    }
+                    Button(
+                        onClick = {
+                            onApplySplInput(splLrcInput)
+                            onShowSPLLrcInputDialogChange(false)
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelSpllrcInputConfirm) {
+        AlertDialog(
+            onDismissRequest = { onShowCancelSpllrcInputConfirmChange(false) },
+            title = { Text("确认取消") },
+            text = { Text("输入框中有内容，确定要取消吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelSpllrcInputConfirmChange(false)
+                        coroutineScope.launch {
+                            splLrcInputSheetState.show()
+                        }
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelSpllrcInputConfirmChange(false)
+                        onShowSPLLrcInputDialogChange(false)
+                        onSplLrcInputChange("")
+                        onPendingSpllrcInputDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    val elrcInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (showElrcInputDialog) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (elrcInput.isNotEmpty()) {
+                    onPendingElrcInputDismissChange(true)
+                    onShowCancelElrcInputConfirmChange(true)
+                } else {
+                    onShowElrcInputDialogChange(false)
+                }
+            },
+            sheetState = elrcInputSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = "导入增强LRC/ELRC逐字歌词",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                ThemedTextField(
+                    value = elrcInput,
+                    onValueChange = onElrcInputChange,
+                    placeholder = "输入ELRC歌词\n例如：[00:44.360]v2: <00:44.360>内<00:44.840>...",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    singleLine = false,
+                    maxLines = 15
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "提示：解析<时间>标签，v1为左侧歌词，v2为右侧歌词",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (elrcInput.isNotEmpty()) {
+                                onPendingElrcInputDismissChange(true)
+                                onShowCancelElrcInputConfirmChange(true)
+                            } else {
+                                onShowElrcInputDialogChange(false)
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    val context = LocalContext.current
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = clipboard.primaryClip
+                            if (clip != null && clip.itemCount > 0) {
+                                onElrcInputChange(clip.getItemAt(0).text.toString())
+                            }
+                        }
+                    ) {
+                        Text("粘贴")
+                    }
+                    OutlinedButton(onClick = { onElrcInputChange("") }) {
+                        Text("清空")
+                    }
+                    Button(
+                        onClick = {
+                            onApplyElrcInput(elrcInput)
+                            onShowElrcInputDialogChange(false)
+                            onElrcInputChange("")
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelElrcInputConfirm) {
+        AlertDialog(
+            onDismissRequest = { onShowCancelElrcInputConfirmChange(false) },
+            title = { Text("确认取消") },
+            text = { Text("输入框中有内容，确定要取消吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelElrcInputConfirmChange(false)
+                        coroutineScope.launch {
+                            elrcInputSheetState.show()
+                        }
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelElrcInputConfirmChange(false)
+                        onShowElrcInputDialogChange(false)
+                        onElrcInputChange("")
+                        onPendingElrcInputDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    val ttmlInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (showTtmlInputDialog) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (ttmlInput.isNotEmpty()) {
+                    onPendingTtmlInputDismissChange(true)
+                    onShowCancelTtmlInputConfirmChange(true)
+                } else {
+                    onShowTtmlInputDialogChange(false)
+                }
+            },
+            sheetState = ttmlInputSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = "导入TTML歌词",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                ThemedTextField(
+                    value = ttmlInput,
+                    onValueChange = onTtmlInputChange,
+                    placeholder = "输入TTML歌词内容\n粘贴TTML格式歌词",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    singleLine = false,
+                    maxLines = 15
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "提示：导入时会自动删除换行符和多余空格",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (ttmlInput.isNotEmpty()) {
+                                onPendingTtmlInputDismissChange(true)
+                                onShowCancelTtmlInputConfirmChange(true)
+                            } else {
+                                onShowTtmlInputDialogChange(false)
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    val context = LocalContext.current
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = clipboard.primaryClip
+                            if (clip != null && clip.itemCount > 0) {
+                                onTtmlInputChange(clip.getItemAt(0).text.toString())
+                            }
+                        }
+                    ) {
+                        Text("粘贴")
+                    }
+                    OutlinedButton(onClick = { onTtmlInputChange("") }) {
+                        Text("清空")
+                    }
+                    Button(
+                        onClick = {
+                            onApplyTtmlInput(ttmlInput)
+                            onShowTtmlInputDialogChange(false)
+                            onTtmlInputChange("")
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelTtmlInputConfirm) {
+        AlertDialog(
+            onDismissRequest = { onShowCancelTtmlInputConfirmChange(false) },
+            title = { Text("确认取消") },
+            text = { Text("输入框中有内容，确定要取消吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelTtmlInputConfirmChange(false)
+                        coroutineScope.launch {
+                            ttmlInputSheetState.show()
+                        }
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelTtmlInputConfirmChange(false)
+                        onShowTtmlInputDialogChange(false)
+                        onTtmlInputChange("")
+                        onPendingTtmlInputDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SetTimestampBottomSheet(
+    showSheet: Boolean,
+    menuLineIndex: Int,
+    onMenuLineIndexChange: (Int) -> Unit,
+    menuUnitIndex: Int,
+    onMenuUnitIndexChange: (Int) -> Unit,
+    lyricLines: List<LyricLine>,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onSelectedLineIndexChange: (Int) -> Unit,
+    onSelectedWordIndexChange: (Int) -> Unit,
+    tempStartTime: String,
+    onTempStartTimeChange: (String) -> Unit,
+    tempEndTime: String,
+    onTempEndTimeChange: (String) -> Unit,
+    originalTempStartTime: String,
+    onOriginalTempStartTimeChange: (String) -> Unit,
+    originalTempEndTime: String,
+    onOriginalTempEndTimeChange: (String) -> Unit,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    showTimeEditor: Boolean,
+    onShowTimeEditorChange: (Boolean) -> Unit,
+    editingStartTime: Boolean,
+    onEditingStartTimeChange: (Boolean) -> Unit,
+    showSwitchUnitConfirm: Boolean,
+    onShowSwitchUnitConfirmChange: (Boolean) -> Unit,
+    targetUnitInfo: Pair<Int, Int>?,
+    onTargetUnitInfoChange: ((Pair<Int, Int>?) -> Unit),
+    onSeekTo: (Long) -> Unit,
+    onPlayPause: (Boolean) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    val setTimestampSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val canShowSheet = showSheet &&
+        menuLineIndex >= 0 && menuLineIndex < lyricLines.size &&
+        menuUnitIndex >= 0 && menuUnitIndex < lyricLines[menuLineIndex].timeUnits.size
+
+    if (canShowSheet) {
+        val currentUnit = lyricLines[menuLineIndex].timeUnits[menuUnitIndex]
+        var editingTimeInSheet by remember { mutableStateOf("") }
+        var shiftValue by remember { mutableStateOf("50") }
+        var isPlaying by remember { mutableStateOf(false) }
+        var saveButtonText by remember { mutableStateOf("保存") }
+        var linkToPrevEndTime by remember { mutableStateOf(false) }
+        var linkToNextStartTime by remember { mutableStateOf(false) }
+
+        val prevUnitInfo: Pair<Int, Int>? = if (menuUnitIndex > 0) {
+            Pair(menuLineIndex, menuUnitIndex - 1)
+        } else if (menuLineIndex > 0) {
+            var targetLineIndex = menuLineIndex - 1
+            while (targetLineIndex >= 0) {
+                val prevLine = lyricLines[targetLineIndex]
+                if (prevLine.timeUnits.isNotEmpty()) {
+                    break
+                }
+                targetLineIndex--
+            }
+            if (targetLineIndex >= 0) {
+                val prevLine = lyricLines[targetLineIndex]
+                Pair(targetLineIndex, prevLine.timeUnits.size - 1)
+            } else null
+        } else null
+
+        val nextUnitInfo: Pair<Int, Int>? = if (menuUnitIndex < lyricLines[menuLineIndex].timeUnits.size - 1) {
+            Pair(menuLineIndex, menuUnitIndex + 1)
+        } else if (menuLineIndex < lyricLines.size - 1) {
+            var targetLineIndex = menuLineIndex + 1
+            while (targetLineIndex < lyricLines.size) {
+                val nextLine = lyricLines[targetLineIndex]
+                if (nextLine.timeUnits.isNotEmpty()) {
+                    break
+                }
+                targetLineIndex++
+            }
+            if (targetLineIndex < lyricLines.size) {
+                Pair(targetLineIndex, 0)
+            } else null
+        } else null
+
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime) {
+                    onPendingDismissChange(true)
+                    onShowCancelConfirmChange(true)
+                } else {
+                    onDismissSheet()
+                    onShowTimeEditorChange(false)
+                }
+            },
+            sheetState = setTimestampSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .animateContentSize()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "设置时间戳",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (!showTimeEditor) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    val hasUnsavedChanges = tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime
+                                    if (hasUnsavedChanges) {
+                                        onTargetUnitInfoChange(prevUnitInfo)
+                                        onShowSwitchUnitConfirmChange(true)
+                                    } else {
+                                        prevUnitInfo?.let { (lineIdx, unitIdx) ->
+                                            onMenuLineIndexChange(lineIdx)
+                                            onMenuUnitIndexChange(unitIdx)
+                                            onSelectedLineIndexChange(lineIdx)
+                                            onSelectedWordIndexChange(unitIdx)
+                                            val unit = lyricLines[lineIdx].timeUnits[unitIdx]
+                                            onTempStartTimeChange(unit.startTime)
+                                            onTempEndTimeChange(unit.endTime)
+                                            onOriginalTempStartTimeChange(unit.startTime)
+                                            onOriginalTempEndTimeChange(unit.endTime)
+                                            linkToPrevEndTime = false
+                                            linkToNextStartTime = false
+                                        }
+                                    }
+                                },
+                                enabled = !isPlaying && prevUnitInfo != null
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.prel),
+                                    contentDescription = "上一个",
+                                    tint = if (isPlaying || prevUnitInfo == null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    isPlaying = true
+                                    val startMs = parseTimeToMs(tempStartTime)
+                                    val endMs = parseTimeToMs(tempEndTime)
+                                    onSeekTo(startMs)
+                                    onPlayPause(true)
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        onPlayPause(false)
+                                        isPlaying = false
+                                    }, endMs - startMs)
+                                },
+                                enabled = !isPlaying
+                            ) {
+                                Text(
+                                    text = "▶",
+                                    color = if (isPlaying) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    val hasUnsavedChanges = tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime
+                                    if (hasUnsavedChanges) {
+                                        onTargetUnitInfoChange(nextUnitInfo)
+                                        onShowSwitchUnitConfirmChange(true)
+                                    } else {
+                                        nextUnitInfo?.let { (lineIdx, unitIdx) ->
+                                            onMenuLineIndexChange(lineIdx)
+                                            onMenuUnitIndexChange(unitIdx)
+                                            onSelectedLineIndexChange(lineIdx)
+                                            onSelectedWordIndexChange(unitIdx)
+                                            val unit = lyricLines[lineIdx].timeUnits[unitIdx]
+                                            onTempStartTimeChange(unit.startTime)
+                                            onTempEndTimeChange(unit.endTime)
+                                            onOriginalTempStartTimeChange(unit.startTime)
+                                            onOriginalTempEndTimeChange(unit.endTime)
+                                            linkToPrevEndTime = false
+                                            linkToNextStartTime = false
+                                        }
+                                    }
+                                },
+                                enabled = !isPlaying && nextUnitInfo != null
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.nextl),
+                                    contentDescription = "下一个",
+                                    tint = if (isPlaying || nextUnitInfo == null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!showTimeEditor) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .clickable {
+                                onEditingStartTimeChange(true)
+                                editingTimeInSheet = tempStartTime
+                                onShowTimeEditorChange(true)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "开始时间：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(0.3f)
+                        )
+                        Text(
+                            text = tempStartTime,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(0.7f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "歌词内容：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(0.3f)
+                        )
+                        Text(
+                            text = currentUnit.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(0.7f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .clickable {
+                                onEditingStartTimeChange(false)
+                                editingTimeInSheet = tempEndTime
+                                onShowTimeEditorChange(true)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "结束时间：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(0.3f)
+                        )
+                        Text(
+                            text = tempEndTime,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(0.7f)
+                        )
+                    }
+
+                    if (prevUnitInfo != null) {
+                        CustomCheckbox(
+                            checked = linkToPrevEndTime,
+                            onCheckedChange = { linkToPrevEndTime = it },
+                            label = "将开始时间应用到上一单元的结束时间"
+                        )
+                    }
+                    if (prevUnitInfo != null && nextUnitInfo != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    if (nextUnitInfo != null) {
+                        CustomCheckbox(
+                            checked = linkToNextStartTime,
+                            onCheckedChange = { linkToNextStartTime = it },
+                            label = "将结束时间应用到下一单元的开始时间"
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                    ) {
+                        TextButton(
+                            onClick = {
+                                if (tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime) {
+                                    onPendingDismissChange(true)
+                                    onShowCancelConfirmChange(true)
+                                } else {
+                                    onDismissSheet()
+                                    onShowTimeEditorChange(false)
+                                }
+                            }
+                        ) { Text("关闭") }
+                        Button(
+                            onClick = {
+                                val updatedLines = lyricLines.toMutableList()
+                                val currentTimeUnits = updatedLines[menuLineIndex].timeUnits.toMutableList()
+                                val oldUnit = currentTimeUnits[menuUnitIndex]
+                                val newUnit = currentUnit.copy(
+                                    startTime = tempStartTime,
+                                    endTime = tempEndTime
+                                )
+                                undoRedoManager.pushAction(
+                                    UndoAction(
+                                        actionType = UndoActionType.TIME_CHANGE,
+                                        lineIndex = menuLineIndex,
+                                        unitIndex = menuUnitIndex,
+                                        oldValue = oldUnit,
+                                        newValue = newUnit
+                                    )
+                                )
+                                currentTimeUnits[menuUnitIndex] = newUnit
+                                updatedLines[menuLineIndex] = updatedLines[menuLineIndex].copy(timeUnits = currentTimeUnits)
+
+                                if (linkToPrevEndTime && prevUnitInfo != null) {
+                                    val (prevLineIdx, prevUnitIdx) = prevUnitInfo
+                                    val prevTimeUnits = updatedLines[prevLineIdx].timeUnits.toMutableList()
+                                    val prevOldUnit = prevTimeUnits[prevUnitIdx]
+                                    val prevNewUnit = prevTimeUnits[prevUnitIdx].copy(endTime = tempStartTime)
+                                    undoRedoManager.pushAction(
+                                        UndoAction(
+                                            actionType = UndoActionType.TIME_CHANGE,
+                                            lineIndex = prevLineIdx,
+                                            unitIndex = prevUnitIdx,
+                                            oldValue = prevOldUnit,
+                                            newValue = prevNewUnit
+                                        )
+                                    )
+                                    prevTimeUnits[prevUnitIdx] = prevNewUnit
+                                    updatedLines[prevLineIdx] = updatedLines[prevLineIdx].copy(timeUnits = prevTimeUnits)
+                                }
+
+                                if (linkToNextStartTime && nextUnitInfo != null) {
+                                    val (nextLineIdx, nextUnitIdx) = nextUnitInfo
+                                    val nextTimeUnits = updatedLines[nextLineIdx].timeUnits.toMutableList()
+                                    val nextOldUnit = nextTimeUnits[nextUnitIdx]
+                                    val nextNewUnit = nextTimeUnits[nextUnitIdx].copy(startTime = tempEndTime)
+                                    undoRedoManager.pushAction(
+                                        UndoAction(
+                                            actionType = UndoActionType.TIME_CHANGE,
+                                            lineIndex = nextLineIdx,
+                                            unitIndex = nextUnitIdx,
+                                            oldValue = nextOldUnit,
+                                            newValue = nextNewUnit
+                                        )
+                                    )
+                                    nextTimeUnits[nextUnitIdx] = nextNewUnit
+                                    updatedLines[nextLineIdx] = updatedLines[nextLineIdx].copy(timeUnits = nextTimeUnits)
+                                }
+
+                                updateUndoRedoState()
+                                onLyricLinesChange(updatedLines)
+                                onOriginalTempStartTimeChange(tempStartTime)
+                                onOriginalTempEndTimeChange(tempEndTime)
+                                linkToPrevEndTime = false
+                                linkToNextStartTime = false
+                                saveButtonText = "已保存"
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    saveButtonText = "保存"
+                                }, 1000)
+                            },
+                            modifier = Modifier.widthIn(min = 80.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.widthIn(min = 60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(saveButtonText)
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = if (editingStartTime) "编辑开始时间" else "编辑结束时间",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    ThemedTextField(
+                        value = editingTimeInSheet,
+                        onValueChange = { editingTimeInSheet = it },
+                        placeholder = "时间 (mm:ss.SSS)",
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val currentValue = shiftValue.toIntOrNull() ?: 0
+                                if (currentValue >= 50) {
+                                    shiftValue = (currentValue - 50).toString()
+                                }
+                            },
+                            modifier = Modifier.weight(0.2f)
+                        ) {
+                            Text("-")
+                        }
+                        ThemedTextField(
+                            value = shiftValue,
+                            onValueChange = { shiftValue = filterDigits(it) },
+                            placeholder = "偏移值",
+                            modifier = Modifier.weight(0.6f),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = {
+                                val currentValue = shiftValue.toIntOrNull() ?: 0
+                                shiftValue = (currentValue + 50).toString()
+                            },
+                            modifier = Modifier.weight(0.2f)
+                        ) {
+                            Text("+")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "单位：毫秒",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val shiftMs = shiftValue.toLongOrNull() ?: 0L
+                                editingTimeInSheet = adjustTime(editingTimeInSheet, -shiftMs)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("提前（-）") }
+                        Button(
+                            onClick = {
+                                val shiftMs = shiftValue.toLongOrNull() ?: 0L
+                                editingTimeInSheet = adjustTime(editingTimeInSheet, shiftMs)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("延后（+）") }
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                    ) {
+                        TextButton(onClick = { onShowTimeEditorChange(false) }) {
+                            Text("返回")
+                        }
+                        Button(
+                            onClick = {
+                                if (editingStartTime) {
+                                    onTempStartTimeChange(editingTimeInSheet)
+                                } else {
+                                    onTempEndTimeChange(editingTimeInSheet)
+                                }
+                                onShowTimeEditorChange(false)
+                            }
+                        ) {
+                            Text("确定")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已修改了时间，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                        onShowTimeEditorChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    if (showSwitchUnitConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowSwitchUnitConfirmChange(false)
+                onTargetUnitInfoChange(null)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("当前数据未保存") },
+            text = { Text("当前数据未保存，是否切换？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowSwitchUnitConfirmChange(false)
+                        onTargetUnitInfoChange(null)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowSwitchUnitConfirmChange(false)
+                        targetUnitInfo?.let { (lineIdx, unitIdx) ->
+                            onMenuLineIndexChange(lineIdx)
+                            onMenuUnitIndexChange(unitIdx)
+                            onSelectedLineIndexChange(lineIdx)
+                            onSelectedWordIndexChange(unitIdx)
+                            val unit = lyricLines[lineIdx].timeUnits[unitIdx]
+                            onTempStartTimeChange(unit.startTime)
+                            onTempEndTimeChange(unit.endTime)
+                            onOriginalTempStartTimeChange(unit.startTime)
+                            onOriginalTempEndTimeChange(unit.endTime)
+                        }
+                        onTargetUnitInfoChange(null)
+                    }
+                ) {
+                    Text("切换")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            scope.launch { setTimestampSheetState.show() }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun SplitLyricBottomSheet(
+    showSheet: Boolean,
+    menuLineIndex: Int,
+    menuUnitIndex: Int,
+    lyricLines: List<LyricLine>,
+    splitLyricText: String,
+    onSplitLyricTextChange: (String) -> Unit,
+    originalSplitLyricText: String,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    val splitLyricSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (showSheet) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (splitLyricText != originalSplitLyricText) {
+                    onPendingDismissChange(true)
+                    onShowCancelConfirmChange(true)
+                } else {
+                    onDismissSheet()
+                }
+            },
+            sheetState = splitLyricSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "拆分歌词",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Text("用空格分隔歌词单元：", fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                ThemedTextField(
+                    value = splitLyricText,
+                    onValueChange = { onSplitLyricTextChange(it) },
+                    placeholder = "歌词内容",
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    minLines = 2
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("提示：第一个空格为分隔符，连续多余空格保留到下一单元", fontSize = 12.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (splitLyricText != originalSplitLyricText) {
+                                onPendingDismissChange(true)
+                                onShowCancelConfirmChange(true)
+                            } else {
+                                onDismissSheet()
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val segmentedWords = smartSegmentLyric(splitLyricText)
+                            onSplitLyricTextChange(segmentedWords.joinToString(" "))
+                        }
+                    ) {
+                        Text("一键分词", fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = {
+                            if (menuLineIndex < lyricLines.size && menuUnitIndex < lyricLines[menuLineIndex].timeUnits.size) {
+                                val currentUnit = lyricLines[menuLineIndex].timeUnits[menuUnitIndex]
+                                val startMs = parseTimeToMs(currentUnit.startTime)
+                                val endMs = parseTimeToMs(currentUnit.endTime)
+                                val totalDuration = endMs - startMs
+
+                                val normalizedText = splitLyricText.replace('\u00A0', ' ')
+                                val segments = mutableListOf<String>()
+                                var currentSegment = ""
+                                var index = 0
+
+                                while (index < normalizedText.length) {
+                                    val char = normalizedText[index]
+                                    if (char == ' ') {
+                                        if (currentSegment.isNotEmpty()) {
+                                            segments.add(currentSegment)
+                                            currentSegment = ""
+                                        }
+                                        index++
+                                        var extraSpaces = ""
+                                        while (index < normalizedText.length && normalizedText[index] == ' ') {
+                                            extraSpaces += ' '
+                                            index++
+                                        }
+                                        if (index < normalizedText.length) {
+                                            currentSegment = extraSpaces
+                                        }
+                                    } else {
+                                        currentSegment += char
+                                        index++
+                                    }
+                                }
+                                if (currentSegment.isNotEmpty()) {
+                                    segments.add(currentSegment)
+                                }
+
+                                if (segments.isNotEmpty()) {
+                                    val newTimeUnits = mutableListOf<LyricTimeUnit>()
+                                    val segmentWeights = segments.map { segment ->
+                                        smartSegmentLyric(segment).size
+                                    }
+                                    val totalWeight = segmentWeights.sum()
+                                    var sourceCharCursor = 0
+                                    var accumulatedMs = startMs
+
+                                    segments.forEachIndexed { segmentIndex, segment ->
+                                        val weight = segmentWeights[segmentIndex]
+                                        val unitDuration = if (totalWeight > 0) {
+                                            (totalDuration * weight) / totalWeight
+                                        } else {
+                                            totalDuration / segments.size
+                                        }
+                                        val unitStartMs = accumulatedMs
+                                        val unitEndMs = if (segmentIndex == segments.size - 1) endMs else accumulatedMs + unitDuration
+                                        accumulatedMs = unitEndMs
+
+                                        val mappedCharTransliterations = mutableMapOf<Int, String>()
+                                        segment.forEachIndexed { newIdx, _ ->
+                                            val oldIdx = sourceCharCursor + newIdx
+                                            currentUnit.charTransliterations[oldIdx]?.let { translit ->
+                                                mappedCharTransliterations[newIdx] = translit
+                                            }
+                                        }
+                                        sourceCharCursor += segment.length
+
+                                        val mappedTransliteration = when {
+                                            mappedCharTransliterations.isNotEmpty() && segment.length == 1 -> mappedCharTransliterations[0] ?: ""
+                                            segments.size == 1 -> currentUnit.transliteration
+                                            else -> ""
+                                        }
+
+                                        newTimeUnits.add(
+                                            LyricTimeUnit(
+                                                text = segment,
+                                                startTime = formatTime(unitStartMs),
+                                                endTime = formatTime(unitEndMs),
+                                                transliteration = mappedTransliteration,
+                                                charTransliterations = mappedCharTransliterations.toMap()
+                                            )
+                                        )
+                                    }
+
+                                    val newLines = lyricLines.toMutableList()
+                                    val currentLine = newLines[menuLineIndex]
+                                    val oldTimeUnits = currentLine.timeUnits
+                                    val updatedTimeUnits = currentLine.timeUnits.toMutableList()
+                                    updatedTimeUnits.removeAt(menuUnitIndex)
+                                    updatedTimeUnits.addAll(menuUnitIndex, newTimeUnits)
+                                    newLines[menuLineIndex] = currentLine.copy(timeUnits = updatedTimeUnits)
+
+                                    undoRedoManager.pushAction(
+                                        UndoAction(
+                                            actionType = UndoActionType.UNIT_SPLIT,
+                                            lineIndex = menuLineIndex,
+                                            unitIndex = menuUnitIndex,
+                                            oldValue = oldTimeUnits,
+                                            newValue = updatedTimeUnits.toList()
+                                        )
+                                    )
+                                    updateUndoRedoState()
+                                    onLyricLinesChange(newLines)
+                                }
+                            }
+                            onDismissSheet()
+                        },
+                        enabled = splitLyricText.isNotBlank()
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已修改了内容，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            splitLyricSheetState.show()
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun AddTranslationBottomSheet(
+    showSheet: Boolean,
+    menuLineIndex: Int,
+    lyricLines: List<LyricLine>,
+    addTranslationText: String,
+    onAddTranslationTextChange: (String) -> Unit,
+    originalAddTranslationText: String,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    val addTranslationSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showCopiedButton by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
+        val currentLine = lyricLines[menuLineIndex]
+        val lineText = currentLine.timeUnits.joinToString("") { it.text }
+
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (addTranslationText != originalAddTranslationText) {
+                    onPendingDismissChange(true)
+                    onShowCancelConfirmChange(true)
+                } else {
+                    onDismissSheet()
+                }
+            },
+            sheetState = addTranslationSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "添加翻译",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("歌词：", fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setText(lineText)
+                            showCopiedButton = true
+                            scope.launch {
+                                delay(1500)
+                                showCopiedButton = false
+                            }
+                        }
+                    ) {
+                        Text(if (showCopiedButton) "已复制" else "复制")
+                    }
+                }
+                Text(lineText, modifier = Modifier.padding(bottom = 8.dp))
+                ThemedTextField(
+                    value = addTranslationText,
+                    onValueChange = { onAddTranslationTextChange(it) },
+                    placeholder = "请输入翻译内容",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (addTranslationText != originalAddTranslationText) {
+                                onPendingDismissChange(true)
+                                onShowCancelConfirmChange(true)
+                            } else {
+                                onDismissSheet()
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = {
+                            if (menuLineIndex < lyricLines.size) {
+                                val newLines = lyricLines.toMutableList()
+                                val line = newLines[menuLineIndex]
+                                val oldTranslation = line.translation
+                                undoRedoManager.pushAction(
+                                    UndoAction(
+                                        actionType = UndoActionType.TRANSLATION_CHANGE,
+                                        lineIndex = menuLineIndex,
+                                        unitIndex = -1,
+                                        oldValue = oldTranslation,
+                                        newValue = addTranslationText
+                                    )
+                                )
+                                updateUndoRedoState()
+                                newLines[menuLineIndex] = line.copy(translation = addTranslationText)
+                                onLyricLinesChange(newLines)
+                            }
+                            onDismissSheet()
+                        },
+                        enabled = addTranslationText != originalAddTranslationText
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已输入了翻译内容，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            addTranslationSheetState.show()
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun MergeLyricBottomSheet(
+    showSheet: Boolean,
+    menuLineIndex: Int,
+    lyricLines: List<LyricLine>,
+    mergeLyricPreview: List<LyricTimeUnit>,
+    onMergeLyricPreviewChange: (List<LyricTimeUnit>) -> Unit,
+    mergeSelectedUnits: Set<Int>,
+    onMergeSelectedUnitsChange: (Set<Int>) -> Unit,
+    mergeLyricHistory: List<List<LyricTimeUnit>>,
+    onMergeLyricHistoryChange: (List<List<LyricTimeUnit>>) -> Unit,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    originalMergeLyricPreview: List<LyricTimeUnit>,
+    originalMergeSelectedUnits: Set<Int>,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    val mergeLyricSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val hasChanges = mergeLyricPreview != originalMergeLyricPreview || mergeSelectedUnits != originalMergeSelectedUnits
+
+    fun resetState() {
+        onMergeLyricPreviewChange(emptyList())
+        onMergeLyricHistoryChange(emptyList())
+        onMergeSelectedUnitsChange(emptySet())
+    }
+
+    fun mergeLyricGroup(units: List<LyricTimeUnit>, group: List<Int>): LyricTimeUnit {
+        val unitsToMerge = group.map { units[it] }
+        val mergedText = unitsToMerge.joinToString("") { it.text }
+
+        val mergedCharTransliterations = mutableMapOf<Int, String>()
+        var charOffset = 0
+        unitsToMerge.forEach { unit ->
+            unit.charTransliterations.forEach { (idx, translit) ->
+                mergedCharTransliterations[charOffset + idx] = translit
+            }
+            charOffset += unit.text.length
+        }
+
+        val transliterationsToJoin = unitsToMerge.mapNotNull {
+            it.transliteration.takeIf { trans -> trans.isNotEmpty() }
+        }
+        val mergedTransliteration = if (transliterationsToJoin.isNotEmpty()) {
+            val hasAnyCjk = unitsToMerge.any { hasCjkChar(it.text) }
+            if (hasAnyCjk) {
+                transliterationsToJoin.joinToString("")
+            } else {
+                transliterationsToJoin.joinToString(" ")
+            }
+        } else {
+            ""
+        }
+
+        return LyricTimeUnit(
+            text = mergedText,
+            startTime = unitsToMerge.first().startTime,
+            endTime = unitsToMerge.last().endTime,
+            transliteration = mergedTransliteration,
+            charTransliterations = mergedCharTransliterations.toMap()
+        )
+    }
+
+    fun buildMergedUnits(units: List<LyricTimeUnit>, sortedIndices: List<Int>): List<LyricTimeUnit> {
+        if (sortedIndices.size < 2) return units
+        val groups = mutableListOf<MutableList<Int>>()
+        var currentGroup = mutableListOf<Int>()
+        for (index in sortedIndices) {
+            if (currentGroup.isEmpty() || index == currentGroup.last() + 1) {
+                currentGroup.add(index)
+            } else {
+                if (currentGroup.size >= 2) groups.add(currentGroup)
+                currentGroup = mutableListOf(index)
+            }
+        }
+        if (currentGroup.size >= 2) groups.add(currentGroup)
+        if (groups.isEmpty()) return units
+
+        val newTimeUnits = mutableListOf<LyricTimeUnit>()
+        var cursor = 0
+        while (cursor < units.size) {
+            val inGroup = groups.find { group -> cursor in group }
+            if (inGroup != null) {
+                newTimeUnits.add(mergeLyricGroup(units, inGroup))
+                cursor = inGroup.last() + 1
+            } else {
+                newTimeUnits.add(units[cursor])
+                cursor++
+            }
+        }
+        return newTimeUnits
+    }
+
+    if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
+        val currentLine = lyricLines[menuLineIndex]
+        val displayTimeUnits = if (mergeLyricPreview.isNotEmpty()) mergeLyricPreview else currentLine.timeUnits
+
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (hasChanges) {
+                    onPendingDismissChange(true)
+                    onShowCancelConfirmChange(true)
+                } else {
+                    onDismissSheet()
+                    resetState()
+                }
+            },
+            sheetState = mergeLyricSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "合并歌词",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Text("选择要合并的相邻歌词单元（支持多组）：", fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    displayTimeUnits.forEachIndexed { unitIndex, timeUnit ->
+                        val isSelected = mergeSelectedUnits.contains(unitIndex)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable {
+                                    val newSelection = mergeSelectedUnits.toMutableSet()
+                                    if (isSelected) newSelection.remove(unitIndex) else newSelection.add(unitIndex)
+                                    onMergeSelectedUnitsChange(newSelection)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = timeUnit.text,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (hasChanges) {
+                                onPendingDismissChange(true)
+                                onShowCancelConfirmChange(true)
+                            } else {
+                                onDismissSheet()
+                                resetState()
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val sortedIndices = mergeSelectedUnits.sorted()
+                            if (sortedIndices.size >= 2) {
+                                val merged = buildMergedUnits(displayTimeUnits, sortedIndices)
+                                if (merged != displayTimeUnits) {
+                                    onMergeLyricHistoryChange(mergeLyricHistory + listOf(displayTimeUnits))
+                                    onMergeLyricPreviewChange(merged)
+                                    onMergeSelectedUnitsChange(emptySet())
+                                }
+                            }
+                        },
+                        enabled = mergeSelectedUnits.size >= 2
+                    ) {
+                        Text("合并")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (mergeLyricHistory.isNotEmpty()) {
+                                val lastState = mergeLyricHistory.last()
+                                onMergeLyricPreviewChange(lastState)
+                                onMergeLyricHistoryChange(mergeLyricHistory.dropLast(1))
+                                onMergeSelectedUnitsChange(emptySet())
+                            }
+                        },
+                        enabled = mergeLyricHistory.isNotEmpty()
+                    ) {
+                        Text("撤销")
+                    }
+                    Button(
+                        onClick = {
+                            val timeUnitsToApply = if (mergeLyricPreview.isNotEmpty()) {
+                                mergeLyricPreview
+                            } else {
+                                buildMergedUnits(currentLine.timeUnits, mergeSelectedUnits.sorted())
+                            }
+
+                            if (mergeLyricPreview.isNotEmpty() || mergeSelectedUnits.size >= 2) {
+                                undoRedoManager.pushAction(
+                                    UndoAction(
+                                        actionType = UndoActionType.UNIT_MERGE,
+                                        lineIndex = menuLineIndex,
+                                        unitIndex = -1,
+                                        oldValue = currentLine.timeUnits,
+                                        newValue = timeUnitsToApply
+                                    )
+                                )
+                                updateUndoRedoState()
+                                val newLines = lyricLines.toMutableList()
+                                newLines[menuLineIndex] = currentLine.copy(timeUnits = timeUnitsToApply)
+                                onLyricLinesChange(newLines)
+                            }
+                            onDismissSheet()
+                            resetState()
+                        },
+                        enabled = mergeLyricPreview.isNotEmpty() || mergeSelectedUnits.size >= 2
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已进行了合并操作，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                        resetState()
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            mergeLyricSheetState.show()
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun MergeLinesBottomSheet(
+    showSheet: Boolean,
+    menuLineIndex: Int,
+    lyricLines: List<LyricLine>,
+    mergeLinesPreview: List<LyricLine>,
+    onMergeLinesPreviewChange: (List<LyricLine>) -> Unit,
+    mergeLinesSelected: Set<Int>,
+    onMergeLinesSelectedChange: (Set<Int>) -> Unit,
+    mergeLinesPreviewSelected: Set<Int>,
+    onMergeLinesPreviewSelectedChange: (Set<Int>) -> Unit,
+    mergeLinesHistory: List<List<LyricLine>>,
+    onMergeLinesHistoryChange: (List<List<LyricLine>>) -> Unit,
+    mergeLinesAddSpace: Boolean,
+    onMergeLinesAddSpaceChange: (Boolean) -> Unit,
+    showCancelConfirm: Boolean,
+    onShowCancelConfirmChange: (Boolean) -> Unit,
+    pendingDismiss: Boolean,
+    onPendingDismissChange: (Boolean) -> Unit,
+    originalMergeLinesPreview: List<LyricLine>,
+    originalMergeLinesSelected: Set<Int>,
+    undoRedoManager: UndoRedoManager,
+    updateUndoRedoState: () -> Unit,
+    onLyricLinesChange: (List<LyricLine>) -> Unit,
+    onDismissSheet: () -> Unit
+) {
+    val mergeLinesSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val mergeLinesScrollState = rememberLazyListState()
+    var mergeLinesError by remember { mutableStateOf("") }
+
+    val hasChanges = mergeLinesPreview != originalMergeLinesPreview || mergeLinesSelected != originalMergeLinesSelected
+    val displayLines = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreview else lyricLines
+    val displaySelected = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreviewSelected else mergeLinesSelected
+    val mergeLinesSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
+
+    fun resetState() {
+        onMergeLinesPreviewChange(emptyList())
+        onMergeLinesPreviewSelectedChange(emptySet())
+        onMergeLinesHistoryChange(emptyList())
+        mergeLinesError = ""
+    }
+
+    if (showSheet && menuLineIndex >= 0) {
+        LaunchedEffect(showSheet, menuLineIndex) {
+            if (showSheet && menuLineIndex >= 0) {
+                delay(100)
+                val visibleItems = mergeLinesScrollState.layoutInfo.visibleItemsInfo.size
+                val targetItem = menuLineIndex - visibleItems / 2
+                if (targetItem > 0) {
+                    mergeLinesScrollState.scrollToItem(targetItem.coerceAtLeast(0))
+                }
+            }
+        }
+
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = {
+                if (hasChanges) {
+                    onPendingDismissChange(true)
+                    onShowCancelConfirmChange(true)
+                } else {
+                    onDismissSheet()
+                    resetState()
+                }
+            },
+            sheetState = mergeLinesSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .height(mergeLinesSheetHeight)
+            ) {
+                Text(
+                    text = "合并行",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Text("选择要合并的连续行：", fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(
+                    state = mergeLinesScrollState,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(displayLines.size) { lineIndex ->
+                        val line = displayLines[lineIndex]
+                        val lineText = line.timeUnits.joinToString("") { it.text }
+                        val isSelected = displaySelected.contains(lineIndex)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable {
+                                    val newSelection = displaySelected.toMutableSet()
+                                    if (isSelected) {
+                                        newSelection.remove(lineIndex)
+                                    } else {
+                                        newSelection.add(lineIndex)
+                                    }
+                                    if (mergeLinesPreview.isNotEmpty()) {
+                                        onMergeLinesPreviewSelectedChange(newSelection)
+                                    } else {
+                                        onMergeLinesSelectedChange(newSelection)
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${lineIndex + 1}",
+                                modifier = Modifier.padding(end = 8.dp),
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            Text(
+                                text = lineText,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                CustomCheckbox(
+                    checked = mergeLinesAddSpace,
+                    onCheckedChange = { onMergeLinesAddSpaceChange(it) },
+                    label = "行与行之间增加空格"
+                )
+
+                if (mergeLinesError.isNotEmpty()) {
+                    Text(
+                        text = mergeLinesError,
+                        color = Color.Red,
+                        fontSize = 12.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
+                    TextButton(
+                        onClick = {
+                            if (hasChanges) {
+                                onPendingDismissChange(true)
+                                onShowCancelConfirmChange(true)
+                            } else {
+                                onDismissSheet()
+                                resetState()
+                            }
+                        }
+                    ) {
+                        Text("取消")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val currentSelected = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreviewSelected else mergeLinesSelected
+                            val currentLines = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreview else lyricLines
+                            val sortedIndices = currentSelected.sorted()
+
+                            var isConsecutive = true
+                            if (sortedIndices.size >= 2) {
+                                for (index in 0 until sortedIndices.size - 1) {
+                                    if (sortedIndices[index + 1] - sortedIndices[index] != 1) {
+                                        isConsecutive = false
+                                        break
+                                    }
+                                }
+                            }
+
+                            if (sortedIndices.size < 2) {
+                                mergeLinesError = "请至少选择两行"
+                            } else if (!isConsecutive) {
+                                mergeLinesError = "请选择连续的歌词行"
+                            } else {
+                                onMergeLinesHistoryChange(mergeLinesHistory + listOf(currentLines))
+
+                                val newLines = currentLines.toMutableList()
+                                val firstIndex = sortedIndices.first()
+                                val firstLine = newLines[firstIndex]
+                                val mergedTimeUnits = firstLine.timeUnits.toMutableList()
+
+                                sortedIndices.drop(1).forEach { idx ->
+                                    val line = newLines[idx]
+                                    if (mergeLinesAddSpace && line.timeUnits.isNotEmpty()) {
+                                        val firstUnit = line.timeUnits.first()
+                                        mergedTimeUnits.add(
+                                            LyricTimeUnit(
+                                                " " + firstUnit.text,
+                                                firstUnit.startTime,
+                                                firstUnit.endTime
+                                            )
+                                        )
+                                        mergedTimeUnits.addAll(line.timeUnits.drop(1))
+                                    } else {
+                                        mergedTimeUnits.addAll(line.timeUnits)
+                                    }
+                                }
+
+                                newLines[firstIndex] = firstLine.copy(timeUnits = mergedTimeUnits)
+                                sortedIndices.drop(1).sortedDescending().forEach { idx ->
+                                    newLines.removeAt(idx)
+                                }
+
+                                onMergeLinesPreviewChange(newLines)
+                                onMergeLinesPreviewSelectedChange(emptySet())
+                                mergeLinesError = ""
+                            }
+                        }
+                    ) {
+                        Text("合并")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (mergeLinesHistory.isNotEmpty()) {
+                                val lastState = mergeLinesHistory.last()
+                                onMergeLinesPreviewChange(lastState)
+                                onMergeLinesHistoryChange(mergeLinesHistory.dropLast(1))
+                                onMergeLinesPreviewSelectedChange(emptySet())
+                                mergeLinesError = ""
+                            }
+                        },
+                        enabled = mergeLinesHistory.isNotEmpty()
+                    ) {
+                        Text("撤销")
+                    }
+                    Button(
+                        onClick = {
+                            if (mergeLinesPreview.isNotEmpty()) {
+                                val actions = mutableListOf<UndoAction>()
+                                val oldLines = lyricLines.toList()
+                                actions.add(
+                                    UndoAction(
+                                        actionType = UndoActionType.LINE_MERGE,
+                                        lineIndex = -1,
+                                        unitIndex = -1,
+                                        oldValue = oldLines,
+                                        newValue = mergeLinesPreview
+                                    )
+                                )
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "合并行"))
+                                updateUndoRedoState()
+                                onLyricLinesChange(mergeLinesPreview)
+                            } else {
+                                val sortedIndices = mergeLinesSelected.sorted()
+                                var isConsecutive = true
+                                if (sortedIndices.size >= 2) {
+                                    for (index in 0 until sortedIndices.size - 1) {
+                                        if (sortedIndices[index + 1] - sortedIndices[index] != 1) {
+                                            isConsecutive = false
+                                            break
+                                        }
+                                    }
+                                }
+
+                                if (sortedIndices.size < 2) {
+                                    mergeLinesError = "请至少选择两行"
+                                    return@Button
+                                }
+                                if (!isConsecutive) {
+                                    mergeLinesError = "请选择连续的歌词行"
+                                    return@Button
+                                }
+
+                                val actions = mutableListOf<UndoAction>()
+                                val oldLines = lyricLines.toList()
+                                val newLines = lyricLines.toMutableList()
+                                val firstIndex = sortedIndices.first()
+                                val firstLine = newLines[firstIndex]
+                                val mergedTimeUnits = firstLine.timeUnits.toMutableList()
+
+                                sortedIndices.drop(1).forEach { idx ->
+                                    val line = newLines[idx]
+                                    if (mergeLinesAddSpace && line.timeUnits.isNotEmpty()) {
+                                        val firstUnit = line.timeUnits.first()
+                                        mergedTimeUnits.add(
+                                            LyricTimeUnit(
+                                                " " + firstUnit.text,
+                                                firstUnit.startTime,
+                                                firstUnit.endTime
+                                            )
+                                        )
+                                        mergedTimeUnits.addAll(line.timeUnits.drop(1))
+                                    } else {
+                                        mergedTimeUnits.addAll(line.timeUnits)
+                                    }
+                                }
+
+                                newLines[firstIndex] = firstLine.copy(timeUnits = mergedTimeUnits)
+                                sortedIndices.drop(1).sortedDescending().forEach { idx ->
+                                    newLines.removeAt(idx)
+                                }
+
+                                actions.add(
+                                    UndoAction(
+                                        actionType = UndoActionType.LINE_MERGE,
+                                        lineIndex = -1,
+                                        unitIndex = -1,
+                                        oldValue = oldLines,
+                                        newValue = newLines.toList()
+                                    )
+                                )
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "合并行"))
+                                updateUndoRedoState()
+                                onLyricLinesChange(newLines)
+                            }
+
+                            onDismissSheet()
+                            resetState()
+                        }
+                    ) {
+                        Text("确定")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCancelConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                onShowCancelConfirmChange(false)
+                onPendingDismissChange(false)
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
+            title = { Text("确认放弃修改") },
+            text = { Text("您已进行了合并操作，确定要放弃修改吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onPendingDismissChange(false)
+                    }
+                ) {
+                    Text("继续编辑")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onShowCancelConfirmChange(false)
+                        onDismissSheet()
+                        onPendingDismissChange(false)
+                        resetState()
+                    }
+                ) {
+                    Text("放弃修改")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(showCancelConfirm, pendingDismiss, showSheet) {
+        if (!showCancelConfirm && !pendingDismiss && showSheet) {
+            mergeLinesSheetState.show()
+        }
+    }
 }
 
 @Composable
@@ -2364,6 +6271,85 @@ fun CommonHeadBar(
 }
 
 @Composable
+private fun rememberBottomSheetListScrollBlocker(): NestedScrollConnection {
+    return remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(x = 0f, y = available.y)
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                Velocity(x = 0f, y = available.y)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+private fun hideSheetAndDismiss(
+    scope: CoroutineScope,
+    sheetState: androidx.compose.material3.SheetState,
+    onDismiss: () -> Unit
+) {
+    scope.launch {
+        sheetState.hide()
+        onDismiss()
+    }
+}
+
+@Composable
+private fun BatchEditSheetMenuHeader(
+    title: String,
+    onSelectAll: () -> Unit,
+    onInvertSelect: () -> Unit,
+    onClosePage: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    var menuAnchor by remember { mutableStateOf<MenuAnchorPosition?>(null) }
+    val density = LocalDensity.current
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge
+        )
+        IconButton(
+            onClick = { showMenu = true },
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInRoot()
+                menuAnchor = MenuAnchorPosition(
+                    x = with(density) { bounds.center.x.toDp().value },
+                    y = with(density) { bounds.center.y.toDp().value }
+                )
+            }
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.more),
+                contentDescription = "更多",
+                tint = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+
+    CustomDropdownMenu(
+        expanded = showMenu,
+        onDismissRequest = { showMenu = false },
+        items = listOf(
+            MenuItem(title = "全选", onClick = onSelectAll),
+            MenuItem(title = "反选", onClick = onInvertSelect),
+            MenuItem(title = "关闭页面", onClick = onClosePage)
+        ),
+        anchorPosition = menuAnchor ?: MenuAnchorPosition(0f, 0f),
+        menuWidth = 200f
+    )
+}
+
+@Composable
 fun TimingControlBarSwitch(
     showEditPanel: Boolean,
     normalControlBar: @Composable () -> Unit,
@@ -3243,6 +7229,8 @@ fun ImportExampleDialog(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
+@androidx.compose.runtime.NonRestartableComposable
+@androidx.compose.runtime.NonSkippableComposable
 fun LyricTimingScreen(
     onBack: () -> Unit,
     onImportAudio: () -> Unit,
@@ -3498,6 +7486,7 @@ fun LyricTimingScreen(
     var splitLyricText by remember { mutableStateOf("") }
     var originalSplitLyricText by remember { mutableStateOf("") }
     var showSplitLyricCancelConfirm by remember { mutableStateOf(false) }
+    var pendingSplitLyricDismiss by remember { mutableStateOf(false) }
     var mergeSelectedUnits by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var mergeLyricPreview by remember { mutableStateOf<List<LyricTimeUnit>>(emptyList()) }
     var mergeLyricHistory by remember { mutableStateOf<List<List<LyricTimeUnit>>>(emptyList()) }
@@ -4085,7 +8074,6 @@ fun LyricTimingScreen(
     var savedTtmlContent by remember { mutableStateOf("") }
     var showImportTranslationDialog by remember { mutableStateOf(false) }
     var translationInput by remember { mutableStateOf("") }
-    var showCancelTranslationConfirmDialog by remember { mutableStateOf(false) }
     var showSaveSuccessDialog by remember { mutableStateOf(false) }
     var showSaveFailDialog by remember { mutableStateOf(false) }
     var showCopiedDialog by remember { mutableStateOf(false) }
@@ -4102,6 +8090,8 @@ fun LyricTimingScreen(
     var pendingElrcInputDismiss by remember { mutableStateOf(false) }
     var pendingTtmlInputDismiss by remember { mutableStateOf(false) }
 
+    @Composable
+    fun ScreenContent() {
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
         // Headbar
@@ -4302,128 +8292,16 @@ fun LyricTimingScreen(
                                         onPlayPause(false)
                                         isPlaying = false
                                     }
-                                    val audioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else convertedAudioPath
-                                    val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
                                     val currentPos = getCurrentPosition()
-                                    val previewLyricLines = lyricLines.map { line ->
-                                        val expandedWords = if (line.timeUnits.size == 1) {
-                                            // 如果一行只有一个 timeUnit，保留为逐行歌词（不拆分）
-                                            val unit = line.timeUnits.first()
-                                            val beginMs = parseTimeToMs(unit.startTime)
-                                            val endMs = parseTimeToMs(unit.endTime)
-                                            listOf(com.example.LyricBox.NewPreviewLyricWord(
-                                                text = unit.text,
-                                                begin = beginMs,
-                                                end = endMs,
-                                                transliteration = unit.transliteration,
-                                                charTransliterations = unit.charTransliterations
-                                            ))
-                                        } else {
-                                            // 多个 timeUnit，按原来的逻辑拆分成逐字
-                                            line.timeUnits.flatMap { unit ->
-                                                val beginMs = parseTimeToMs(unit.startTime)
-                                                val endMs = parseTimeToMs(unit.endTime)
-                                                val duration = endMs - beginMs
-                                                val text = unit.text
-                                                if (text.isEmpty()) {
-                                                    emptyList()
-                                                } else if (text.length == 1) {
-                                                    listOf(com.example.LyricBox.NewPreviewLyricWord(
-                                                        text = text,
-                                                        begin = beginMs,
-                                                        end = endMs,
-                                                        transliteration = if (unit.charTransliterations.isNotEmpty()) {
-                                                            unit.charTransliterations[0] ?: ""
-                                                        } else {
-                                                            ""
-                                                        },
-                                                        charTransliterations = emptyMap()
-                                                    ))
-                                                } else {
-                                                    val nonSpaceChars = text.filter { it != ' ' }
-                                                    val nonSpaceCount = nonSpaceChars.length
-                                                    if (nonSpaceCount == 0) {
-                                                        text.map { char ->
-                                                            com.example.LyricBox.NewPreviewLyricWord(
-                                                                text = char.toString(),
-                                                                begin = beginMs,
-                                                                end = beginMs,
-                                                                transliteration = "",
-                                                                charTransliterations = emptyMap()
-                                                            )
-                                                        }
-                                                    } else {
-                                                        val charDuration = duration / nonSpaceCount
-                                                        var currentTime = beginMs
-                                                        var textIndex = 0
-                                                        text.map { char ->
-                                                            if (char == ' ') {
-                                                                textIndex++
-                                                                com.example.LyricBox.NewPreviewLyricWord(
-                                                                    text = char.toString(),
-                                                                    begin = currentTime,
-                                                                    end = currentTime,
-                                                                    transliteration = "",
-                                                                    charTransliterations = emptyMap()
-                                                                )
-                                                            } else {
-                                                                val charBegin = currentTime
-                                                                val charEnd = if (currentTime + charDuration >= endMs) endMs else currentTime + charDuration
-                                                                currentTime = charEnd
-                                                                val transliteration = if (unit.charTransliterations.isNotEmpty()) {
-                                                                    unit.charTransliterations[textIndex] ?: ""
-                                                                } else {
-                                                                    ""
-                                                                }
-                                                                textIndex++
-                                                                com.example.LyricBox.NewPreviewLyricWord(
-                                                                    text = char.toString(),
-                                                                    begin = charBegin,
-                                                                    end = charEnd,
-                                                                    transliteration = transliteration,
-                                                                    charTransliterations = emptyMap()
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        com.example.LyricBox.NewPreviewLyricLine(
-                                            words = expandedWords,
-                                            translation = line.translation,
-                                            isDuet = line.agentType == LyricAgentType.RIGHT,
-                                            isBackground = line.agentType == LyricAgentType.BACKGROUND
-                                        )
-                                    }
-                                    val intent = android.content.Intent(context, LyricPreviewActivity::class.java).apply {
-                                        putExtra(LyricPreviewActivity.EXTRA_AUDIO_PATH, audioPath)
-                                        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, previewSourceAudioPath)
-                                        putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
-                                        putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
-                                        putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
-                                        putExtra(
-                                            LyricPreviewActivity.EXTRA_PREVIEW_ENTRY_SOURCE,
-                                            LyricPreviewActivity.PREVIEW_ENTRY_SOURCE_TIMING
-                                        )
-                                        putExtra("line_count", previewLyricLines.size)
-                                        putExtra("words_per_line", previewLyricLines.map { it.words.size }.toIntArray())
-                                        val wordsList = previewLyricLines.flatMap { it.words }
-                                        putExtra("begins", wordsList.map { it.begin }.toLongArray())
-                                        putExtra("ends", wordsList.map { it.end }.toLongArray())
-                                        putExtra("texts", wordsList.map { it.text }.toTypedArray())
-                                        // 传递注音数据
-                                        val transliterations = wordsList.map { it.transliteration }.toTypedArray()
-                                        putExtra("transliterations", transliterations)
-                                        // 序列化逐字符注音
-                                        val charTransliterationStrings = wordsList.map { word ->
-                                            word.charTransliterations.entries.joinToString(";") { "${it.key}=${it.value}" }
-                                        }.toTypedArray()
-                                        putExtra("char_transliterations", charTransliterationStrings)
-                                        putExtra("translations", previewLyricLines.map { it.translation }.toTypedArray())
-                                        putExtra("is_duets", previewLyricLines.map { it.isDuet }.toBooleanArray())
-                                        putExtra("is_backgrounds", previewLyricLines.map { it.isBackground }.toBooleanArray())
-                                    }
+                                    val intent = createLyricPreviewIntent(
+                                        context = context,
+                                        lyricLines = lyricLines,
+                                        sourceAudioPath = sourceAudioPath,
+                                        convertedAudioPath = convertedAudioPath,
+                                        displayTitle = displayTitle,
+                                        currentPos = currentPos,
+                                        pendingLyricsCreators = pendingLyricsCreators
+                                    )
                                     previewLauncher.launch(intent)
                                 }
                             }
@@ -4605,128 +8483,16 @@ fun LyricTimingScreen(
                                         onPlayPause(false)
                                         isPlaying = false
                                     }
-                                    val audioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else convertedAudioPath
-                                    val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
                                     val currentPos = getCurrentPosition()
-                                    val previewLyricLines = lyricLines.map { line ->
-                                        val expandedWords = if (line.timeUnits.size == 1) {
-                                            // 如果一行只有一个 timeUnit，保留为逐行歌词（不拆分）
-                                            val unit = line.timeUnits.first()
-                                            val beginMs = parseTimeToMs(unit.startTime)
-                                            val endMs = parseTimeToMs(unit.endTime)
-                                            listOf(com.example.LyricBox.NewPreviewLyricWord(
-                                                text = unit.text,
-                                                begin = beginMs,
-                                                end = endMs,
-                                                transliteration = unit.transliteration,
-                                                charTransliterations = unit.charTransliterations
-                                            ))
-                                        } else {
-                                            // 多个 timeUnit，按原来的逻辑拆分成逐字
-                                            line.timeUnits.flatMap { unit ->
-                                                val beginMs = parseTimeToMs(unit.startTime)
-                                                val endMs = parseTimeToMs(unit.endTime)
-                                                val duration = endMs - beginMs
-                                                val text = unit.text
-                                                if (text.isEmpty()) {
-                                                    emptyList()
-                                                } else if (text.length == 1) {
-                                                    listOf(com.example.LyricBox.NewPreviewLyricWord(
-                                                        text = text,
-                                                        begin = beginMs,
-                                                        end = endMs,
-                                                        transliteration = if (unit.charTransliterations.isNotEmpty()) {
-                                                            unit.charTransliterations[0] ?: ""
-                                                        } else {
-                                                            ""
-                                                        },
-                                                        charTransliterations = emptyMap()
-                                                    ))
-                                                } else {
-                                                    val nonSpaceChars = text.filter { it != ' ' }
-                                                    val nonSpaceCount = nonSpaceChars.length
-                                                    if (nonSpaceCount == 0) {
-                                                        text.map { char ->
-                                                            com.example.LyricBox.NewPreviewLyricWord(
-                                                                text = char.toString(),
-                                                                begin = beginMs,
-                                                                end = beginMs,
-                                                                transliteration = "",
-                                                                charTransliterations = emptyMap()
-                                                            )
-                                                        }
-                                                    } else {
-                                                        val charDuration = duration / nonSpaceCount
-                                                        var currentTime = beginMs
-                                                        var textIndex = 0
-                                                        text.map { char ->
-                                                            if (char == ' ') {
-                                                                textIndex++
-                                                                com.example.LyricBox.NewPreviewLyricWord(
-                                                                    text = char.toString(),
-                                                                    begin = currentTime,
-                                                                    end = currentTime,
-                                                                    transliteration = "",
-                                                                    charTransliterations = emptyMap()
-                                                                )
-                                                            } else {
-                                                                val charBegin = currentTime
-                                                                val charEnd = if (currentTime + charDuration >= endMs) endMs else currentTime + charDuration
-                                                                currentTime = charEnd
-                                                                val transliteration = if (unit.charTransliterations.isNotEmpty()) {
-                                                                    unit.charTransliterations[textIndex] ?: ""
-                                                                } else {
-                                                                    ""
-                                                                }
-                                                                textIndex++
-                                                                com.example.LyricBox.NewPreviewLyricWord(
-                                                                    text = char.toString(),
-                                                                    begin = charBegin,
-                                                                    end = charEnd,
-                                                                    transliteration = transliteration,
-                                                                    charTransliterations = emptyMap()
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        com.example.LyricBox.NewPreviewLyricLine(
-                                            words = expandedWords,
-                                            translation = line.translation,
-                                            isDuet = line.agentType == LyricAgentType.RIGHT,
-                                            isBackground = line.agentType == LyricAgentType.BACKGROUND
-                                        )
-                                    }
-                                    val intent = android.content.Intent(context, LyricPreviewActivity::class.java).apply {
-                                        putExtra(LyricPreviewActivity.EXTRA_AUDIO_PATH, audioPath)
-                                        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, previewSourceAudioPath)
-                                        putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
-                                        putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
-                                        putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
-                                        putExtra(
-                                            LyricPreviewActivity.EXTRA_PREVIEW_ENTRY_SOURCE,
-                                            LyricPreviewActivity.PREVIEW_ENTRY_SOURCE_TIMING
-                                        )
-                                        putExtra("line_count", previewLyricLines.size)
-                                        putExtra("words_per_line", previewLyricLines.map { it.words.size }.toIntArray())
-                                        val wordsList = previewLyricLines.flatMap { it.words }
-                                        putExtra("begins", wordsList.map { it.begin }.toLongArray())
-                                        putExtra("ends", wordsList.map { it.end }.toLongArray())
-                                        putExtra("texts", wordsList.map { it.text }.toTypedArray())
-                                        // 传递注音数据
-                                        val transliterations = wordsList.map { it.transliteration }.toTypedArray()
-                                        putExtra("transliterations", transliterations)
-                                        // 序列化逐字符注音
-                                        val charTransliterationStrings = wordsList.map { word ->
-                                            word.charTransliterations.entries.joinToString(";") { "${it.key}=${it.value}" }
-                                        }.toTypedArray()
-                                        putExtra("char_transliterations", charTransliterationStrings)
-                                        putExtra("translations", previewLyricLines.map { it.translation }.toTypedArray())
-                                        putExtra("is_duets", previewLyricLines.map { it.isDuet }.toBooleanArray())
-                                        putExtra("is_backgrounds", previewLyricLines.map { it.isBackground }.toBooleanArray())
-                                    }
+                                    val intent = createLyricPreviewIntent(
+                                        context = context,
+                                        lyricLines = lyricLines,
+                                        sourceAudioPath = sourceAudioPath,
+                                        convertedAudioPath = convertedAudioPath,
+                                        displayTitle = displayTitle,
+                                        currentPos = currentPos,
+                                        pendingLyricsCreators = pendingLyricsCreators
+                                    )
                                     previewLauncher.launch(intent)
                                 }
                             }
@@ -4743,945 +8509,193 @@ fun LyricTimingScreen(
             }
         )
         
-        // 歌词输入对话框 - ModalBottomSheet
-        val lyricInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showLyricInputDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    if (lyricInput.isNotEmpty()) {
-                        pendingLyricInputDismiss = true
-                        showCancelLyricInputConfirm = true
+        ImportLyricsBottomSheets(
+            showLyricInputDialog = showLyricInputDialog,
+            onShowLyricInputDialogChange = { showLyricInputDialog = it },
+            lyricInput = lyricInput,
+            onLyricInputChange = { lyricInput = it },
+            useSpaceSplit = useSpaceSplit,
+            onUseSpaceSplitChange = { useSpaceSplit = it },
+            showImportExampleDialog = showImportExampleDialog,
+            onShowImportExampleDialogChange = { showImportExampleDialog = it },
+            showCancelLyricInputConfirm = showCancelLyricInputConfirm,
+            onShowCancelLyricInputConfirmChange = { showCancelLyricInputConfirm = it },
+            pendingLyricInputDismiss = pendingLyricInputDismiss,
+            onPendingLyricInputDismissChange = { pendingLyricInputDismiss = it },
+            showSPLLrcInputDialog = showSPLLrcInputDialog,
+            onShowSPLLrcInputDialogChange = { showSPLLrcInputDialog = it },
+            splLrcInput = splLrcInput,
+            onSplLrcInputChange = { splLrcInput = it },
+            showCancelSpllrcInputConfirm = showCancelSpllrcInputConfirm,
+            onShowCancelSpllrcInputConfirmChange = { showCancelSpllrcInputConfirm = it },
+            pendingSpllrcInputDismiss = pendingSpllrcInputDismiss,
+            onPendingSpllrcInputDismissChange = { pendingSpllrcInputDismiss = it },
+            showElrcInputDialog = showElrcInputDialog,
+            onShowElrcInputDialogChange = { showElrcInputDialog = it },
+            elrcInput = elrcInput,
+            onElrcInputChange = { elrcInput = it },
+            showCancelElrcInputConfirm = showCancelElrcInputConfirm,
+            onShowCancelElrcInputConfirmChange = { showCancelElrcInputConfirm = it },
+            pendingElrcInputDismiss = pendingElrcInputDismiss,
+            onPendingElrcInputDismissChange = { pendingElrcInputDismiss = it },
+            showTtmlInputDialog = showTtmlInputDialog,
+            onShowTtmlInputDialogChange = { showTtmlInputDialog = it },
+            ttmlInput = ttmlInput,
+            onTtmlInputChange = { ttmlInput = it },
+            showCancelTtmlInputConfirm = showCancelTtmlInputConfirm,
+            onShowCancelTtmlInputConfirmChange = { showCancelTtmlInputConfirm = it },
+            pendingTtmlInputDismiss = pendingTtmlInputDismiss,
+            onPendingTtmlInputDismissChange = { pendingTtmlInputDismiss = it },
+            onApplyLyricInput = { input, useSpace ->
+                val lines = input.lines().filter { it.isNotBlank() }
+                lyrics = lines.map { line ->
+                    val parts = line.split("=", limit = 2)
+                    parts[0]
+                }
+                val parsedLyricLines = lines.map { line ->
+                    val parts = line.split("=", limit = 2)
+                    val originalLyric = parts[0].replace('\u00A0', ' ')
+                    val translation = if (parts.size > 1) parts[1] else ""
+                    val words = if (useSpace) {
+                        val splitResult = originalLyric.split(" ")
+                        val result = mutableListOf<String>()
+                        var pendingSpaces = ""
+                        splitResult.forEach { word ->
+                            if (word.isEmpty()) {
+                                pendingSpaces += " "
+                            } else {
+                                result.add(pendingSpaces + word)
+                                pendingSpaces = ""
+                            }
+                        }
+                        result
                     } else {
-                        showLyricInputDialog = false
+                        listOf(originalLyric)
                     }
-                },
-                sheetState = lyricInputSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "导入歌词",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                        IconButton(onClick = { showImportExampleDialog = true }) {
-                            Icon(
-                                painter = painterResource(id = android.R.drawable.ic_menu_help),
-                                contentDescription = "帮助",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    ThemedTextField(
-                        value = lyricInput,
-                        onValueChange = { lyricInput = it },
-                        placeholder = "一行一句歌词\n每行格式：歌词=翻译（翻译可选）",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        singleLine = false,
-                        maxLines = 5
+                    LyricLine(
+                        words.map { LyricTimeUnit(it, "00:00.000", "00:00.000") },
+                        translation
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CustomCheckbox(
-                        checked = useSpaceSplit,
-                        onCheckedChange = { useSpaceSplit = it },
-                        label = "使用空格分割歌词(高级)"
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(60.dp)
-                    ) {
-                        Text(
-                            text = if (useSpaceSplit) "按空格分割歌词单元，若需要保留歌词中原有空格，需要两个空格"
-                            else "每行作为一个整体歌词单元，可通过菜单中的“一键分词”功能快速分割（推荐）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                }
+                lyricLines = parsedLyricLines
+                selectedLineIndex = 0
+                selectedWordIndex = 0
+                if (hasEmptyLines(parsedLyricLines)) {
+                    showDeleteEmptyLinesDialog = true
+                }
+            },
+            onApplySplInput = { input ->
+                val parseResult = LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, input)
+                val parsedLyrics = parseResult.lyrics
+                val parsedLines = parseResult.lyricLines
+                lyrics = parsedLyrics
+                lyricLines = parsedLines
+                selectedLineIndex = 0
+                selectedWordIndex = 0
+                if (hasEmptyLines(parsedLines)) {
+                    showDeleteEmptyLinesDialog = true
+                }
+            },
+            onApplyElrcInput = { input ->
+                val parseResult = LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, input)
+                val parsedLyrics = parseResult.lyrics
+                val parsedLines = parseResult.lyricLines
+                if (parsedLines.isNotEmpty()) {
+                    lyrics = parsedLyrics
+                    lyricLines = parsedLines
+                    selectedLineIndex = 0
+                    selectedWordIndex = 0
+                    if (hasEmptyLines(parsedLines)) {
+                        showDeleteEmptyLinesDialog = true
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = { 
-                                if (lyricInput.isNotEmpty()) {
-                                    pendingLyricInputDismiss = true
-                                    showCancelLyricInputConfirm = true
-                                } else {
-                                    showLyricInputDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        val context = LocalContext.current
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    lyricInput = clip.getItemAt(0).text.toString()
-                                }
-                            }
-                        ) {
-                            Text("粘贴")
-                        }
-                        OutlinedButton(
-                            onClick = { lyricInput = "" }
-                        ) {
-                            Text("清空")
-                        }
-                        Button(
-                            onClick = {
-                                val lines = lyricInput.lines().filter { it.isNotBlank() }
-                                lyrics = lines.map { line ->
-                                    val parts = line.split("=", limit = 2)
-                                    parts[0]
-                                }
-
-                                val parsedLyricLines = lines.map { line ->
-                                    val parts = line.split("=", limit = 2)
-                                    val originalLyric = parts[0].replace('\u00A0', ' ')
-                                    val translation = if (parts.size > 1) parts[1] else ""
-
-                                    val words = if (useSpaceSplit) {
-                                        val splitResult = originalLyric.split(" ")
-                                        val result = mutableListOf<String>()
-                                        var pendingSpaces = ""
-                                        splitResult.forEach { word ->
-                                            if (word.isEmpty()) {
-                                                pendingSpaces += " "
-                                            } else {
-                                                result.add(pendingSpaces + word)
-                                                pendingSpaces = ""
-                                            }
-                                        }
-                                        result
-                                    } else {
-                                        listOf(originalLyric)
-                                    }
-
-                                    LyricLine(
-                                        words.map { LyricTimeUnit(it, "00:00.000", "00:00.000") },
-                                        translation
-                                    )
-                                }
-
-                                lyricLines = parsedLyricLines
-                                selectedLineIndex = 0
-                                selectedWordIndex = 0
-                                showLyricInputDialog = false
-                                
-                                // 检测是否存在空行
-                                if (hasEmptyLines(parsedLyricLines)) {
-                                    showDeleteEmptyLinesDialog = true
-                                }
-                            }
-                        ) {
-                            Text("确定")
-                        }
+                }
+            },
+            onApplyTtmlInput = { input ->
+                val parseResult = LyricParsingUtils.parseByType(LyricParseType.TTML, input)
+                val parsedLines = parseResult.lyricLines
+                if (parsedLines.isNotEmpty()) {
+                    lyricLines = parsedLines
+                    lyrics = parseResult.lyrics
+                    selectedLineIndex = 0
+                    selectedWordIndex = 0
+                    val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(input)
+                    if (parsedSongwriters.isNotEmpty()) {
+                        creators = parsedSongwriters
+                    }
+                    if (hasEmptyLines(parsedLines)) {
+                        showDeleteEmptyLinesDialog = true
                     }
                 }
             }
-        }
-        
-        // 纯文本导入取消确认对话框
-        if (showCancelLyricInputConfirm) {
-            AlertDialog(
-                onDismissRequest = { 
-                    showCancelLyricInputConfirm = false
-                },
-                title = { Text("确认取消") },
-                text = { Text("输入框中有内容，确定要取消吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = { 
-                            showCancelLyricInputConfirm = false
-                            coroutineScope.launch {
-                                lyricInputSheetState.show()
-                            }
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showCancelLyricInputConfirm = false
-                            showLyricInputDialog = false
-                            lyricInput = ""
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        
-        // 导入示例对话框
-        ImportExampleDialog(
-            showDialog = showImportExampleDialog,
-            onDismiss = { showImportExampleDialog = false }
         )
         
-        // SPL/LRC歌词输入对话框 - ModalBottomSheet
-        val splLrcInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showSPLLrcInputDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    if (splLrcInput.isNotEmpty()) {
-                        pendingSpllrcInputDismiss = true
-                        showCancelSpllrcInputConfirm = true
-                    } else {
-                        showSPLLrcInputDialog = false
-                    }
-                },
-                sheetState = splLrcInputSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "导入 LRC 逐行/逐字歌词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    ThemedTextField(
-                        value = splLrcInput,
-                        onValueChange = { splLrcInput = it },
-                        placeholder = "输入LRC 逐行/逐字歌词\n例如：[00:00.000]歌词[00:00.000]",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        singleLine = false,
-                        maxLines = 10
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = { 
-                                if (splLrcInput.isNotEmpty()) {
-                                    pendingSpllrcInputDismiss = true
-                                    showCancelSpllrcInputConfirm = true
-                                } else {
-                                    showSPLLrcInputDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        val context = LocalContext.current
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    splLrcInput = clip.getItemAt(0).text.toString()
-                                }
-                            }
-                        ) {
-                            Text("粘贴")
-                        }
-                        OutlinedButton(
-                            onClick = { splLrcInput = "" }
-                        ) {
-                            Text("清空")
-                        }
-                        Button(
-                            onClick = {
-                                val parseResult = LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, splLrcInput)
-                                val parsedLyrics = parseResult.lyrics
-                                val parsedLines = parseResult.lyricLines
-                                lyrics = parsedLyrics
-                                lyricLines = parsedLines
-                                selectedLineIndex = 0
-                                selectedWordIndex = 0
-                                showSPLLrcInputDialog = false
-                                
-                                // 检测是否存在空行
-                                if (hasEmptyLines(parsedLines)) {
-                                    showDeleteEmptyLinesDialog = true
-                                }
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // LRC逐行导入取消确认对话框
-        if (showCancelSpllrcInputConfirm) {
-            AlertDialog(
-                onDismissRequest = { showCancelSpllrcInputConfirm = false },
-                title = { Text("确认取消") },
-                text = { Text("输入框中有内容，确定要取消吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = { 
-                            showCancelSpllrcInputConfirm = false
-                            coroutineScope.launch {
-                                splLrcInputSheetState.show()
-                            }
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showCancelSpllrcInputConfirm = false
-                            showSPLLrcInputDialog = false
-                            splLrcInput = ""
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        
-        // ELRC歌词输入对话框 - ModalBottomSheet
-        val elrcInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showElrcInputDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    if (elrcInput.isNotEmpty()) {
-                        pendingElrcInputDismiss = true
-                        showCancelElrcInputConfirm = true
-                    } else {
-                        showElrcInputDialog = false
-                    }
-                },
-                sheetState = elrcInputSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "导入增强LRC/ELRC逐字歌词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    ThemedTextField(
-                        value = elrcInput,
-                        onValueChange = { elrcInput = it },
-                        placeholder = "输入ELRC歌词\n例如：[00:44.360]v2: <00:44.360>内<00:44.840>...",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        singleLine = false,
-                        maxLines = 15
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "提示：解析<时间>标签，v1为左侧歌词，v2为右侧歌词",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (elrcInput.isNotEmpty()) {
-                                    pendingElrcInputDismiss = true
-                                    showCancelElrcInputConfirm = true
-                                } else {
-                                    showElrcInputDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        val context = LocalContext.current
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    elrcInput = clip.getItemAt(0).text.toString()
-                                }
-                            }
-                        ) {
-                            Text("粘贴")
-                        }
-                        OutlinedButton(
-                            onClick = { elrcInput = "" }
-                        ) {
-                            Text("清空")
-                        }
-                        Button(
-                            onClick = {
-                                val parseResult = LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, elrcInput)
-                                val parsedLyrics = parseResult.lyrics
-                                val parsedLines = parseResult.lyricLines
-                                if (parsedLines.isNotEmpty()) {
-                                    lyrics = parsedLyrics
-                                    lyricLines = parsedLines
-                                    selectedLineIndex = 0
-                                    selectedWordIndex = 0
-                                    
-                                    // 检测是否存在空行
-                                    if (hasEmptyLines(parsedLines)) {
-                                        showDeleteEmptyLinesDialog = true
-                                    }
-                                }
-                                showElrcInputDialog = false
-                                elrcInput = ""
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // ELRC导入取消确认对话框
-        if (showCancelElrcInputConfirm) {
-            AlertDialog(
-                onDismissRequest = { showCancelElrcInputConfirm = false },
-                title = { Text("确认取消") },
-                text = { Text("输入框中有内容，确定要取消吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = { 
-                            showCancelElrcInputConfirm = false
-                            coroutineScope.launch {
-                                elrcInputSheetState.show()
-                            }
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showCancelElrcInputConfirm = false
-                            showElrcInputDialog = false
-                            elrcInput = ""
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        
-        // TTML歌词输入对话框 - ModalBottomSheet
-        val ttmlInputSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showTtmlInputDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    if (ttmlInput.isNotEmpty()) {
-                        pendingTtmlInputDismiss = true
-                        showCancelTtmlInputConfirm = true
-                    } else {
-                        showTtmlInputDialog = false
-                    }
-                },
-                sheetState = ttmlInputSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "导入TTML歌词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    ThemedTextField(
-                        value = ttmlInput,
-                        onValueChange = { ttmlInput = it },
-                        placeholder = "输入TTML歌词内容\n粘贴TTML格式歌词",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        singleLine = false,
-                        maxLines = 15
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "提示：导入时会自动删除换行符和多余空格",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (ttmlInput.isNotEmpty()) {
-                                    pendingTtmlInputDismiss = true
-                                    showCancelTtmlInputConfirm = true
-                                } else {
-                                    showTtmlInputDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        val context = LocalContext.current
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    ttmlInput = clip.getItemAt(0).text.toString()
-                                }
-                            }
-                        ) {
-                            Text("粘贴")
-                        }
-                        OutlinedButton(
-                            onClick = { ttmlInput = "" }
-                        ) {
-                            Text("清空")
-                        }
-                        Button(
-                            onClick = {
-                                val parseResult = LyricParsingUtils.parseByType(LyricParseType.TTML, ttmlInput)
-                                val parsedLines = parseResult.lyricLines
-                                if (parsedLines.isNotEmpty()) {
-                                    lyricLines = parsedLines
-                                    lyrics = parseResult.lyrics
-                                    selectedLineIndex = 0
-                                    selectedWordIndex = 0
-                                    
-                                    // 解析创作者信息
-                                    val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(ttmlInput)
-                                    if (parsedSongwriters.isNotEmpty()) {
-                                        creators = parsedSongwriters
-                                    }
-                                    
-                                    // 检测是否存在空行
-                                    if (hasEmptyLines(parsedLines)) {
-                                        showDeleteEmptyLinesDialog = true
-                                    }
-                                }
-                                showTtmlInputDialog = false
-                                ttmlInput = ""
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // TTML导入取消确认对话框
-        if (showCancelTtmlInputConfirm) {
-            AlertDialog(
-                onDismissRequest = { showCancelTtmlInputConfirm = false },
-                title = { Text("确认取消") },
-                text = { Text("输入框中有内容，确定要取消吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = { 
-                            showCancelTtmlInputConfirm = false
-                            coroutineScope.launch {
-                                ttmlInputSheetState.show()
-                            }
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showCancelTtmlInputConfirm = false
-                            showTtmlInputDialog = false
-                            ttmlInput = ""
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        
-        // 通过文本仅导入翻译对话框 - ModalBottomSheet
-        val importTranslationSheetState = androidx.compose.material3.rememberModalBottomSheetState(
-            skipPartiallyExpanded = true,
-            confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden }
-        )
-        if (showImportTranslationDialog) {
-            androidx.compose.ui.window.Dialog(
-                onDismissRequest = { 
-                    if (translationInput.isNotEmpty()) {
-                        showCancelTranslationConfirmDialog = true
-                    } else {
-                        showImportTranslationDialog = false
-                    }
-                },
-                properties = androidx.compose.ui.window.DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = false
-                )
-            ) {
-                val lyricScrollState = rememberLazyListState()
-                val translationScrollState = rememberScrollState()
-                val translationLineCount = if (translationInput.isEmpty()) 1 else translationInput.lines().size
-                val density = LocalDensity.current
-                val lineHeightPx = with(density) { 20.dp.toPx() }
-                
-                LaunchedEffect(lyricScrollState.firstVisibleItemScrollOffset, lyricScrollState.firstVisibleItemIndex) {
-                    val targetOffset = (lyricScrollState.firstVisibleItemIndex * lineHeightPx + lyricScrollState.firstVisibleItemScrollOffset).toInt()
-                    if (translationScrollState.value != targetOffset) {
-                        translationScrollState.scrollTo(targetOffset)
-                    }
-                }
-                
-                LaunchedEffect(translationScrollState.value) {
-                    val targetIndex = (translationScrollState.value / lineHeightPx).toInt()
-                    val targetOffset = (translationScrollState.value % lineHeightPx).toInt()
-                    if (lyricScrollState.firstVisibleItemIndex != targetIndex || lyricScrollState.firstVisibleItemScrollOffset != targetOffset) {
-                        lyricScrollState.scrollToItem(targetIndex, targetOffset)
-                    }
-                }
-                
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                        .statusBarsPadding()
-                ) {
-                    Text(
-                        text = "通过文本导入翻译",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        LazyColumn(
-                            state = lyricScrollState,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .padding(end = 4.dp),
-                            contentPadding = PaddingValues(vertical = 4.dp)
-                        ) {
-                            itemsIndexed(lyricLines) { index, line ->
-                                val lineText = line.timeUnits.joinToString("") { it.text }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(20.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${index + 1}",
-                                        fontSize = 14.sp,
-                                        color = Color.Gray,
-                                        modifier = Modifier.padding(end = 8.dp)
-                                    )
-                                    Text(
-                                        text = lineText,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                                    )
-                                }
-                            }
-                        }
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .width(24.dp)
-                                    .fillMaxHeight()
-                                    .verticalScroll(translationScrollState)
-                                    .padding(start = 4.dp, top = 4.dp),
-                                horizontalAlignment = Alignment.End
-                            ) {
-                                repeat(maxOf(translationLineCount, lyricLines.size)) { index ->
-                                    Text(
-                                        text = "${index + 1}",
-                                        fontSize = 14.sp,
-                                        color = Color.Gray,
-                                        modifier = Modifier
-                                            .height(20.dp)
-                                            .wrapContentHeight(Alignment.CenterVertically)
-                                    )
-                                }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                            ) {
-                                val translationHorizontalScrollState = rememberScrollState()
-                                BasicTextField(
-                                    value = translationInput,
-                                    onValueChange = { translationInput = it },
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(translationScrollState)
-                                        .horizontalScroll(translationHorizontalScrollState),
-                                    textStyle = androidx.compose.ui.text.TextStyle(
-                                        fontSize = 14.sp,
-                                        lineHeight = 20.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    decorationBox = { innerTextField ->
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(start = 8.dp, top = 4.dp, end = 8.dp, bottom = 8.dp)
-                                        ) {
-                                            if (translationInput.isEmpty()) {
-                                                Text(
-                                                    text = "输入翻译，一行一句",
-                                                    fontSize = 14.sp,
-                                                    color = Color.Gray
-                                                )
-                                            }
-                                            innerTextField()
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (translationInput.isNotEmpty()) {
-                                    showCancelTranslationConfirmDialog = true
-                                } else {
-                                    showImportTranslationDialog = false
-                                    translationInput = ""
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                val translationLinesList = translationInput.lines()
-                                lyricLines = lyricLines.mapIndexed { index, line ->
-                                    line.copy(translation = translationLinesList.getOrNull(index) ?: "")
-                                }
-                                showImportTranslationDialog = false
-                                translationInput = ""
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 取消导入翻译确认对话框 - AlertDialog
-        if (showCancelTranslationConfirmDialog) {
-            AlertDialog(
-                onDismissRequest = { },
-                properties = androidx.compose.ui.window.DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认取消") },
-                text = { Text("输入框中有内容，确定要取消吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = { 
-                            showCancelTranslationConfirmDialog = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showCancelTranslationConfirmDialog = false
-                            showImportTranslationDialog = false
-                            translationInput = ""
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        
-        // 导入注音对话框 - ModalBottomSheet
-        val importTransliterationSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showImportTransliterationDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { showImportTransliterationDialog = false },
-                sheetState = importTransliterationSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    val context = LocalContext.current
-                    ImportTransliterationSheetHeader(
-                        onImportKanaRomaClick = {
-                            try {
-                                val importedText = context.assets.open("JapRoman.txt")
-                                    .bufferedReader(Charsets.UTF_8)
-                                    .use { it.readText() }
-                                if (importedText.isBlank()) {
-                                    transliterationResultSuccess = false
-                                    transliterationResultMessage = "导入失败：JapRoman.txt 内容为空"
-                                } else {
-                                    transliterationInput = importedText
-                                    transliterationResultSuccess = true
-                                    transliterationResultMessage = "已从 JapRoman.txt 导入文本"
-                                }
-                            } catch (e: Exception) {
-                                transliterationResultSuccess = false
-                                transliterationResultMessage = "导入失败：${e.message ?: "无法读取文件"}"
-                            }
-                            showTransliterationResultDialog = true
-                        },
-                        onDeleteAllClick = { showDeleteAllTransliterationConfirmDialog = true }
-                    )
-                    ThemedTextField(
-                        value = transliterationInput,
-                        onValueChange = { transliterationInput = it },
-                        placeholder = "输入格式：\n歌词：注音\n注意：请输入单个字符对应的注音，一行一个。\n示例：\n你：ni\n好：hao",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(250.dp),
-                        singleLine = false,
-                        maxLines = 10
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = { showImportTransliterationDialog = false }
-                        ) {
-                            Text("取消")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = clipboard.primaryClip
-                                if (clip != null && clip.itemCount > 0) {
-                                    transliterationInput = clip.getItemAt(0).text.toString()
-                                }
-                            }
-                        ) {
-                            Text("粘贴")
-                        }
-                        OutlinedButton(
-                            onClick = { transliterationInput = "" }
-                        ) {
-                            Text("清空")
-                        }
-                        Button(
-                            onClick = {
-                                // 解析用户输入的注音（支持多字符，应用时按最长词条优先）
-                                val (transliterationMap, parseError) = parseTransliterationInput(transliterationInput)
+        val context = LocalContext.current
 
-                                if (parseError) {
-                                    transliterationResultSuccess = false
-                                    transliterationResultMessage = "解析失败，请检查格式是否正确"
-                                    showTransliterationResultDialog = true
-                                    showImportTransliterationDialog = false
-                                } else if (transliterationMap.isEmpty()) {
-                                    transliterationResultSuccess = false
-                                    transliterationResultMessage = "未输入任何注音"
-                                    showTransliterationResultDialog = true
-                                    showImportTransliterationDialog = false
-                                } else {
-                                    // 应用注音到歌词
-                                    val oldLines = lyricLines.toList()
-                                    val (updatedLyricLines, matchCount) = applyTransliterationMapToLyrics(
-                                        lyricLines = lyricLines,
-                                        transliterationMap = transliterationMap
-                                    )
-                                    lyricLines = updatedLyricLines
-                                    
-                                    // 添加到撤销栈
-                                    undoRedoManager.pushAction(
-                                        UndoAction(
-                                            actionType = UndoActionType.MULTI_CHANGE,
-                                            lineIndex = 0,
-                                            oldValue = oldLines,
-                                            newValue = lyricLines
-                                        )
-                                    )
-                                    updateUndoRedoState()
-                                    
-                                    if (matchCount == 0) {
-                                        transliterationResultSuccess = false
-                                        transliterationResultMessage = "未找到对应歌词"
-                                    } else {
-                                        transliterationResultSuccess = true
-                                        transliterationResultMessage = "成功对${matchCount}个字符完成注音"
-                                    }
-                                    
-                                    showTransliterationResultDialog = true
-                                    showImportTransliterationDialog = false
-                                }
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
+        ImportTranslationBottomSheet(
+            showSheet = showImportTranslationDialog,
+            lyricLines = lyricLines,
+            translationInput = translationInput,
+            onTranslationInputChange = { translationInput = it },
+            onApplyTranslations = { translationLinesList ->
+                lyricLines = lyricLines.mapIndexed { index, line ->
+                    line.copy(translation = translationLinesList.getOrNull(index) ?: "")
                 }
+            },
+            onDismissSheet = {
+                showImportTranslationDialog = false
+                translationInput = ""
             }
-        }
+        )
+
+        ImportTransliterationBottomSheet(
+            showSheet = showImportTransliterationDialog,
+            transliterationInput = transliterationInput,
+            onTransliterationInputChange = { transliterationInput = it },
+            lyricLines = lyricLines,
+            onLyricLinesChange = { lyricLines = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onResultStateChange = { success, message ->
+                transliterationResultSuccess = success
+                transliterationResultMessage = message
+            },
+            onShowResultDialog = { showTransliterationResultDialog = true },
+            onImportKanaRomaClick = {
+                try {
+                    val importedText = context.assets.open("JapRoman.txt")
+                        .bufferedReader(Charsets.UTF_8)
+                        .use { it.readText() }
+                    if (importedText.isBlank()) {
+                        transliterationResultSuccess = false
+                        transliterationResultMessage = "导入失败：JapRoman.txt 内容为空"
+                    } else {
+                        transliterationInput = importedText
+                        transliterationResultSuccess = true
+                        transliterationResultMessage = "已从 JapRoman.txt 导入文本"
+                    }
+                } catch (e: Exception) {
+                    transliterationResultSuccess = false
+                    transliterationResultMessage = "导入失败：${e.message ?: "无法读取文件"}"
+                }
+                showTransliterationResultDialog = true
+            },
+            onDeleteAllClick = { showDeleteAllTransliterationConfirmDialog = true },
+            onDismissSheet = { showImportTransliterationDialog = false }
+        )
+
+        DeleteMultipleLinesBottomSheet(
+            showSheet = showDeleteMultipleLinesDialog,
+            lyricLines = lyricLines,
+            selectedLineIndices = deleteMultipleLinesSelected,
+            onSelectedLineIndicesChange = { deleteMultipleLinesSelected = it },
+            originalSelectedLineIndices = originalDeleteMultipleLinesSelected,
+            selectedLineIndex = selectedLineIndex,
+            onSelectedLineIndexChange = { selectedLineIndex = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showDeleteMultipleLinesDialog = false }
+        )
 
         DeleteAllTransliterationConfirmDialog(
             showDialog = showDeleteAllTransliterationConfirmDialog,
@@ -7877,531 +10891,45 @@ fun LyricTimingScreen(
             }
         }
         
-        // 拆分歌词对话框 - ModalBottomSheet
-        val splitLyricSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        var pendingSplitLyricDismiss by remember { mutableStateOf(false) }
-        if (showSplitLyricDialog) {
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (splitLyricText != originalSplitLyricText) {
-                        pendingSplitLyricDismiss = true
-                        showSplitLyricCancelConfirm = true
-                    } else {
-                        showSplitLyricDialog = false
-                    }
-                },
-                sheetState = splitLyricSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "拆分歌词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text("用空格分隔歌词单元：", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ThemedTextField(
-                        value = splitLyricText,
-                        onValueChange = { splitLyricText = it },
-                        placeholder = "歌词内容",
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = false,
-                        minLines = 2
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("提示：第一个空格为分隔符，连续多余空格保留到下一单元", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (splitLyricText != originalSplitLyricText) {
-                                    pendingSplitLyricDismiss = true
-                                    showSplitLyricCancelConfirm = true
-                                } else {
-                                    showSplitLyricDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val segmentedWords = smartSegmentLyric(splitLyricText)
-                                splitLyricText = segmentedWords.joinToString(" ")
-                            }
-                        ) {
-                            Text("一键分词", fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = {
-                                if (menuLineIndex < lyricLines.size && menuUnitIndex < lyricLines[menuLineIndex].timeUnits.size) {
-                                    val currentUnit = lyricLines[menuLineIndex].timeUnits[menuUnitIndex]
-                                    val startMs = parseTimeToMs(currentUnit.startTime)
-                                    val endMs = parseTimeToMs(currentUnit.endTime)
-                                    val totalDuration = endMs - startMs
-                                    
-                                    val normalizedText = splitLyricText.replace('\u00A0', ' ')
-                                    val segments = mutableListOf<String>()
-                                    var currentSegment = ""
-                                    var i = 0
-                                    
-                                    while (i < normalizedText.length) {
-                                        val char = normalizedText[i]
-                                        if (char == ' ') {
-                                            if (currentSegment.isNotEmpty()) {
-                                                segments.add(currentSegment)
-                                                currentSegment = ""
-                                            }
-                                            i++
-                                            var extraSpaces = ""
-                                            while (i < normalizedText.length && normalizedText[i] == ' ') {
-                                                extraSpaces += ' '
-                                                i++
-                                            }
-                                            if (i < normalizedText.length) {
-                                                currentSegment = extraSpaces
-                                            }
-                                        } else {
-                                            currentSegment += char
-                                            i++
-                                        }
-                                    }
-                                    if (currentSegment.isNotEmpty()) {
-                                        segments.add(currentSegment)
-                                    }
-                                    
-                                    if (segments.isNotEmpty()) {
-                                        val newTimeUnits = mutableListOf<LyricTimeUnit>()
-                                        
-                                        val segmentWeights = segments.map { segment ->
-                                            smartSegmentLyric(segment).size
-                                        }
-                                        val totalWeight = segmentWeights.sum()
-                                        var sourceCharCursor = 0
-                                        
-                                        var accumulatedMs = startMs
-                                        segments.forEachIndexed { index, segment ->
-                                            val weight = segmentWeights[index]
-                                            val unitDuration = if (totalWeight > 0) {
-                                                (totalDuration * weight) / totalWeight
-                                            } else {
-                                                totalDuration / segments.size
-                                            }
-                                            val unitStartMs = accumulatedMs
-                                            val unitEndMs = if (index == segments.size - 1) {
-                                                endMs
-                                            } else {
-                                                accumulatedMs + unitDuration
-                                            }
-                                            accumulatedMs = unitEndMs
-
-                                            val mappedCharTransliterations = mutableMapOf<Int, String>()
-                                            segment.forEachIndexed { newIdx, _ ->
-                                                val oldIdx = sourceCharCursor + newIdx
-                                                currentUnit.charTransliterations[oldIdx]?.let { translit ->
-                                                    mappedCharTransliterations[newIdx] = translit
-                                                }
-                                            }
-                                            sourceCharCursor += segment.length
-
-                                            val mappedTransliteration = when {
-                                                mappedCharTransliterations.isNotEmpty() && segment.length == 1 ->
-                                                    mappedCharTransliterations[0] ?: ""
-                                                segments.size == 1 -> currentUnit.transliteration
-                                                else -> ""
-                                            }
-                                            
-                                            newTimeUnits.add(LyricTimeUnit(
-                                                text = segment,
-                                                startTime = formatTime(unitStartMs),
-                                                endTime = formatTime(unitEndMs),
-                                                transliteration = mappedTransliteration,
-                                                charTransliterations = mappedCharTransliterations.toMap()
-                                            ))
-                                        }
-                                        
-                                        val newLines = lyricLines.toMutableList()
-                                        val currentLine = newLines[menuLineIndex]
-                                        val oldTimeUnits = currentLine.timeUnits
-                                        val updatedTimeUnits = currentLine.timeUnits.toMutableList()
-                                        updatedTimeUnits.removeAt(menuUnitIndex)
-                                        updatedTimeUnits.addAll(menuUnitIndex, newTimeUnits)
-                                        newLines[menuLineIndex] = currentLine.copy(timeUnits = updatedTimeUnits)
-                                        
-                                        undoRedoManager.pushAction(UndoAction(
-                                            actionType = UndoActionType.UNIT_SPLIT,
-                                            lineIndex = menuLineIndex,
-                                            unitIndex = menuUnitIndex,
-                                            oldValue = oldTimeUnits,
-                                            newValue = updatedTimeUnits.toList()
-                                        ))
-                                        updateUndoRedoState()
-                                        lyricLines = newLines
-                                    }
-                                }
-                                showSplitLyricDialog = false
-                            },
-                            enabled = splitLyricText.isNotBlank()
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        if (showSplitLyricCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showSplitLyricCancelConfirm = false
-                    pendingSplitLyricDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已修改了内容，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSplitLyricCancelConfirm = false
-                            pendingSplitLyricDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showSplitLyricCancelConfirm = false
-                            showSplitLyricDialog = false
-                            pendingSplitLyricDismiss = false
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        LaunchedEffect(showSplitLyricCancelConfirm, pendingSplitLyricDismiss) {
-            if (!showSplitLyricCancelConfirm && !pendingSplitLyricDismiss && showSplitLyricDialog) {
-                splitLyricSheetState.show()
-            }
-        }
+        SplitLyricBottomSheet(
+            showSheet = showSplitLyricDialog,
+            menuLineIndex = menuLineIndex,
+            menuUnitIndex = menuUnitIndex,
+            lyricLines = lyricLines,
+            splitLyricText = splitLyricText,
+            onSplitLyricTextChange = { splitLyricText = it },
+            originalSplitLyricText = originalSplitLyricText,
+            showCancelConfirm = showSplitLyricCancelConfirm,
+            onShowCancelConfirmChange = { showSplitLyricCancelConfirm = it },
+            pendingDismiss = pendingSplitLyricDismiss,
+            onPendingDismissChange = { pendingSplitLyricDismiss = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showSplitLyricDialog = false }
+        )
         
-        // 合并歌词对话框 - ModalBottomSheet
-        val mergeLyricSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showMergeLyricDialog && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
-            val currentLine = lyricLines[menuLineIndex]
-            val displayTimeUnits = if (mergeLyricPreview.isNotEmpty()) mergeLyricPreview else currentLine.timeUnits
-            fun mergeLyricGroup(units: List<LyricTimeUnit>, group: List<Int>): LyricTimeUnit {
-                val unitsToMerge = group.map { units[it] }
-                val mergedText = unitsToMerge.joinToString("") { it.text }
-
-                val mergedCharTransliterations = mutableMapOf<Int, String>()
-                var charOffset = 0
-                unitsToMerge.forEach { unit ->
-                    unit.charTransliterations.forEach { (idx, translit) ->
-                        mergedCharTransliterations[charOffset + idx] = translit
-                    }
-                    charOffset += unit.text.length
-                }
-
-                val transliterationsToJoin = unitsToMerge.mapNotNull {
-                    it.transliteration.takeIf { trans -> trans.isNotEmpty() }
-                }
-                val mergedTransliteration = if (transliterationsToJoin.isNotEmpty()) {
-                    val hasAnyCjk = unitsToMerge.any { hasCjkChar(it.text) }
-                    if (hasAnyCjk) {
-                        transliterationsToJoin.joinToString("")
-                    } else {
-                        transliterationsToJoin.joinToString(" ")
-                    }
-                } else {
-                    ""
-                }
-
-                return LyricTimeUnit(
-                    text = mergedText,
-                    startTime = unitsToMerge.first().startTime,
-                    endTime = unitsToMerge.last().endTime,
-                    transliteration = mergedTransliteration,
-                    charTransliterations = mergedCharTransliterations.toMap()
-                )
-            }
-
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (mergeLyricPreview != originalMergeLyricPreview || mergeSelectedUnits != originalMergeSelectedUnits) {
-                        pendingMergeLyricDismiss = true
-                        showMergeLyricCancelConfirm = true
-                    } else {
-                        showMergeLyricDialog = false
-                        mergeLyricPreview = emptyList()
-                        mergeLyricHistory = emptyList()
-                    }
-                },
-                sheetState = mergeLyricSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "合并歌词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text("选择要合并的相邻歌词单元（支持多组）：", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        displayTimeUnits.forEachIndexed { unitIndex, timeUnit ->
-                            val isSelected = mergeSelectedUnits.contains(unitIndex)
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        val newSelection = mergeSelectedUnits.toMutableSet()
-                                        if (isSelected) {
-                                            newSelection.remove(unitIndex)
-                                        } else {
-                                            newSelection.add(unitIndex)
-                                        }
-                                        mergeSelectedUnits = newSelection
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = timeUnit.text,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (mergeLyricPreview != originalMergeLyricPreview || mergeSelectedUnits != originalMergeSelectedUnits) {
-                                    pendingMergeLyricDismiss = true
-                                    showMergeLyricCancelConfirm = true
-                                } else {
-                                    showMergeLyricDialog = false
-                                    mergeLyricPreview = emptyList()
-                                    mergeLyricHistory = emptyList()
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        // 合并按钮 - 轮廓按钮
-                        OutlinedButton(
-                            onClick = {
-                                val sortedIndices = mergeSelectedUnits.sorted()
-                                if (sortedIndices.size >= 2) {
-                                    val groups = mutableListOf<MutableList<Int>>()
-                                    var currentGroup = mutableListOf<Int>()
-
-                                    for (index in sortedIndices) {
-                                        if (currentGroup.isEmpty() || index == currentGroup.last() + 1) {
-                                            currentGroup.add(index)
-                                        } else {
-                                            if (currentGroup.size >= 2) {
-                                                groups.add(currentGroup)
-                                            }
-                                            currentGroup = mutableListOf(index)
-                                        }
-                                    }
-                                    if (currentGroup.size >= 2) {
-                                        groups.add(currentGroup)
-                                    }
-
-                                    if (groups.isNotEmpty()) {
-                                        mergeLyricHistory = mergeLyricHistory + listOf(displayTimeUnits)
-
-                                        val newTimeUnits = mutableListOf<LyricTimeUnit>()
-                                        var i = 0
-
-                                        while (i < displayTimeUnits.size) {
-                                            val inGroup = groups.find { group -> i in group }
-                                            if (inGroup != null) {
-                                                newTimeUnits.add(mergeLyricGroup(displayTimeUnits, inGroup))
-                                                i = inGroup.last() + 1
-                                            } else {
-                                                newTimeUnits.add(displayTimeUnits[i])
-                                                i++
-                                            }
-                                        }
-
-                                        mergeLyricPreview = newTimeUnits
-                                        mergeSelectedUnits = emptySet()
-                                    }
-                                }
-                            },
-                            enabled = mergeSelectedUnits.size >= 2
-                        ) {
-                            Text("合并")
-                        }
-                        // 撤销按钮 - 轮廓按钮
-                        OutlinedButton(
-                            onClick = {
-                                if (mergeLyricHistory.isNotEmpty()) {
-                                    val lastState = mergeLyricHistory.last()
-                                    mergeLyricPreview = lastState
-                                    mergeLyricHistory = mergeLyricHistory.dropLast(1)
-                                    mergeSelectedUnits = emptySet()
-                                }
-                            },
-                            enabled = mergeLyricHistory.isNotEmpty()
-                        ) {
-                            Text("撤销")
-                        }
-                        // 确定按钮 - 高亮按钮
-                        Button(
-                            onClick = {
-                                val timeUnitsToApply = if (mergeLyricPreview.isNotEmpty()) mergeLyricPreview else {
-                                    val sortedIndices = mergeSelectedUnits.sorted()
-                                    if (sortedIndices.size >= 2) {
-                                        val groups = mutableListOf<MutableList<Int>>()
-                                        var currentGroup = mutableListOf<Int>()
-
-                                        for (index in sortedIndices) {
-                                            if (currentGroup.isEmpty() || index == currentGroup.last() + 1) {
-                                                currentGroup.add(index)
-                                            } else {
-                                                if (currentGroup.size >= 2) {
-                                                    groups.add(currentGroup)
-                                                }
-                                                currentGroup = mutableListOf(index)
-                                            }
-                                        }
-                                        if (currentGroup.size >= 2) {
-                                            groups.add(currentGroup)
-                                        }
-
-                                        if (groups.isNotEmpty()) {
-                                            val timeUnits = currentLine.timeUnits
-                                            val newTimeUnits = mutableListOf<LyricTimeUnit>()
-                                            var i = 0
-
-                                            while (i < timeUnits.size) {
-                                                val inGroup = groups.find { group -> i in group }
-                                                if (inGroup != null) {
-                                                    newTimeUnits.add(mergeLyricGroup(timeUnits, inGroup))
-                                                    i = inGroup.last() + 1
-                                                } else {
-                                                    newTimeUnits.add(timeUnits[i])
-                                                    i++
-                                                }
-                                            }
-                                            newTimeUnits
-                                        } else {
-                                            currentLine.timeUnits
-                                        }
-                                    } else {
-                                        currentLine.timeUnits
-                                    }
-                                }
-
-                                if (mergeLyricPreview.isNotEmpty() || mergeSelectedUnits.size >= 2) {
-                                    undoRedoManager.pushAction(UndoAction(
-                                        actionType = UndoActionType.UNIT_MERGE,
-                                        lineIndex = menuLineIndex,
-                                        unitIndex = -1,
-                                        oldValue = currentLine.timeUnits,
-                                        newValue = timeUnitsToApply
-                                    ))
-                                    updateUndoRedoState()
-                                    val newLines = lyricLines.toMutableList()
-                                    newLines[menuLineIndex] = currentLine.copy(timeUnits = timeUnitsToApply)
-                                    lyricLines = newLines
-                                }
-                                showMergeLyricDialog = false
-                                mergeLyricPreview = emptyList()
-                                mergeLyricHistory = emptyList()
-                            },
-                            enabled = mergeLyricPreview.isNotEmpty() || mergeSelectedUnits.size >= 2
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 合并歌词放弃修改确认对话框
-        if (showMergeLyricCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showMergeLyricCancelConfirm = false
-                    pendingMergeLyricDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已进行了合并操作，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showMergeLyricCancelConfirm = false
-                            pendingMergeLyricDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showMergeLyricCancelConfirm = false
-                            showMergeLyricDialog = false
-                            pendingMergeLyricDismiss = false
-                            mergeLyricPreview = emptyList()
-                            mergeLyricHistory = emptyList()
-                            mergeSelectedUnits = emptySet()
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-
-        // 处理继续编辑后重新显示合并歌词 ModalBottomSheet
-        LaunchedEffect(showMergeLyricCancelConfirm, pendingMergeLyricDismiss) {
-            if (!showMergeLyricCancelConfirm && !pendingMergeLyricDismiss && showMergeLyricDialog) {
-                mergeLyricSheetState.show()
-            }
-        }
+        MergeLyricBottomSheet(
+            showSheet = showMergeLyricDialog,
+            menuLineIndex = menuLineIndex,
+            lyricLines = lyricLines,
+            mergeLyricPreview = mergeLyricPreview,
+            onMergeLyricPreviewChange = { mergeLyricPreview = it },
+            mergeSelectedUnits = mergeSelectedUnits,
+            onMergeSelectedUnitsChange = { mergeSelectedUnits = it },
+            mergeLyricHistory = mergeLyricHistory,
+            onMergeLyricHistoryChange = { mergeLyricHistory = it },
+            showCancelConfirm = showMergeLyricCancelConfirm,
+            onShowCancelConfirmChange = { showMergeLyricCancelConfirm = it },
+            pendingDismiss = pendingMergeLyricDismiss,
+            onPendingDismissChange = { pendingMergeLyricDismiss = it },
+            originalMergeLyricPreview = originalMergeLyricPreview,
+            originalMergeSelectedUnits = originalMergeSelectedUnits,
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showMergeLyricDialog = false }
+        )
         
         // 删除当前歌词确认对话框
         if (showDeleteUnitConfirmDialog) {
@@ -8566,2403 +11094,175 @@ fun LyricTimingScreen(
             )
         }
         
-        // 合并行对话框 - ModalBottomSheet
-        val mergeLinesSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showMergeLinesDialog && menuLineIndex >= 0) {
-            val mergeLinesScrollState = rememberLazyListState()
-            LaunchedEffect(showMergeLinesDialog) {
-                if (showMergeLinesDialog && menuLineIndex >= 0) {
-                    delay(100)
-                    val visibleItems = mergeLinesScrollState.layoutInfo.visibleItemsInfo.size
-                    val targetItem = menuLineIndex - visibleItems / 2
-                    if (targetItem > 0) {
-                        mergeLinesScrollState.scrollToItem(targetItem.coerceAtLeast(0))
-                    }
-                }
-            }
-
-            var mergeLinesError by remember { mutableStateOf("") }
-
-            val displayLines = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreview else lyricLines
-            val displaySelected = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreviewSelected else mergeLinesSelected
-
-            // 若歌词行超过10行，则需要修改组件高度到顶部状态栏底部
-            val mergeLinesSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
-
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (mergeLinesPreview != originalMergeLinesPreview || mergeLinesSelected != originalMergeLinesSelected) {
-                        pendingMergeLinesDismiss = true
-                        showMergeLinesCancelConfirm = true
-                    } else {
-                        showMergeLinesDialog = false
-                        mergeLinesPreview = emptyList()
-                        mergeLinesPreviewSelected = emptySet()
-                        mergeLinesHistory = emptyList()
-                        mergeLinesError = ""
-                    }
-                },
-                sheetState = mergeLinesSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .height(mergeLinesSheetHeight)
-                ) {
-                    Text(
-                        text = "合并行",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text("选择要合并的连续行：", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LazyColumn(
-                        state = mergeLinesScrollState,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(displayLines.size) { lineIndex ->
-                            val line = displayLines[lineIndex]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isSelected = displaySelected.contains(lineIndex)
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        val newSelection = displaySelected.toMutableSet()
-                                        if (isSelected) {
-                                            newSelection.remove(lineIndex)
-                                        } else {
-                                            newSelection.add(lineIndex)
-                                        }
-                                        if (mergeLinesPreview.isNotEmpty()) {
-                                            mergeLinesPreviewSelected = newSelection
-                                        } else {
-                                            mergeLinesSelected = newSelection
-                                        }
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${lineIndex + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = lineText,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CustomCheckbox(
-                        checked = mergeLinesAddSpace,
-                        onCheckedChange = { mergeLinesAddSpace = it },
-                        label = "行与行之间增加空格"
-                    )
-
-                    if (mergeLinesError.isNotEmpty()) {
-                        Text(
-                            text = mergeLinesError,
-                            color = Color.Red,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (mergeLinesPreview != originalMergeLinesPreview || mergeLinesSelected != originalMergeLinesSelected) {
-                                    pendingMergeLinesDismiss = true
-                                    showMergeLinesCancelConfirm = true
-                                } else {
-                                    showMergeLinesDialog = false
-                                    mergeLinesPreview = emptyList()
-                                    mergeLinesPreviewSelected = emptySet()
-                                    mergeLinesHistory = emptyList()
-                                    mergeLinesError = ""
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        // 合并按钮 - 轮廓按钮
-                        OutlinedButton(
-                            onClick = {
-                                val currentSelected = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreviewSelected else mergeLinesSelected
-                                val currentLines = if (mergeLinesPreview.isNotEmpty()) mergeLinesPreview else lyricLines
-                                val sortedIndices = currentSelected.sorted()
-
-                                var isConsecutive = true
-                                if (sortedIndices.size >= 2) {
-                                    for (i in 0 until sortedIndices.size - 1) {
-                                        if (sortedIndices[i + 1] - sortedIndices[i] != 1) {
-                                            isConsecutive = false
-                                            break
-                                        }
-                                    }
-                                }
-
-                                if (sortedIndices.size < 2) {
-                                    mergeLinesError = "请至少选择两行"
-                                } else if (!isConsecutive) {
-                                    mergeLinesError = "请选择连续的歌词行"
-                                } else {
-                                    mergeLinesHistory = mergeLinesHistory + listOf(currentLines)
-
-                                    val newLines = currentLines.toMutableList()
-                                    val firstIndex = sortedIndices.first()
-                                    val firstLine = newLines[firstIndex]
-                                    val mergedTimeUnits = firstLine.timeUnits.toMutableList()
-
-                                    sortedIndices.drop(1).forEach { idx ->
-                                        val line = newLines[idx]
-                                        if (mergeLinesAddSpace && line.timeUnits.isNotEmpty()) {
-                                            val firstUnit = line.timeUnits.first()
-                                            mergedTimeUnits.add(LyricTimeUnit(
-                                                " " + firstUnit.text,
-                                                firstUnit.startTime,
-                                                firstUnit.endTime
-                                            ))
-                                            mergedTimeUnits.addAll(line.timeUnits.drop(1))
-                                        } else {
-                                            mergedTimeUnits.addAll(line.timeUnits)
-                                        }
-                                    }
-
-                                    newLines[firstIndex] = firstLine.copy(timeUnits = mergedTimeUnits)
-
-                                    val indicesToRemove = sortedIndices.drop(1).sortedDescending()
-                                    indicesToRemove.forEach { idx ->
-                                        newLines.removeAt(idx)
-                                    }
-
-                                    mergeLinesPreview = newLines
-                                    mergeLinesPreviewSelected = emptySet()
-                                    mergeLinesError = ""
-                                }
-                            }
-                        ) {
-                            Text("合并")
-                        }
-                        // 撤销按钮 - 轮廓按钮
-                        OutlinedButton(
-                            onClick = {
-                                if (mergeLinesHistory.isNotEmpty()) {
-                                    val lastState = mergeLinesHistory.last()
-                                    mergeLinesPreview = lastState
-                                    mergeLinesHistory = mergeLinesHistory.dropLast(1)
-                                    mergeLinesPreviewSelected = emptySet()
-                                    mergeLinesError = ""
-                                }
-                            },
-                            enabled = mergeLinesHistory.isNotEmpty()
-                        ) {
-                            Text("撤销")
-                        }
-                        // 确定按钮 - 高亮按钮
-                        Button(
-                            onClick = {
-                                if (mergeLinesPreview.isNotEmpty()) {
-                                    val actions = mutableListOf<UndoAction>()
-                                    val oldLines = lyricLines.toList()
-                                    actions.add(UndoAction(
-                                        actionType = UndoActionType.LINE_MERGE,
-                                        lineIndex = -1,
-                                        unitIndex = -1,
-                                        oldValue = oldLines,
-                                        newValue = mergeLinesPreview
-                                    ))
-                                    undoRedoManager.pushBatchAction(BatchUndoAction(actions, "合并行"))
-                                    updateUndoRedoState()
-                                    lyricLines = mergeLinesPreview
-                                } else {
-                                    val currentSelected = mergeLinesSelected
-                                    val sortedIndices = currentSelected.sorted()
-
-                                    var isConsecutive = true
-                                    if (sortedIndices.size >= 2) {
-                                        for (i in 0 until sortedIndices.size - 1) {
-                                            if (sortedIndices[i + 1] - sortedIndices[i] != 1) {
-                                                isConsecutive = false
-                                                break
-                                            }
-                                        }
-                                    }
-
-                                    if (sortedIndices.size < 2) {
-                                        mergeLinesError = "请至少选择两行"
-                                    } else if (!isConsecutive) {
-                                        mergeLinesError = "请选择连续的歌词行"
-                                    } else {
-                                        val actions = mutableListOf<UndoAction>()
-                                        val oldLines = lyricLines.toList()
-                                        val newLines = lyricLines.toMutableList()
-                                        val firstIndex = sortedIndices.first()
-                                        val firstLine = newLines[firstIndex]
-                                        val mergedTimeUnits = firstLine.timeUnits.toMutableList()
-
-                                        sortedIndices.drop(1).forEach { idx ->
-                                            val line = newLines[idx]
-                                            if (mergeLinesAddSpace && line.timeUnits.isNotEmpty()) {
-                                                val firstUnit = line.timeUnits.first()
-                                                mergedTimeUnits.add(LyricTimeUnit(
-                                                    " " + firstUnit.text,
-                                                    firstUnit.startTime,
-                                                    firstUnit.endTime
-                                                ))
-                                                mergedTimeUnits.addAll(line.timeUnits.drop(1))
-                                            } else {
-                                                mergedTimeUnits.addAll(line.timeUnits)
-                                            }
-                                        }
-
-                                        newLines[firstIndex] = firstLine.copy(timeUnits = mergedTimeUnits)
-
-                                        val indicesToRemove = sortedIndices.drop(1).sortedDescending()
-                                        indicesToRemove.forEach { idx ->
-                                            newLines.removeAt(idx)
-                                        }
-
-                                        actions.add(UndoAction(
-                                            actionType = UndoActionType.LINE_MERGE,
-                                            lineIndex = -1,
-                                            unitIndex = -1,
-                                            oldValue = oldLines,
-                                            newValue = newLines.toList()
-                                        ))
-                                        undoRedoManager.pushBatchAction(BatchUndoAction(actions, "合并行"))
-                                        updateUndoRedoState()
-                                        lyricLines = newLines
-                                    }
-                                }
-                                showMergeLinesDialog = false
-                                mergeLinesPreview = emptyList()
-                                mergeLinesPreviewSelected = emptySet()
-                                mergeLinesHistory = emptyList()
-                                mergeLinesError = ""
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 合并行放弃修改确认对话框
-        if (showMergeLinesCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showMergeLinesCancelConfirm = false
-                    pendingMergeLinesDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已进行了合并操作，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showMergeLinesCancelConfirm = false
-                            pendingMergeLinesDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showMergeLinesCancelConfirm = false
-                            showMergeLinesDialog = false
-                            pendingMergeLinesDismiss = false
-                            mergeLinesPreview = emptyList()
-                            mergeLinesPreviewSelected = emptySet()
-                            mergeLinesHistory = emptyList()
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-
-        // 处理继续编辑后重新显示合并行 ModalBottomSheet
-        LaunchedEffect(showMergeLinesCancelConfirm, pendingMergeLinesDismiss) {
-            if (!showMergeLinesCancelConfirm && !pendingMergeLinesDismiss && showMergeLinesDialog) {
-                mergeLinesSheetState.show()
-            }
-        }
+        MergeLinesBottomSheet(
+            showSheet = showMergeLinesDialog,
+            menuLineIndex = menuLineIndex,
+            lyricLines = lyricLines,
+            mergeLinesPreview = mergeLinesPreview,
+            onMergeLinesPreviewChange = { mergeLinesPreview = it },
+            mergeLinesSelected = mergeLinesSelected,
+            onMergeLinesSelectedChange = { mergeLinesSelected = it },
+            mergeLinesPreviewSelected = mergeLinesPreviewSelected,
+            onMergeLinesPreviewSelectedChange = { mergeLinesPreviewSelected = it },
+            mergeLinesHistory = mergeLinesHistory,
+            onMergeLinesHistoryChange = { mergeLinesHistory = it },
+            mergeLinesAddSpace = mergeLinesAddSpace,
+            onMergeLinesAddSpaceChange = { mergeLinesAddSpace = it },
+            showCancelConfirm = showMergeLinesCancelConfirm,
+            onShowCancelConfirmChange = { showMergeLinesCancelConfirm = it },
+            pendingDismiss = pendingMergeLinesDismiss,
+            onPendingDismissChange = { pendingMergeLinesDismiss = it },
+            originalMergeLinesPreview = originalMergeLinesPreview,
+            originalMergeLinesSelected = originalMergeLinesSelected,
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showMergeLinesDialog = false }
+        )
         
-        // 添加翻译对话框 - ModalBottomSheet
-        val addTranslationSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        var showCopiedButton by remember { mutableStateOf(false) }
-        val coroutineScope = rememberCoroutineScope()
-        if (showAddTranslationDialog && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
-            val currentLine = lyricLines[menuLineIndex]
-            val lineText = currentLine.timeUnits.joinToString("") { it.text }
-
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (addTranslationText != originalAddTranslationText) {
-                        pendingAddTranslationDismiss = true
-                        showAddTranslationCancelConfirm = true
-                    } else {
-                        showAddTranslationDialog = false
-                    }
-                },
-                sheetState = addTranslationSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "添加翻译",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("歌词：", fontWeight = FontWeight.Bold)
-                        val context = LocalContext.current
-                        TextButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setText(lineText)
-                                showCopiedButton = true
-                                coroutineScope.launch {
-                                    delay(1500)
-                                    showCopiedButton = false
-                                }
-                            }
-                        ) {
-                            Text(if (showCopiedButton) "已复制" else "复制")
-                        }
-                    }
-                    Text(lineText, modifier = Modifier.padding(bottom = 8.dp))
-                    ThemedTextField(
-                        value = addTranslationText,
-                        onValueChange = { addTranslationText = it },
-                        placeholder = "请输入翻译内容",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (addTranslationText != originalAddTranslationText) {
-                                    pendingAddTranslationDismiss = true
-                                    showAddTranslationCancelConfirm = true
-                                } else {
-                                    showAddTranslationDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        Button(
-                            onClick = {
-                                if (menuLineIndex < lyricLines.size) {
-                                    val newLines = lyricLines.toMutableList()
-                                    val currentLine = newLines[menuLineIndex]
-                                    val oldTranslation = currentLine.translation
-                                    undoRedoManager.pushAction(UndoAction(
-                                        actionType = UndoActionType.TRANSLATION_CHANGE,
-                                        lineIndex = menuLineIndex,
-                                        unitIndex = -1,
-                                        oldValue = oldTranslation,
-                                        newValue = addTranslationText
-                                    ))
-                                    updateUndoRedoState()
-                                    newLines[menuLineIndex] = currentLine.copy(translation = addTranslationText)
-                                    lyricLines = newLines
-                                }
-                                showAddTranslationDialog = false
-                            },
-                            enabled = addTranslationText != originalAddTranslationText
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 添加翻译放弃修改确认对话框
-        if (showAddTranslationCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showAddTranslationCancelConfirm = false
-                    pendingAddTranslationDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已输入了翻译内容，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showAddTranslationCancelConfirm = false
-                            pendingAddTranslationDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showAddTranslationCancelConfirm = false
-                            showAddTranslationDialog = false
-                            pendingAddTranslationDismiss = false
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-
-        // 处理继续编辑后重新显示添加翻译 ModalBottomSheet
-        LaunchedEffect(showAddTranslationCancelConfirm, pendingAddTranslationDismiss) {
-            if (!showAddTranslationCancelConfirm && !pendingAddTranslationDismiss && showAddTranslationDialog) {
-                addTranslationSheetState.show()
-            }
-        }
+        AddTranslationBottomSheet(
+            showSheet = showAddTranslationDialog,
+            menuLineIndex = menuLineIndex,
+            lyricLines = lyricLines,
+            addTranslationText = addTranslationText,
+            onAddTranslationTextChange = { addTranslationText = it },
+            originalAddTranslationText = originalAddTranslationText,
+            showCancelConfirm = showAddTranslationCancelConfirm,
+            onShowCancelConfirmChange = { showAddTranslationCancelConfirm = it },
+            pendingDismiss = pendingAddTranslationDismiss,
+            onPendingDismissChange = { pendingAddTranslationDismiss = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showAddTranslationDialog = false }
+        )
         
-        // 移动行对话框 - ModalBottomSheet
-        val moveLineSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showMoveLineDialog && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
-            val currentLineText = lyricLines[menuLineIndex].timeUnits.joinToString("") { it.text }
-            // 当歌词行大于10时，使用更高的高度（到顶部状态栏底部）
-            val moveLineSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
+        MoveLineBottomSheet(
+            showSheet = showMoveLineDialog,
+            lyricLines = lyricLines,
+            menuLineIndex = menuLineIndex,
+            moveLineTargetIndex = moveLineTargetIndex,
+            onMoveLineTargetIndexChange = { moveLineTargetIndex = it },
+            originalMoveLineTargetIndex = originalMoveLineTargetIndex,
+            moveLinePosition = moveLinePosition,
+            onMoveLinePositionChange = { moveLinePosition = it },
+            originalMoveLinePosition = originalMoveLinePosition,
+            showCancelConfirm = showMoveLineCancelConfirm,
+            onShowCancelConfirmChange = { showMoveLineCancelConfirm = it },
+            pendingDismiss = pendingMoveLineDismiss,
+            onPendingDismissChange = { pendingMoveLineDismiss = it },
+            onLyricLinesChange = { lyricLines = it },
+            onSelectedLineIndexChange = { selectedLineIndex = it },
+            onDismissSheet = { showMoveLineDialog = false }
+        )
 
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (moveLineTargetIndex != originalMoveLineTargetIndex || moveLinePosition != originalMoveLinePosition) {
-                        pendingMoveLineDismiss = true
-                        showMoveLineCancelConfirm = true
-                    } else {
-                        showMoveLineDialog = false
-                    }
-                },
-                sheetState = moveLineSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .height(moveLineSheetHeight)
-                ) {
-                    Text(
-                        text = "移动行",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text("当前行：${menuLineIndex + 1} | $currentLineText",
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp))
-                    Text("请选择需要移动到哪一行：", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LazyColumn(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(lyricLines.size) { lineIndex ->
-                            val line = lyricLines[lineIndex]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isCurrentLine = lineIndex == menuLineIndex
-                            val isSelected = lineIndex == moveLineTargetIndex
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        when {
-                                            isCurrentLine -> Color(0x40FFA500)
-                                            isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant
-                                        }
-                                    )
-                                    .clickable(enabled = !isCurrentLine) {
-                                        moveLineTargetIndex = lineIndex
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${lineIndex + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = when {
-                                        isCurrentLine -> Color.White
-                                        isSelected -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                                Text(
-                                    text = lineText,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = when {
-                                        isCurrentLine -> Color.White
-                                        isSelected -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                                if (isCurrentLine) {
-                                    Text(
-                                        text = " (当前行)",
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("位置：", fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CustomRadioButtonGroup(
-                        options = listOf("上方", "下方"),
-                        selectedIndex = moveLinePosition,
-                        onSelect = { moveLinePosition = it }
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (moveLineTargetIndex != originalMoveLineTargetIndex || moveLinePosition != originalMoveLinePosition) {
-                                    pendingMoveLineDismiss = true
-                                    showMoveLineCancelConfirm = true
-                                } else {
-                                    showMoveLineDialog = false
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        Button(
-                            onClick = {
-                                if (moveLineTargetIndex >= 0 && moveLineTargetIndex != menuLineIndex) {
-                                    val newLines = lyricLines.toMutableList()
-                                    val lineToMove = newLines[menuLineIndex]
-                                    newLines.removeAt(menuLineIndex)
-
-                                    val insertIndex = if (moveLineTargetIndex > menuLineIndex) {
-                                        if (moveLinePosition == 0) moveLineTargetIndex - 1 else moveLineTargetIndex
-                                    } else {
-                                        if (moveLinePosition == 0) moveLineTargetIndex else moveLineTargetIndex + 1
-                                    }
-
-                                    newLines.add(insertIndex.coerceIn(0, newLines.size), lineToMove)
-                                    lyricLines = newLines
-
-                                    selectedLineIndex = insertIndex.coerceIn(0, lyricLines.size - 1)
-                                }
-                                showMoveLineDialog = false
-                            },
-                            enabled = moveLineTargetIndex >= 0 && moveLineTargetIndex != menuLineIndex
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 移动行放弃修改确认对话框
-        if (showMoveLineCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showMoveLineCancelConfirm = false
-                    pendingMoveLineDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已修改了移动行的选择，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showMoveLineCancelConfirm = false
-                            pendingMoveLineDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showMoveLineCancelConfirm = false
-                            showMoveLineDialog = false
-                            pendingMoveLineDismiss = false
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-
-        // 处理继续编辑后重新显示移动行 ModalBottomSheet
-        LaunchedEffect(showMoveLineCancelConfirm, pendingMoveLineDismiss) {
-            if (!showMoveLineCancelConfirm && !pendingMoveLineDismiss && showMoveLineDialog) {
-                moveLineSheetState.show()
-            }
-        }
+        SplitToMultipleLinesBottomSheet(
+            showSheet = showSplitToMultipleLinesDialog,
+            lyricLines = lyricLines,
+            menuLineIndex = menuLineIndex,
+            splitText = splitToMultipleLinesText,
+            onSplitTextChange = { splitToMultipleLinesText = it },
+            originalSplitText = originalSplitToMultipleLinesText,
+            showCancelConfirm = showSplitToMultipleLinesCancelConfirm,
+            onShowCancelConfirmChange = { showSplitToMultipleLinesCancelConfirm = it },
+            pendingDismiss = pendingSplitToMultipleLinesDismiss,
+            onPendingDismissChange = { pendingSplitToMultipleLinesDismiss = it },
+            onLyricLinesChange = { lyricLines = it },
+            onSelectedLineIndexChange = { selectedLineIndex = it },
+            onSelectedWordIndexChange = { selectedWordIndex = it },
+            onDismissSheet = { showSplitToMultipleLinesDialog = false }
+        )
         
-        // 删除多行对话框 - ModalBottomSheet
-        val deleteMultipleLinesSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showDeleteMultipleLinesDialog) {
-            val deleteMultipleLinesSheetHeight = if (lyricLines.size > 10) 650.dp else 400.dp
+        BatchSegmentBottomSheet(
+            showSheet = showBatchSegmentDialog,
+            lyricLines = lyricLines,
+            selectedLines = batchSegmentSelectedLines,
+            onSelectedLinesChange = { batchSegmentSelectedLines = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showBatchSegmentDialog = false }
+        )
 
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (deleteMultipleLinesSelected != originalDeleteMultipleLinesSelected) {
-                        deleteMultipleLinesSelected = originalDeleteMultipleLinesSelected
-                    }
-                    showDeleteMultipleLinesDialog = false
-                },
-                sheetState = deleteMultipleLinesSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .height(deleteMultipleLinesSheetHeight)
-                ) {
-                    Text(
-                        text = "删除多行",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    Text(
-                        text = "已选择 ${deleteMultipleLinesSelected.size} 行",
-                        fontSize = 14.sp,
-                        color = Color.Gray,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    Text("请选择要删除的行：", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
+        MergeUnitsBottomSheet(
+            showSheet = showMergeUnitsDialog,
+            lyricLines = lyricLines,
+            selectedLines = mergeUnitsSelectedLines,
+            onSelectedLinesChange = { mergeUnitsSelectedLines = it },
+            mergeThreshold = mergeUnitsThreshold,
+            onMergeThresholdChange = { mergeUnitsThreshold = it },
+            showThresholdMenu = showMergeUnitsThresholdMenu,
+            onShowThresholdMenuChange = { showMergeUnitsThresholdMenu = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showMergeUnitsDialog = false }
+        )
 
-                    LazyColumn(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(lyricLines.size) { lineIndex ->
-                            val line = lyricLines[lineIndex]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isSelected = lineIndex in deleteMultipleLinesSelected
+        TimestampShiftBottomSheet(
+            showSheet = showTimestampShiftDialog,
+            lyricLines = lyricLines,
+            selectedLines = timestampShiftSelectedLines,
+            onSelectedLinesChange = { timestampShiftSelectedLines = it },
+            shiftValue = timestampShiftValue,
+            onShiftValueChange = { timestampShiftValue = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showTimestampShiftDialog = false }
+        )
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        deleteMultipleLinesSelected = if (lineIndex in deleteMultipleLinesSelected) {
-                                            deleteMultipleLinesSelected - lineIndex
-                                        } else {
-                                            deleteMultipleLinesSelected + lineIndex
-                                        }
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${lineIndex + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = lineText,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+        ConvertToSimplifiedBottomSheet(
+            showSheet = showConvertToSimplifiedDialog,
+            lyricLines = lyricLines,
+            selectedLines = convertToSimplifiedSelectedLines,
+            onSelectedLinesChange = { convertToSimplifiedSelectedLines = it },
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onLyricLinesChange = { lyricLines = it },
+            onDismissSheet = { showConvertToSimplifiedDialog = false }
+        )
 
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                deleteMultipleLinesSelected = originalDeleteMultipleLinesSelected
-                                showDeleteMultipleLinesDialog = false
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        Button(
-                            onClick = {
-                                if (deleteMultipleLinesSelected.isNotEmpty() && deleteMultipleLinesSelected.size < lyricLines.size) {
-                                    val actions = mutableListOf<UndoAction>()
-                                    val sortedIndices = deleteMultipleLinesSelected.sortedDescending()
-                                    sortedIndices.forEach { index ->
-                                        if (index < lyricLines.size) {
-                                            actions.add(UndoAction(
-                                                actionType = UndoActionType.LINE_DELETE,
-                                                lineIndex = index,
-                                                unitIndex = -1,
-                                                oldValue = lyricLines[index],
-                                                newValue = null
-                                            ))
-                                        }
-                                    }
-                                    undoRedoManager.pushBatchAction(BatchUndoAction(actions, "删除多行"))
-                                    updateUndoRedoState()
-                                    val newLines = lyricLines.toMutableList()
-                                    sortedIndices.forEach { index ->
-                                        newLines.removeAt(index)
-                                    }
-                                    lyricLines = newLines
-                                    if (selectedLineIndex >= lyricLines.size) {
-                                        selectedLineIndex = lyricLines.size - 1
-                                    }
-                                }
-                                showDeleteMultipleLinesDialog = false
-                            },
-                            enabled = deleteMultipleLinesSelected.isNotEmpty() && deleteMultipleLinesSelected.size < lyricLines.size
-                        ) {
-                            Text("确定删除")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 拆分为多行对话框 - ModalBottomSheet
-        val splitToMultipleLinesSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showSplitToMultipleLinesDialog && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
-            var splitError by remember { mutableStateOf("") }
-            val currentLine = lyricLines[menuLineIndex]
+        SetTimestampBottomSheet(
+            showSheet = showSetTimestampDialog,
+            menuLineIndex = menuLineIndex,
+            onMenuLineIndexChange = { menuLineIndex = it },
+            menuUnitIndex = menuUnitIndex,
+            onMenuUnitIndexChange = { menuUnitIndex = it },
+            lyricLines = lyricLines,
+            onLyricLinesChange = { lyricLines = it },
+            onSelectedLineIndexChange = { selectedLineIndex = it },
+            onSelectedWordIndexChange = { selectedWordIndex = it },
+            tempStartTime = tempStartTime,
+            onTempStartTimeChange = { tempStartTime = it },
+            tempEndTime = tempEndTime,
+            onTempEndTimeChange = { tempEndTime = it },
+            originalTempStartTime = originalTempStartTime,
+            onOriginalTempStartTimeChange = { originalTempStartTime = it },
+            originalTempEndTime = originalTempEndTime,
+            onOriginalTempEndTimeChange = { originalTempEndTime = it },
+            showCancelConfirm = showSetTimestampCancelConfirm,
+            onShowCancelConfirmChange = { showSetTimestampCancelConfirm = it },
+            pendingDismiss = pendingSetTimestampDismiss,
+            onPendingDismissChange = { pendingSetTimestampDismiss = it },
+            showTimeEditor = showTimeEditorInSheet,
+            onShowTimeEditorChange = { showTimeEditorInSheet = it },
+            editingStartTime = editingStartTime,
+            onEditingStartTimeChange = { editingStartTime = it },
+            showSwitchUnitConfirm = showSwitchUnitConfirm,
+            onShowSwitchUnitConfirmChange = { showSwitchUnitConfirm = it },
+            targetUnitInfo = targetUnitInfo,
+            onTargetUnitInfoChange = { targetUnitInfo = it },
+            onSeekTo = onSeekTo,
+            onPlayPause = onPlayPause,
+            undoRedoManager = undoRedoManager,
+            updateUndoRedoState = { updateUndoRedoState() },
+            onDismissSheet = { showSetTimestampDialog = false }
+        )
 
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (splitToMultipleLinesText != originalSplitToMultipleLinesText) {
-                        pendingSplitToMultipleLinesDismiss = true
-                        showSplitToMultipleLinesCancelConfirm = true
-                    } else {
-                        showSplitToMultipleLinesDialog = false
-                        splitError = ""
-                    }
-                },
-                sheetState = splitToMultipleLinesSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "拆分为多行",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text("当前歌词：", fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ThemedTextField(
-                        value = splitToMultipleLinesText,
-                        onValueChange = { splitToMultipleLinesText = it },
-                        placeholder = "歌词内容",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        singleLine = false,
-                        minLines = 5,
-                        maxLines = 10
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "提示：请通过输入换行符将歌词拆分为多行。每一行将成为新的歌词行。",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                    if (splitError.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = splitError,
-                            color = Color.Red,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (splitToMultipleLinesText != originalSplitToMultipleLinesText) {
-                                    pendingSplitToMultipleLinesDismiss = true
-                                    showSplitToMultipleLinesCancelConfirm = true
-                                } else {
-                                    showSplitToMultipleLinesDialog = false
-                                    splitError = ""
-                                }
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        Button(
-                            onClick = {
-                                if (!splitToMultipleLinesText.contains("\n")) {
-                                    splitError = "未检测到换行符，无法拆分"
-                                    return@Button
-                                }
-
-                                val lines = splitToMultipleLinesText.split("\n").filter { it.isNotBlank() }
-
-                                if (lines.size < 2) {
-                                    splitError = "拆分后至少需要两行有效歌词"
-                                    return@Button
-                                }
-
-                                val newLines = lyricLines.toMutableList()
-                                val currentTimeUnits = currentLine.timeUnits
-
-                                val newLyricLines = mutableListOf<LyricLine>()
-
-                                if (currentTimeUnits.size > 1) {
-                                    var currentTextIndex = 0
-                                    lines.forEach { lineText ->
-                                        val lineTimeUnits = mutableListOf<LyricTimeUnit>()
-                                        var remainingText = lineText
-
-                                        while (remainingText.isNotEmpty() && currentTextIndex < currentTimeUnits.size) {
-                                            val unit = currentTimeUnits[currentTextIndex]
-                                            if (remainingText.startsWith(unit.text)) {
-                                                lineTimeUnits.add(unit)
-                                                remainingText = remainingText.substring(unit.text.length)
-                                                currentTextIndex++
-                                            } else if (unit.text.startsWith(remainingText)) {
-                                                val matchedPart = unit.text.substring(0, remainingText.length)
-                                                val remainingPart = unit.text.substring(remainingText.length)
-                                                lineTimeUnits.add(LyricTimeUnit(matchedPart, unit.startTime, unit.endTime))
-                                                currentTimeUnits.toMutableList()[currentTextIndex] = LyricTimeUnit(remainingPart, unit.startTime, unit.endTime)
-                                                remainingText = ""
-                                            } else {
-                                                lineTimeUnits.add(unit)
-                                                remainingText = remainingText.substring(unit.text.length.coerceAtMost(remainingText.length))
-                                                currentTextIndex++
-                                            }
-                                        }
-
-                                        if (lineTimeUnits.isNotEmpty()) {
-                                            newLyricLines.add(LyricLine(lineTimeUnits, "", LyricAgentType.LEFT, ""))
-                                        }
-                                    }
-
-                                    while (currentTextIndex < currentTimeUnits.size) {
-                                        val lastLine = newLyricLines.lastOrNull()
-                                        if (lastLine != null) {
-                                            val updatedUnits = lastLine.timeUnits.toMutableList()
-                                            updatedUnits.add(currentTimeUnits[currentTextIndex])
-                                            newLyricLines[newLyricLines.size - 1] = lastLine.copy(timeUnits = updatedUnits)
-                                        }
-                                        currentTextIndex++
-                                    }
-                                } else {
-                                    lines.forEach { lineText ->
-                                        newLyricLines.add(LyricLine(
-                                            listOf(LyricTimeUnit(lineText, "00:00.000", "00:00.000")),
-                                            "",
-                                            LyricAgentType.LEFT,
-                                            ""
-                                        ))
-                                    }
-                                }
-
-                                if (newLyricLines.isNotEmpty()) {
-                                    newLines.removeAt(menuLineIndex)
-                                    newLines.addAll(menuLineIndex, newLyricLines)
-                                    lyricLines = newLines
-
-                                    selectedLineIndex = menuLineIndex
-                                    selectedWordIndex = 0
-                                }
-
-                                showSplitToMultipleLinesDialog = false
-                                splitError = ""
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
         }
 
-        // 拆分为多行放弃修改确认对话框
-        if (showSplitToMultipleLinesCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showSplitToMultipleLinesCancelConfirm = false
-                    pendingSplitToMultipleLinesDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已修改了歌词内容，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSplitToMultipleLinesCancelConfirm = false
-                            pendingSplitToMultipleLinesDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showSplitToMultipleLinesCancelConfirm = false
-                            showSplitToMultipleLinesDialog = false
-                            pendingSplitToMultipleLinesDismiss = false
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-
-        // 处理继续编辑后重新显示拆分为多行 ModalBottomSheet
-        LaunchedEffect(showSplitToMultipleLinesCancelConfirm, pendingSplitToMultipleLinesDismiss) {
-            if (!showSplitToMultipleLinesCancelConfirm && !pendingSplitToMultipleLinesDismiss && showSplitToMultipleLinesDialog) {
-                splitToMultipleLinesSheetState.show()
-            }
-        }
-        
-        // 一键分词对话框 - ModalBottomSheet
-        val batchSegmentSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showBatchSegmentDialog && lyricLines.isNotEmpty()) {
-            val segmentListHeight = if (lyricLines.size > 10) {
-                400.dp
-            } else {
-                250.dp
-            }
-            
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    showBatchSegmentDialog = false
-                    batchSegmentSelectedLines = emptySet()
-                },
-                sheetState = batchSegmentSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "一键分词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text(
-                        text = "选择需要分词的歌词行：",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(segmentListHeight)
-                    ) {
-                        items(lyricLines.size) { index ->
-                            val line = lyricLines[index]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isSelected = batchSegmentSelectedLines.contains(index)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        batchSegmentSelectedLines = if (isSelected) {
-                                            batchSegmentSelectedLines - index
-                                        } else {
-                                            batchSegmentSelectedLines + index
-                                        }
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${index + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = lineText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 2,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = { 
-                                showBatchSegmentDialog = false
-                                batchSegmentSelectedLines = emptySet()
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                batchSegmentSelectedLines = lyricLines.indices.toSet()
-                            }
-                        ) {
-                            Text("全选", fontSize = 12.sp)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                batchSegmentSelectedLines = lyricLines.indices.toSet() - batchSegmentSelectedLines
-                            }
-                        ) {
-                            Text("反选", fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = {
-                                if (batchSegmentSelectedLines.isNotEmpty()) {
-                                    // 辅助函数：拆分歌词单元并分配注音
-                                    fun segmentUnitWithTransliteration(unit: LyricTimeUnit): List<LyricTimeUnit> {
-                                        val segmentedWords = smartSegmentLyric(unit.text)
-                                        if (segmentedWords.size <= 1) {
-                                            return listOf(unit)
-                                        }
-                                        
-                                        val startTimeMs = parseTimeToMs(unit.startTime)
-                                        val endTimeMs = parseTimeToMs(unit.endTime)
-                                        val totalDuration = endTimeMs - startTimeMs
-                                        
-                                        // 计算每个字符在原文本中的索引位置，以便正确分配注音
-                                        var charIndex = 0
-                                        val wordCharRanges = segmentedWords.map { word ->
-                                            val start = charIndex
-                                            charIndex += word.length
-                                            start until charIndex
-                                        }
-                                        
-                                        // 根据wordCharRanges分配charTransliterations
-                                        fun createNewUnit(word: String, charRange: IntRange, startMs: Long, endMs: Long): LyricTimeUnit {
-                                            val newCharTransliterations = mutableMapOf<Int, String>()
-                                            charRange.forEachIndexed { newIdx, oldIdx ->
-                                                unit.charTransliterations[oldIdx]?.let { translit ->
-                                                    newCharTransliterations[newIdx] = translit
-                                                }
-                                            }
-                                            // 如果整个单元只有一个字符且有transliteration，也传递给新单元
-                                            val newTransliteration = if (word.length == 1 && newCharTransliterations.isNotEmpty()) {
-                                                newCharTransliterations[0] ?: ""
-                                            } else {
-                                                ""
-                                            }
-                                            return LyricTimeUnit(
-                                                text = word,
-                                                startTime = formatTime(startMs),
-                                                endTime = formatTime(endMs),
-                                                transliteration = newTransliteration,
-                                                charTransliterations = newCharTransliterations.toMap()
-                                            )
-                                        }
-                                        
-                                        if (totalDuration > 0) {
-                                            val unitCount = segmentedWords.size
-                                            val unitDuration = totalDuration / unitCount
-                                            return segmentedWords.mapIndexed { wordIndex, word ->
-                                                val unitStartMs = startTimeMs + unitDuration * wordIndex
-                                                val unitEndMs = if (wordIndex == unitCount - 1) {
-                                                    endTimeMs
-                                                } else {
-                                                    startTimeMs + unitDuration * (wordIndex + 1)
-                                                }
-                                                createNewUnit(word, wordCharRanges[wordIndex], unitStartMs, unitEndMs)
-                                            }
-                                        } else {
-                                            return segmentedWords.mapIndexed { wordIndex, word ->
-                                                val unitStartMs = if (wordIndex == 0) startTimeMs else 0L
-                                                val unitEndMs = if (wordIndex == segmentedWords.size - 1) endTimeMs else 0L
-                                                createNewUnit(word, wordCharRanges[wordIndex], unitStartMs, unitEndMs)
-                                            }
-                                        }
-                                    }
-                                    
-                                    val actions = mutableListOf<UndoAction>()
-                                    batchSegmentSelectedLines.forEach { lineIdx ->
-                                        if (lineIdx < lyricLines.size) {
-                                            val line = lyricLines[lineIdx]
-                                            val newTimeUnits = line.timeUnits.flatMap { unit ->
-                                                segmentUnitWithTransliteration(unit)
-                                            }
-                                            actions.add(UndoAction(
-                                                actionType = UndoActionType.BATCH_SEGMENT,
-                                                lineIndex = lineIdx,
-                                                unitIndex = -1,
-                                                oldValue = line.timeUnits,
-                                                newValue = newTimeUnits
-                                            ))
-                                        }
-                                    }
-                                    undoRedoManager.pushBatchAction(BatchUndoAction(actions, "一键分词"))
-                                    updateUndoRedoState()
-                                    val newLyricLines = lyricLines.mapIndexed { index, line ->
-                                        if (batchSegmentSelectedLines.contains(index)) {
-                                            val newTimeUnits = line.timeUnits.flatMap { unit ->
-                                                segmentUnitWithTransliteration(unit)
-                                            }
-                                            line.copy(timeUnits = newTimeUnits)
-                                        } else {
-                                            line
-                                        }
-                                    }
-                                    lyricLines = newLyricLines
-                                }
-                                showBatchSegmentDialog = false
-                                batchSegmentSelectedLines = emptySet()
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 一键合并歌词对话框 - ModalBottomSheet
-        val mergeUnitsSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showMergeUnitsDialog && lyricLines.isNotEmpty()) {
-            val mergeListHeight = if (lyricLines.size > 10) {
-                350.dp
-            } else {
-                200.dp
-            }
-            
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    showMergeUnitsDialog = false
-                    mergeUnitsSelectedLines = emptySet()
-                },
-                sheetState = mergeUnitsSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "一键合并歌词",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text(
-                        text = "选择需要合并歌词单元的歌词行：",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "合并阈值：±",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        var mergeThresholdMenuAnchor by remember { mutableStateOf(MenuAnchorPosition(0f, 0f)) }
-                        val density = LocalDensity.current
-                        Box {
-                            TextButton(
-                                onClick = { showMergeUnitsThresholdMenu = true },
-                                modifier = Modifier.onGloballyPositioned { coordinates ->
-                                    val bounds = coordinates.boundsInRoot()
-                                    mergeThresholdMenuAnchor = MenuAnchorPosition(
-                                        x = with(density) { bounds.center.x.toDp().value },
-                                        y = with(density) { bounds.center.y.toDp().value }
-                                    )
-                                }
-                            ) {
-                                Text("$mergeUnitsThreshold 毫秒")
-                            }
-                            CustomDropdownMenu(
-                                expanded = showMergeUnitsThresholdMenu,
-                                onDismissRequest = { showMergeUnitsThresholdMenu = false },
-                                items = listOf(10L, 30L, 50L, 70L, 100L).map { threshold ->
-                                    MenuItem(
-                                        title = "$threshold 毫秒",
-                                        onClick = {
-                                            mergeUnitsThreshold = threshold
-                                            showMergeUnitsThresholdMenu = false
-                                        }
-                                    )
-                                },
-                                anchorPosition = mergeThresholdMenuAnchor
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(mergeListHeight)
-                    ) {
-                        items(lyricLines.size) { index ->
-                            val line = lyricLines[index]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isSelected = mergeUnitsSelectedLines.contains(index)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        mergeUnitsSelectedLines = if (isSelected) {
-                                            mergeUnitsSelectedLines - index
-                                        } else {
-                                            mergeUnitsSelectedLines + index
-                                        }
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${index + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = lineText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 2,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = { 
-                                showMergeUnitsDialog = false
-                                mergeUnitsSelectedLines = emptySet()
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                mergeUnitsSelectedLines = lyricLines.indices.toSet()
-                            }
-                        ) {
-                            Text("全选", fontSize = 12.sp)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                mergeUnitsSelectedLines = lyricLines.indices.toSet() - mergeUnitsSelectedLines
-                            }
-                        ) {
-                            Text("反选", fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = {
-                                if (mergeUnitsSelectedLines.isNotEmpty()) {
-                                    val actions = mutableListOf<UndoAction>()
-                                    mergeUnitsSelectedLines.forEach { lineIdx ->
-                                        if (lineIdx < lyricLines.size) {
-                                            val line = lyricLines[lineIdx]
-                                            actions.add(UndoAction(
-                                                actionType = UndoActionType.BATCH_MERGE_UNITS,
-                                                lineIndex = lineIdx,
-                                                unitIndex = -1,
-                                                oldValue = line.timeUnits,
-                                                newValue = mergeCloseTimeUnits(line.timeUnits, mergeUnitsThreshold)
-                                            ))
-                                        }
-                                    }
-                                    undoRedoManager.pushBatchAction(BatchUndoAction(actions, "一键合并歌词"))
-                                    updateUndoRedoState()
-                                    val newLyricLines = lyricLines.mapIndexed { index, line ->
-                                        if (mergeUnitsSelectedLines.contains(index)) {
-                                            val mergedTimeUnits = mergeCloseTimeUnits(line.timeUnits, mergeUnitsThreshold)
-                                            line.copy(timeUnits = mergedTimeUnits)
-                                        } else {
-                                            line
-                                        }
-                                    }
-                                    lyricLines = newLyricLines
-                                }
-                                showMergeUnitsDialog = false
-                                mergeUnitsSelectedLines = emptySet()
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 平移时间戳对话框 - ModalBottomSheet
-        val timestampShiftSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showTimestampShiftDialog && lyricLines.isNotEmpty()) {
-            val listHeight = if (lyricLines.size > 10) {
-                350.dp
-            } else {
-                200.dp
-            }
-            
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = { 
-                    showTimestampShiftDialog = false
-                    timestampShiftSelectedLines = emptySet()
-                },
-                sheetState = timestampShiftSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "平移时间戳",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text(
-                        text = "选择需要平移时间戳的歌词行：",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(listHeight)
-                    ) {
-                        items(lyricLines.size) { index ->
-                            val line = lyricLines[index]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isSelected = timestampShiftSelectedLines.contains(index)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        timestampShiftSelectedLines = if (isSelected) {
-                                            timestampShiftSelectedLines - index
-                                        } else {
-                                            timestampShiftSelectedLines + index
-                                        }
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${index + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = lineText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 2,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val currentValue = timestampShiftValue.toIntOrNull() ?: 0
-                                if (currentValue >= 50) {
-                                    timestampShiftValue = (currentValue - 50).toString()
-                                }
-                            },
-                            modifier = Modifier.weight(0.2f)
-                        ) {
-                            Text("-")
-                        }
-                        ThemedTextField(
-                            value = timestampShiftValue,
-                            onValueChange = { input: String ->
-                                timestampShiftValue = filterDigits(input)
-                            },
-                            placeholder = "偏移值",
-                            modifier = Modifier.weight(0.6f),
-                            singleLine = true
-                        )
-                        Button(
-                            onClick = {
-                                val currentValue = timestampShiftValue.toIntOrNull() ?: 0
-                                timestampShiftValue = (currentValue + 50).toString()
-                            },
-                            modifier = Modifier.weight(0.2f)
-                        ) {
-                            Text("+")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "单位：毫秒",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TextButton(
-                                onClick = { 
-                                    showTimestampShiftDialog = false
-                                    timestampShiftSelectedLines = emptySet()
-                                }
-                            ) {
-                                Text("取消")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    timestampShiftSelectedLines = lyricLines.indices.toSet()
-                                }
-                            ) {
-                                Text("全选", fontSize = 12.sp)
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    timestampShiftSelectedLines = lyricLines.indices.toSet() - timestampShiftSelectedLines
-                                }
-                            ) {
-                                Text("反选", fontSize = 12.sp)
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    if (timestampShiftSelectedLines.isNotEmpty()) {
-                                        val shiftMs = timestampShiftValue.toLongOrNull() ?: 0L
-                                        val actions = mutableListOf<UndoAction>()
-                                        timestampShiftSelectedLines.forEach { lineIdx ->
-                                            if (lineIdx < lyricLines.size) {
-                                                lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
-                                                    actions.add(UndoAction(
-                                                        actionType = UndoActionType.TIME_CHANGE,
-                                                        lineIndex = lineIdx,
-                                                        unitIndex = unitIdx,
-                                                        oldValue = unit,
-                                                        newValue = unit.copy(
-                                                            startTime = LyricBatchEditUtils.adjustTime(unit.startTime, -shiftMs),
-                                                            endTime = LyricBatchEditUtils.adjustTime(unit.endTime, -shiftMs)
-                                                        )
-                                                    ))
-                                                }
-                                            }
-                                        }
-                                        undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
-                                        updateUndoRedoState()
-                                        val newLyricLines = LyricBatchEditUtils.shiftTimestamps(
-                                            lyricLines,
-                                            timestampShiftSelectedLines,
-                                            -shiftMs
-                                        )
-                                        lyricLines = newLyricLines
-                                    }
-                                    showTimestampShiftDialog = false
-                                    timestampShiftSelectedLines = emptySet()
-                                }
-                            ) {
-                                Text("提前（-）")
-                            }
-                            Button(
-                                onClick = {
-                                    if (timestampShiftSelectedLines.isNotEmpty()) {
-                                        val shiftMs = timestampShiftValue.toLongOrNull() ?: 0L
-                                        val actions = mutableListOf<UndoAction>()
-                                        timestampShiftSelectedLines.forEach { lineIdx ->
-                                            if (lineIdx < lyricLines.size) {
-                                                lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
-                                                    actions.add(UndoAction(
-                                                        actionType = UndoActionType.TIME_CHANGE,
-                                                        lineIndex = lineIdx,
-                                                        unitIndex = unitIdx,
-                                                        oldValue = unit,
-                                                        newValue = unit.copy(
-                                                            startTime = LyricBatchEditUtils.adjustTime(unit.startTime, shiftMs),
-                                                            endTime = LyricBatchEditUtils.adjustTime(unit.endTime, shiftMs)
-                                                        )
-                                                    ))
-                                                }
-                                            }
-                                        }
-                                        undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
-                                        updateUndoRedoState()
-                                        val newLyricLines = LyricBatchEditUtils.shiftTimestamps(
-                                            lyricLines,
-                                            timestampShiftSelectedLines,
-                                            shiftMs
-                                        )
-                                        lyricLines = newLyricLines
-                                    }
-                                    showTimestampShiftDialog = false
-                                    timestampShiftSelectedLines = emptySet()
-                                }
-                            ) {
-                                Text("延后（+）")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 转换为简体对话框 - ModalBottomSheet
-        val convertToSimplifiedSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showConvertToSimplifiedDialog && lyricLines.isNotEmpty()) {
-            val listHeight = if (lyricLines.size > 10) {
-                350.dp
-            } else {
-                200.dp
-            }
-
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    showConvertToSimplifiedDialog = false
-                    convertToSimplifiedSelectedLines = emptySet()
-                },
-                sheetState = convertToSimplifiedSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding()
-                ) {
-                    Text(
-                        text = "转换为简体",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    Text(
-                        text = "选择需要转换为简体的歌词行：",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(listHeight)
-                    ) {
-                        items(lyricLines.size) { index ->
-                            val line = lyricLines[index]
-                            val lineText = line.timeUnits.joinToString("") { it.text }
-                            val isSelected = convertToSimplifiedSelectedLines.contains(index)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                    .clickable {
-                                        convertToSimplifiedSelectedLines = if (isSelected) {
-                                            convertToSimplifiedSelectedLines - index
-                                        } else {
-                                            convertToSimplifiedSelectedLines + index
-                                        }
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${index + 1}",
-                                    modifier = Modifier.padding(end = 8.dp),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = lineText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 2,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                showConvertToSimplifiedDialog = false
-                                convertToSimplifiedSelectedLines = emptySet()
-                            }
-                        ) {
-                            Text("取消")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                convertToSimplifiedSelectedLines = lyricLines.indices.toSet()
-                            }
-                        ) {
-                            Text("全选", fontSize = 12.sp)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                convertToSimplifiedSelectedLines = lyricLines.indices.toSet() - convertToSimplifiedSelectedLines
-                            }
-                        ) {
-                            Text("反选", fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = {
-                                if (convertToSimplifiedSelectedLines.isNotEmpty()) {
-                                    val actions = mutableListOf<UndoAction>()
-                                    convertToSimplifiedSelectedLines.forEach { lineIdx ->
-                                        if (lineIdx < lyricLines.size) {
-                                            lyricLines[lineIdx].timeUnits.forEachIndexed { unitIdx, unit ->
-                                                val simplifiedText = LyricBatchEditUtils.toSimplifiedText(unit.text)
-                                                if (simplifiedText != unit.text) {
-                                                    actions.add(UndoAction(
-                                                        actionType = UndoActionType.BATCH_CONVERT_TO_SIMPLIFIED,
-                                                        lineIndex = lineIdx,
-                                                        unitIndex = unitIdx,
-                                                        oldValue = unit,
-                                                        newValue = unit.copy(text = simplifiedText)
-                                                    ))
-                                                }
-                                            }
-                                            val oldTranslation = lyricLines[lineIdx].translation
-                                            val newTranslation = LyricBatchEditUtils.toSimplifiedText(oldTranslation)
-                                            if (newTranslation != oldTranslation) {
-                                                actions.add(UndoAction(
-                                                    actionType = UndoActionType.BATCH_CONVERT_TO_SIMPLIFIED,
-                                                    lineIndex = lineIdx,
-                                                    unitIndex = -1,
-                                                    oldValue = oldTranslation,
-                                                    newValue = newTranslation
-                                                ))
-                                            }
-                                        }
-                                    }
-                                    if (actions.isNotEmpty()) {
-                                        undoRedoManager.pushBatchAction(BatchUndoAction(actions, "转换为简体"))
-                                        updateUndoRedoState()
-                                    }
-                                    val newLyricLines = LyricBatchEditUtils.convertToSimplified(
-                                        lyricLines,
-                                        convertToSimplifiedSelectedLines
-                                    )
-                                    lyricLines = newLyricLines
-                                }
-                                showConvertToSimplifiedDialog = false
-                                convertToSimplifiedSelectedLines = emptySet()
-                            }
-                        ) {
-                            Text("确定")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 设置时间戳对话框 - ModalBottomSheet（整合编辑时间功能）
-        val setTimestampSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        if (showSetTimestampDialog && menuLineIndex >= 0 && menuLineIndex < lyricLines.size && menuUnitIndex >= 0 && menuUnitIndex < lyricLines[menuLineIndex].timeUnits.size) {
-            val currentUnit = lyricLines[menuLineIndex].timeUnits[menuUnitIndex]
-            
-            // 时间编辑器状态
-            var editingTimeInSheet by remember { mutableStateOf("") }
-            var shiftValue by remember { mutableStateOf("50") }
-            var isPlaying by remember { mutableStateOf(false) }
-            var saveButtonText by remember { mutableStateOf("保存") }
-            
-            // 查找上一/下一歌词单元（跨行），跳过空行
-            val prevUnitInfo: Pair<Int, Int>? = if (menuUnitIndex > 0) {
-                Pair(menuLineIndex, menuUnitIndex - 1)
-            } else if (menuLineIndex > 0) {
-                // 向前查找有内容的行
-                var targetLineIndex = menuLineIndex - 1
-                while (targetLineIndex >= 0) {
-                    val prevLine = lyricLines[targetLineIndex]
-                    if (prevLine.timeUnits.isNotEmpty()) {
-                        break
-                    }
-                    targetLineIndex--
-                }
-                if (targetLineIndex >= 0) {
-                    val prevLine = lyricLines[targetLineIndex]
-                    Pair(targetLineIndex, prevLine.timeUnits.size - 1)
-                } else null
-            } else null
-            
-            val nextUnitInfo: Pair<Int, Int>? = if (menuUnitIndex < lyricLines[menuLineIndex].timeUnits.size - 1) {
-                Pair(menuLineIndex, menuUnitIndex + 1)
-            } else if (menuLineIndex < lyricLines.size - 1) {
-                // 向后查找有内容的行
-                var targetLineIndex = menuLineIndex + 1
-                while (targetLineIndex < lyricLines.size) {
-                    val nextLine = lyricLines[targetLineIndex]
-                    if (nextLine.timeUnits.isNotEmpty()) {
-                        break
-                    }
-                    targetLineIndex++
-                }
-                if (targetLineIndex < lyricLines.size) {
-                    val nextLine = lyricLines[targetLineIndex]
-                    Pair(targetLineIndex, 0)
-                } else null
-            } else null
-            
-            var linkToPrevEndTime by remember { mutableStateOf(false) }
-            var linkToNextStartTime by remember { mutableStateOf(false) }
-            
-            androidx.compose.material3.ModalBottomSheet(
-                onDismissRequest = {
-                    if (tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime) {
-                        pendingSetTimestampDismiss = true
-                        showSetTimestampCancelConfirm = true
-                    } else {
-                        showSetTimestampDialog = false
-                        showTimeEditorInSheet = false
-                    }
-                },
-                sheetState = setTimestampSheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .animateContentSize()
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "设置时间戳",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (!showTimeEditorInSheet) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        val hasUnsavedChanges = tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime
-                                        if (hasUnsavedChanges) {
-                                            targetUnitInfo = prevUnitInfo
-                                            showSwitchUnitConfirm = true
-                                        } else {
-                                            prevUnitInfo?.let { (lineIdx, unitIdx) ->
-                                                menuLineIndex = lineIdx
-                                                menuUnitIndex = unitIdx
-                                                selectedLineIndex = lineIdx
-                                                selectedWordIndex = unitIdx
-                                                val unit = lyricLines[lineIdx].timeUnits[unitIdx]
-                                                tempStartTime = unit.startTime
-                                                tempEndTime = unit.endTime
-                                                originalTempStartTime = unit.startTime
-                                                originalTempEndTime = unit.endTime
-                                                linkToPrevEndTime = false
-                                                linkToNextStartTime = false
-                                            }
-                                        }
-                                    },
-                                    enabled = !isPlaying && prevUnitInfo != null
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.prel),
-                                        contentDescription = "上一个",
-                                        tint = if (isPlaying || prevUnitInfo == null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                
-                                TextButton(
-                                    onClick = {
-                                        isPlaying = true
-                                        val startMs = parseTimeToMs(tempStartTime)
-                                        val endMs = parseTimeToMs(tempEndTime)
-                                        onSeekTo(startMs)
-                                        onPlayPause(true)
-                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                            onPlayPause(false)
-                                            isPlaying = false
-                                        }, endMs - startMs)
-                                    },
-                                    enabled = !isPlaying
-                                ) {
-                                    Text(
-                                        text = "▶",
-                                        color = if (isPlaying) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                
-                                TextButton(
-                                    onClick = {
-                                        val hasUnsavedChanges = tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime
-                                        if (hasUnsavedChanges) {
-                                            targetUnitInfo = nextUnitInfo
-                                            showSwitchUnitConfirm = true
-                                        } else {
-                                            nextUnitInfo?.let { (lineIdx, unitIdx) ->
-                                                menuLineIndex = lineIdx
-                                                menuUnitIndex = unitIdx
-                                                selectedLineIndex = lineIdx
-                                                selectedWordIndex = unitIdx
-                                                val unit = lyricLines[lineIdx].timeUnits[unitIdx]
-                                                tempStartTime = unit.startTime
-                                                tempEndTime = unit.endTime
-                                                originalTempStartTime = unit.startTime
-                                                originalTempEndTime = unit.endTime
-                                                linkToPrevEndTime = false
-                                                linkToNextStartTime = false
-                                            }
-                                        }
-                                    },
-                                    enabled = !isPlaying && nextUnitInfo != null
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.nextl),
-                                        contentDescription = "下一个",
-                                        tint = if (isPlaying || nextUnitInfo == null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (!showTimeEditorInSheet) {
-                        // 主界面 - 显示开始/结束时间
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .clickable {
-                                    editingStartTime = true
-                                    editingTimeInSheet = tempStartTime
-                                    showTimeEditorInSheet = true
-                                },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "开始时间：",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(0.3f)
-                            )
-                            Text(
-                                text = tempStartTime,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(0.7f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "歌词内容：",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(0.3f)
-                            )
-                            Text(
-                                text = currentUnit.text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(0.7f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .clickable {
-                                    editingStartTime = false
-                                    editingTimeInSheet = tempEndTime
-                                    showTimeEditorInSheet = true
-                                },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "结束时间：",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(0.3f)
-                            )
-                            Text(
-                                text = tempEndTime,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(0.7f)
-                            )
-                        }
-                        
-                        // 复选框：将当前时间应用到相邻歌词单元
-                        if (prevUnitInfo != null) {
-                            CustomCheckbox(
-                                checked = linkToPrevEndTime,
-                                onCheckedChange = { linkToPrevEndTime = it },
-                                label = "将开始时间应用到上一单元的结束时间"
-                            )
-                        }
-                        
-                        if (prevUnitInfo != null && nextUnitInfo != null) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                        
-                        if (nextUnitInfo != null) {
-                            CustomCheckbox(
-                                checked = linkToNextStartTime,
-                                onCheckedChange = { linkToNextStartTime = it },
-                                label = "将结束时间应用到下一单元的开始时间"
-                            )
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                        ) {
-                            TextButton(
-                                onClick = {
-                                    if (tempStartTime != originalTempStartTime || tempEndTime != originalTempEndTime) {
-                                        pendingSetTimestampDismiss = true
-                                        showSetTimestampCancelConfirm = true
-                                    } else {
-                                        showSetTimestampDialog = false
-                                        showTimeEditorInSheet = false
-                                    }
-                                }
-                            ) {
-                                Text("关闭")
-                            }
-                            Button(
-                                onClick = {
-                                    var updatedLines = lyricLines.toMutableList()
-                                    
-                                    // 更新当前单元
-                                    val currentTimeUnits = updatedLines[menuLineIndex].timeUnits.toMutableList()
-                                    val oldUnit = currentTimeUnits[menuUnitIndex]
-                                    val newUnit = currentUnit.copy(
-                                        startTime = tempStartTime,
-                                        endTime = tempEndTime
-                                    )
-                                    undoRedoManager.pushAction(UndoAction(
-                                        actionType = UndoActionType.TIME_CHANGE,
-                                        lineIndex = menuLineIndex,
-                                        unitIndex = menuUnitIndex,
-                                        oldValue = oldUnit,
-                                        newValue = newUnit
-                                    ))
-                                    currentTimeUnits[menuUnitIndex] = newUnit
-                                    updatedLines[menuLineIndex] = updatedLines[menuLineIndex].copy(timeUnits = currentTimeUnits)
-                                    
-                                    // 如果勾选了"将开始时间应用到上一单元的结束时间"
-                                    if (linkToPrevEndTime && prevUnitInfo != null) {
-                                        val (prevLineIdx, prevUnitIdx) = prevUnitInfo
-                                        val prevTimeUnits = updatedLines[prevLineIdx].timeUnits.toMutableList()
-                                        val prevOldUnit = prevTimeUnits[prevUnitIdx]
-                                        val prevNewUnit = prevTimeUnits[prevUnitIdx].copy(endTime = tempStartTime)
-                                        undoRedoManager.pushAction(UndoAction(
-                                            actionType = UndoActionType.TIME_CHANGE,
-                                            lineIndex = prevLineIdx,
-                                            unitIndex = prevUnitIdx,
-                                            oldValue = prevOldUnit,
-                                            newValue = prevNewUnit
-                                        ))
-                                        prevTimeUnits[prevUnitIdx] = prevNewUnit
-                                        updatedLines[prevLineIdx] = updatedLines[prevLineIdx].copy(timeUnits = prevTimeUnits)
-                                    }
-                                    
-                                    // 如果勾选了"将结束时间应用到下一单元的开始时间"
-                                    if (linkToNextStartTime && nextUnitInfo != null) {
-                                        val (nextLineIdx, nextUnitIdx) = nextUnitInfo
-                                        val nextTimeUnits = updatedLines[nextLineIdx].timeUnits.toMutableList()
-                                        val nextOldUnit = nextTimeUnits[nextUnitIdx]
-                                        val nextNewUnit = nextTimeUnits[nextUnitIdx].copy(startTime = tempEndTime)
-                                        undoRedoManager.pushAction(UndoAction(
-                                            actionType = UndoActionType.TIME_CHANGE,
-                                            lineIndex = nextLineIdx,
-                                            unitIndex = nextUnitIdx,
-                                            oldValue = nextOldUnit,
-                                            newValue = nextNewUnit
-                                        ))
-                                        nextTimeUnits[nextUnitIdx] = nextNewUnit
-                                        updatedLines[nextLineIdx] = updatedLines[nextLineIdx].copy(timeUnits = nextTimeUnits)
-                                    }
-                                    
-                                    updateUndoRedoState()
-                                    lyricLines = updatedLines
-                                    // 更新原始时间，避免再次提示未保存
-                                    originalTempStartTime = tempStartTime
-                                    originalTempEndTime = tempEndTime
-                                    linkToPrevEndTime = false
-                                    linkToNextStartTime = false
-                                    
-                                    // 显示"已保存"提示
-                                    saveButtonText = "已保存"
-                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                        saveButtonText = "保存"
-                                    }, 1000)
-                                },
-                                modifier = Modifier.widthIn(min = 80.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier.widthIn(min = 60.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(saveButtonText)
-                                }
-                            }
-                        }
-                    } else {
-                        // 时间编辑界面
-                        Text(
-                            text = if (editingStartTime) "编辑开始时间" else "编辑结束时间",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        
-                        ThemedTextField(
-                            value = editingTimeInSheet,
-                            onValueChange = { input: String ->
-                                editingTimeInSheet = input
-                            },
-                            placeholder = "时间 (mm:ss.SSS)",
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // 调整步进值 - 调换"-"和"+"位置
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // "-"按钮现在在左边
-                            Button(
-                                onClick = {
-                                    val currentValue = shiftValue.toIntOrNull() ?: 0
-                                    if (currentValue >= 50) {
-                                        shiftValue = (currentValue - 50).toString()
-                                    }
-                                },
-                                modifier = Modifier.weight(0.2f)
-                            ) {
-                                Text("-")
-                            }
-                            ThemedTextField(
-                                value = shiftValue,
-                                onValueChange = { input: String ->
-                                    shiftValue = filterDigits(input)
-                                },
-                                placeholder = "偏移值",
-                                modifier = Modifier.weight(0.6f),
-                                singleLine = true
-                            )
-                            // "+"按钮现在在右边
-                            Button(
-                                onClick = {
-                                    val currentValue = shiftValue.toIntOrNull() ?: 0
-                                    shiftValue = (currentValue + 50).toString()
-                                },
-                                modifier = Modifier.weight(0.2f)
-                            ) {
-                                Text("+")
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "单位：毫秒",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        // 提前/延后按钮
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    val shiftMs = shiftValue.toLongOrNull() ?: 0L
-                                    editingTimeInSheet = adjustTime(editingTimeInSheet, -shiftMs)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("提前（-）")
-                            }
-                            Button(
-                                onClick = {
-                                    val shiftMs = shiftValue.toLongOrNull() ?: 0L
-                                    editingTimeInSheet = adjustTime(editingTimeInSheet, shiftMs)
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("延后（+）")
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                        ) {
-                            TextButton(
-                                onClick = {
-                                    showTimeEditorInSheet = false
-                                }
-                            ) {
-                                Text("返回")
-                            }
-                            Button(
-                                onClick = {
-                                    if (editingStartTime) {
-                                        tempStartTime = editingTimeInSheet
-                                    } else {
-                                        tempEndTime = editingTimeInSheet
-                                    }
-                                    showTimeEditorInSheet = false
-                                }
-                            ) {
-                                Text("确定")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 设置时间戳放弃修改确认对话框
-        if (showSetTimestampCancelConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showSetTimestampCancelConfirm = false
-                    pendingSetTimestampDismiss = false
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已修改了时间，确定要放弃修改吗？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSetTimestampCancelConfirm = false
-                            pendingSetTimestampDismiss = false
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showSetTimestampCancelConfirm = false
-                            showSetTimestampDialog = false
-                            pendingSetTimestampDismiss = false
-                            showTimeEditorInSheet = false
-                        }
-                    ) {
-                        Text("放弃修改")
-                    }
-                }
-            )
-        }
-        
-        // 切换歌词单元确认对话框
-        if (showSwitchUnitConfirm) {
-            AlertDialog(
-                onDismissRequest = {
-                    showSwitchUnitConfirm = false
-                    targetUnitInfo = null
-                },
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false
-                ),
-                title = { Text("当前数据未保存") },
-                text = { Text("当前数据未保存，是否切换？") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showSwitchUnitConfirm = false
-                            targetUnitInfo = null
-                        }
-                    ) {
-                        Text("继续编辑")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showSwitchUnitConfirm = false
-                            targetUnitInfo?.let { (lineIdx, unitIdx) ->
-                                menuLineIndex = lineIdx
-                                menuUnitIndex = unitIdx
-                                selectedLineIndex = lineIdx
-                                selectedWordIndex = unitIdx
-                                val unit = lyricLines[lineIdx].timeUnits[unitIdx]
-                                tempStartTime = unit.startTime
-                                tempEndTime = unit.endTime
-                                originalTempStartTime = unit.startTime
-                                originalTempEndTime = unit.endTime
-                            }
-                            targetUnitInfo = null
-                        }
-                    ) {
-                        Text("切换")
-                    }
-                }
-            )
-        }
-        
-        // 处理继续编辑后重新显示设置时间戳 ModalBottomSheet
-        LaunchedEffect(showSetTimestampCancelConfirm, pendingSetTimestampDismiss) {
-            if (!showSetTimestampCancelConfirm && !pendingSetTimestampDismiss && showSetTimestampDialog) {
-                setTimestampSheetState.show()
-            }
-        }
-        }
-
-        // 撤销/重做悬浮窗口 - 显示在右上角
+        // 撤销/重做悬浮窗口 - 显示在右上角（HeadBar下方）
         UndoRedoFloatingButton(
             hasLyrics = hasLyrics,
             isPreviewMode = isPreviewMode,
@@ -10980,9 +11280,9 @@ fun LyricTimingScreen(
             },
             modifier = Modifier.align(Alignment.TopEnd)
         )
-
-
     }
+    }
+    ScreenContent()
 }
 
 fun isCJKCharacter(char: Char): Boolean {
@@ -11057,6 +11357,142 @@ fun parseTimeToMs(timeStr: String): Long {
 
 fun adjustTime(timeStr: String, shiftMs: Long): String {
     return LyricBatchEditUtils.adjustTime(timeStr, shiftMs)
+}
+
+private fun buildPreviewLyricLines(lyricLines: List<LyricLine>): List<com.example.LyricBox.NewPreviewLyricLine> {
+    return lyricLines.map { line ->
+        val expandedWords = if (line.timeUnits.size == 1) {
+            val unit = line.timeUnits.first()
+            val beginMs = parseTimeToMs(unit.startTime)
+            val endMs = parseTimeToMs(unit.endTime)
+            listOf(
+                com.example.LyricBox.NewPreviewLyricWord(
+                    text = unit.text,
+                    begin = beginMs,
+                    end = endMs,
+                    transliteration = unit.transliteration,
+                    charTransliterations = unit.charTransliterations
+                )
+            )
+        } else {
+            line.timeUnits.flatMap { unit ->
+                val beginMs = parseTimeToMs(unit.startTime)
+                val endMs = parseTimeToMs(unit.endTime)
+                val duration = endMs - beginMs
+                val text = unit.text
+                if (text.isEmpty()) {
+                    emptyList()
+                } else if (text.length == 1) {
+                    listOf(
+                        com.example.LyricBox.NewPreviewLyricWord(
+                            text = text,
+                            begin = beginMs,
+                            end = endMs,
+                            transliteration = if (unit.charTransliterations.isNotEmpty()) {
+                                unit.charTransliterations[0] ?: ""
+                            } else {
+                                ""
+                            },
+                            charTransliterations = emptyMap()
+                        )
+                    )
+                } else {
+                    val nonSpaceCount = text.count { it != ' ' }
+                    if (nonSpaceCount == 0) {
+                        text.map { char ->
+                            com.example.LyricBox.NewPreviewLyricWord(
+                                text = char.toString(),
+                                begin = beginMs,
+                                end = beginMs,
+                                transliteration = "",
+                                charTransliterations = emptyMap()
+                            )
+                        }
+                    } else {
+                        val charDuration = duration / nonSpaceCount
+                        var currentTime = beginMs
+                        var textIndex = 0
+                        text.map { char ->
+                            if (char == ' ') {
+                                textIndex++
+                                com.example.LyricBox.NewPreviewLyricWord(
+                                    text = char.toString(),
+                                    begin = currentTime,
+                                    end = currentTime,
+                                    transliteration = "",
+                                    charTransliterations = emptyMap()
+                                )
+                            } else {
+                                val charBegin = currentTime
+                                val charEnd = if (currentTime + charDuration >= endMs) endMs else currentTime + charDuration
+                                currentTime = charEnd
+                                val transliteration = if (unit.charTransliterations.isNotEmpty()) {
+                                    unit.charTransliterations[textIndex] ?: ""
+                                } else {
+                                    ""
+                                }
+                                textIndex++
+                                com.example.LyricBox.NewPreviewLyricWord(
+                                    text = char.toString(),
+                                    begin = charBegin,
+                                    end = charEnd,
+                                    transliteration = transliteration,
+                                    charTransliterations = emptyMap()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        com.example.LyricBox.NewPreviewLyricLine(
+            words = expandedWords,
+            translation = line.translation,
+            isDuet = line.agentType == LyricAgentType.RIGHT,
+            isBackground = line.agentType == LyricAgentType.BACKGROUND
+        )
+    }
+}
+
+private fun createLyricPreviewIntent(
+    context: Context,
+    lyricLines: List<LyricLine>,
+    sourceAudioPath: String,
+    convertedAudioPath: String,
+    displayTitle: String,
+    currentPos: Long,
+    pendingLyricsCreators: List<String>
+): Intent {
+    val audioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else convertedAudioPath
+    val previewSourceAudioPath = if (sourceAudioPath.isNotEmpty()) sourceAudioPath else audioPath
+    val previewLyricLines = buildPreviewLyricLines(lyricLines)
+    val wordsList = previewLyricLines.flatMap { it.words }
+
+    return Intent(context, LyricPreviewActivity::class.java).apply {
+        putExtra(LyricPreviewActivity.EXTRA_AUDIO_PATH, audioPath)
+        putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, previewSourceAudioPath)
+        putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
+        putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
+        putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())
+        putExtra(
+            LyricPreviewActivity.EXTRA_PREVIEW_ENTRY_SOURCE,
+            LyricPreviewActivity.PREVIEW_ENTRY_SOURCE_TIMING
+        )
+        putExtra("line_count", previewLyricLines.size)
+        putExtra("words_per_line", previewLyricLines.map { it.words.size }.toIntArray())
+        putExtra("begins", wordsList.map { it.begin }.toLongArray())
+        putExtra("ends", wordsList.map { it.end }.toLongArray())
+        putExtra("texts", wordsList.map { it.text }.toTypedArray())
+        putExtra("transliterations", wordsList.map { it.transliteration }.toTypedArray())
+        val charTransliterationStrings = wordsList.map { word ->
+            word.charTransliterations.entries.joinToString(";") { "${it.key}=${it.value}" }
+        }.toTypedArray()
+        putExtra("char_transliterations", charTransliterationStrings)
+        putExtra("translations", previewLyricLines.map { it.translation }.toTypedArray())
+        putExtra("is_duets", previewLyricLines.map { it.isDuet }.toBooleanArray())
+        putExtra("is_backgrounds", previewLyricLines.map { it.isBackground }.toBooleanArray())
+    }
 }
 
 fun formatLyricTimeline(lyricLines: List<LyricLine>): List<LyricLine> {

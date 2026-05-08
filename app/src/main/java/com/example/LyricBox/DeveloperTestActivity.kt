@@ -160,6 +160,26 @@ fun DeveloperTestScreen(
             ) {
                 Text("Apple Music 歌词获取")
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(context, BottomSheetLongDemoActivity::class.java))
+                }
+            ) {
+                Text("BottomSheet 长列表测试")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(context, BottomSheetShortDemoActivity::class.java))
+                }
+            ) {
+                Text("BottomSheet 短内容测试")
+            }
         }
     }
 }

@@ -129,6 +129,14 @@
             android:exported="false"
             android:theme="@style/Theme.歌词转换" />
         <activity
+            android:name=".BottomSheetLongDemoActivity"
+            android:exported="false"
+            android:theme="@style/Theme.歌词转换" />
+        <activity
+            android:name=".BottomSheetShortDemoActivity"
+            android:exported="false"
+            android:theme="@style/Theme.歌词转换" />
+        <activity
             android:name=".VerbatimLyricsActivity"
             android:exported="false"
             android:theme="@style/Theme.歌词转换" />
