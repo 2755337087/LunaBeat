@@ -173,6 +173,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
 
 data class AudioFile(
     val path: String,
@@ -259,6 +260,7 @@ fun formatAudioDuration(ms: Long): String {
 private const val FAVORITE_SEARCH_TOKEN = "#收藏歌曲"
 private const val ALBUM_SEARCH_PREFIX_FULL = "#专辑："
 private const val ALBUM_SEARCH_PREFIX_ASCII = "#专辑:"
+private const val EXTERNAL_AUDIO_LOG_TAG = "MusicLibraryExternal"
 
 private fun parseTrackNumberValue(trackRaw: String): Int {
     if (trackRaw.isBlank()) return Int.MAX_VALUE
@@ -912,6 +914,7 @@ class MusicLibraryActivity : ComponentActivity() {
         super.onNewIntent(intent)
         intent?.let {
             setIntent(it)
+            logExternal("onNewIntent: action=${it.action}, data=${it.data}")
             if (it.hasExtra(EXTRA_INITIAL_SEARCH_QUERY)) {
                 val incomingSearch = it.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
                 initialSearchQueryState = incomingSearch
@@ -925,103 +928,321 @@ class MusicLibraryActivity : ComponentActivity() {
     }
     
     private fun handleExternalIntent(intent: Intent): String? {
+        logExternal(
+            "handleExternalIntent start: action=${intent.action}, type=${intent.type}, data=${intent.data}, hasExtraPath=${intent.hasExtra(EXTRA_AUDIO_PATH)}"
+        )
         // 检查是否有直接传入的路径
         val directPath = intent.getStringExtra(EXTRA_AUDIO_PATH)
         if (directPath != null && File(directPath).exists()) {
+            logExternal("hit direct extra path: $directPath")
             return directPath
+        }
+        if (!directPath.isNullOrBlank()) {
+            logExternal("direct extra path not exists: $directPath")
         }
         
         // 处理 ACTION_SEND
         if (intent.action == Intent.ACTION_SEND) {
             val uri: Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM)
             if (uri != null) {
-                return getRealPathFromUri(uri)
+                logExternal("ACTION_SEND uri=${describeExternalUri(uri)}")
+                val resolved = getRealPathFromUri(uri)
+                logExternal("ACTION_SEND resolved=$resolved")
+                return resolved
             }
+            logExternal("ACTION_SEND has no EXTRA_STREAM uri")
         }
         
         // 处理 ACTION_SEND_MULTIPLE（只取第一个）
         if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
             val uris: ArrayList<Uri>? = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
             if (uris != null && uris.isNotEmpty()) {
-                return getRealPathFromUri(uris[0])
+                logExternal("ACTION_SEND_MULTIPLE count=${uris.size}, first=${describeExternalUri(uris[0])}")
+                val resolved = getRealPathFromUri(uris[0])
+                logExternal("ACTION_SEND_MULTIPLE resolved=$resolved")
+                return resolved
             }
+            logExternal("ACTION_SEND_MULTIPLE has empty EXTRA_STREAM")
         }
         
         // 检查 Intent 的 data（用于 ACTION_VIEW 和 ACTION_EDIT）
         val uri = intent.data ?: return null
+        logExternal("fallback intent.data uri=${describeExternalUri(uri)}")
         
         // 尝试从 Uri 获取真实路径
-        return getRealPathFromUri(uri)
+        val resolved = getRealPathFromUri(uri)
+        logExternal("intent.data resolved=$resolved")
+        return resolved
     }
     
     private fun getRealPathFromUri(uri: Uri): String? {
-        // 首先尝试直接使用 uri.path
-        uri.path?.let { path ->
-            val file = File(path)
-            if (file.exists()) {
-                return path
+        logExternal("getRealPathFromUri start: ${describeExternalUri(uri)}")
+        // file:// 直接取本地路径
+        if (uri.scheme.equals("file", ignoreCase = true)) {
+            val filePath = uri.path
+            if (isExistingFilePath(filePath)) {
+                logExternal("resolved by file scheme path: $filePath")
+                return filePath
             }
+            logExternal("file scheme path not exists: $filePath")
         }
 
-        // 对于 content:// 类型的 Uri，尝试获取真实路径
-        if (uri.scheme == "content") {
-            // 尝试使用不同的方法获取真实路径
-            var path: String? = null
-
-            // 方法 1: 尝试从 _data 列获取
-            path = getPathFromDataColumn(uri)
-            if (path != null && File(path).exists()) {
-                return path
+        // 直接 path（部分机型 ACTION_VIEW 会给出）
+        uri.path?.let { rawPath ->
+            val decodedPath = Uri.decode(rawPath)
+            if (isExistingFilePath(decodedPath)) {
+                logExternal("resolved by decoded raw path: $decodedPath")
+                return decodedPath
             }
+            logExternal("decoded raw path not exists: $decodedPath")
+        }
 
-            // 方法 2: 尝试从 MediaStore 获取
-            path = getPathFromMediaStore(uri)
-            if (path != null && File(path).exists()) {
-                return path
+        if (!uri.scheme.equals("content", ignoreCase = true)) {
+            logExternal("unsupported scheme for resolution: ${uri.scheme}")
+            return null
+        }
+
+        resolvePathFromFileProviderUri(uri)?.let { providerDerivedPath ->
+            if (isExistingFilePath(providerDerivedPath)) {
+                logExternal("resolved by FileProvider derived path: $providerDerivedPath")
+                return providerDerivedPath
             }
+            logExternal("FileProvider derived candidate not exists: $providerDerivedPath")
+        }
 
-            // 方法 3: 尝试从 DocumentsProvider 获取
-            path = getPathFromDocumentsProvider(uri)
-            if (path != null && File(path).exists()) {
-                return path
+        // 优先处理 DocumentUri（更接近真实路径）
+        resolvePathFromDocumentUri(uri)?.let { documentPath ->
+            if (isExistingFilePath(documentPath)) {
+                logExternal("resolved by DocumentUri: $documentPath")
+                return documentPath
             }
+            logExternal("DocumentUri candidate not exists: $documentPath")
+        }
 
-            // 如果以上方法都失败，才回退到复制到缓存的方法
-            // 但这时候我们需要给用户一个提示或者警告
-            Log.w("MusicLibrary", "无法获取原始文件路径，将使用缓存文件")
-            return try {
-                val inputStream = contentResolver.openInputStream(uri) ?: return null
-                val fileName = getFileName(uri) ?: "temp_audio_${System.currentTimeMillis()}"
+        // 兜底查询
+        getPathFromDataColumn(uri)?.let { dataPath ->
+            if (isExistingFilePath(dataPath)) {
+                logExternal("resolved by _data column: $dataPath")
+                return dataPath
+            }
+            logExternal("_data candidate not exists: $dataPath")
+        }
+        getPathFromMediaStore(uri)?.let { mediaPath ->
+            if (isExistingFilePath(mediaPath)) {
+                logExternal("resolved by MediaStore lookup: $mediaPath")
+                return mediaPath
+            }
+            logExternal("MediaStore candidate not exists: $mediaPath")
+        }
+        getPathFromDocumentsProvider(uri)?.let { providerPath ->
+            if (isExistingFilePath(providerPath)) {
+                logExternal("resolved by legacy DocumentsProvider: $providerPath")
+                return providerPath
+            }
+            logExternal("legacy DocumentsProvider candidate not exists: $providerPath")
+        }
+
+        // 解析不到真实路径时，最后兜底复制到缓存，保证可继续处理
+        Log.w("MusicLibrary", "无法获取外部音频真实路径，回退到缓存文件: $uri")
+        val fallbackPath = copyContentUriToCache(uri)
+        logExternal("fallback cache copy path=$fallbackPath")
+        return fallbackPath
+    }
+
+    private fun isExistingFilePath(path: String?): Boolean {
+        if (path.isNullOrBlank()) return false
+        return runCatching { File(path).exists() && File(path).isFile }.getOrDefault(false)
+    }
+
+    private fun resolvePathFromFileProviderUri(uri: Uri): String? {
+        val authority = uri.authority ?: return null
+        if (!authority.contains("fileprovider", ignoreCase = true)) {
+            return null
+        }
+        val lowerAuthority = authority.lowercase(Locale.ROOT)
+        val fileProviderSuffix = ".fileprovider"
+        val suffixIndex = lowerAuthority.indexOf(fileProviderSuffix)
+        val senderPackage = if (suffixIndex > 0) {
+            authority.substring(0, suffixIndex)
+        } else {
+            authority
+        }.takeIf { it.isNotBlank() } ?: return null
+        val segments = uri.pathSegments
+        if (segments.isEmpty()) return null
+        val rootName = segments.first().lowercase(Locale.ROOT)
+        val relativePath = segments.drop(1).joinToString("/")
+        if (relativePath.isBlank()) return null
+
+        val externalRoot = android.os.Environment.getExternalStorageDirectory().absolutePath
+        val candidates = when (rootName) {
+            "external_files", "external-files", "externalfiles", "external_file", "external-file" -> listOf(
+                "$externalRoot/$relativePath",
+                "$externalRoot/Android/data/$senderPackage/files/$relativePath"
+            )
+            "external_cache", "external-cache", "externalcache" -> listOf(
+                "$externalRoot/Android/data/$senderPackage/cache/$relativePath"
+            )
+            "external_media", "external-media", "externalmedia" -> listOf(
+                "$externalRoot/Android/media/$senderPackage/$relativePath"
+            )
+            "external_path", "external-path", "external", "sdcard", "root" -> listOf(
+                "$externalRoot/$relativePath"
+            )
+            "files", "internal_files", "internal-files" -> listOf(
+                "/data/user/0/$senderPackage/files/$relativePath"
+            )
+            "cache", "internal_cache", "internal-cache" -> listOf(
+                "/data/user/0/$senderPackage/cache/$relativePath"
+            )
+            else -> emptyList()
+        }
+        if (candidates.isEmpty()) {
+            logExternal(
+                "resolvePathFromFileProviderUri unsupported root authority=$authority root=$rootName senderPkg=$senderPackage relative=$relativePath"
+            )
+            return null
+        }
+        candidates.forEach { candidate ->
+            val exists = isExistingFilePath(candidate)
+            logExternal(
+                "resolvePathFromFileProviderUri candidate authority=$authority root=$rootName senderPkg=$senderPackage relative=$relativePath candidate=$candidate exists=$exists"
+            )
+            if (exists) {
+                return candidate
+            }
+        }
+        return null
+    }
+
+    private fun resolvePathFromDocumentUri(uri: Uri): String? {
+        return try {
+            if (!android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                logExternal("not a DocumentUri: ${describeExternalUri(uri)}")
+                return null
+            }
+            val docId = android.provider.DocumentsContract.getDocumentId(uri)
+            logExternal("DocumentUri authority=${uri.authority}, docId=$docId")
+            when (uri.authority) {
+                "com.android.externalstorage.documents" -> {
+                    val split = docId.split(":", limit = 2)
+                    if (split.size < 2) return null
+                    val volume = split[0]
+                    val relativePath = split[1]
+                    val candidate = if (volume.equals("primary", ignoreCase = true)) {
+                        "${android.os.Environment.getExternalStorageDirectory()}/$relativePath"
+                    } else {
+                        "/storage/$volume/$relativePath"
+                    }
+                    logExternal("externalstorage candidate=$candidate")
+                    candidate
+                }
+                "com.android.providers.downloads.documents" -> {
+                    when {
+                        docId.startsWith("raw:") -> docId.removePrefix("raw:")
+                        docId.startsWith("/storage/") -> docId
+                        docId.toLongOrNull() != null -> {
+                            val id = docId.toLong()
+                            val publicUri = android.content.ContentUris.withAppendedId(
+                                Uri.parse("content://downloads/public_downloads"),
+                                id
+                            )
+                            getPathFromDataColumn(publicUri) ?: run {
+                                val myUri = android.content.ContentUris.withAppendedId(
+                                    Uri.parse("content://downloads/my_downloads"),
+                                    id
+                                )
+                                logExternal("downloads try my_downloads uri=${describeExternalUri(myUri)}")
+                                getPathFromDataColumn(myUri)
+                            }
+                        }
+                        else -> null
+                    }
+                }
+                "com.android.providers.media.documents" -> {
+                    val split = docId.split(":")
+                    if (split.size < 2) return null
+                    val type = split[0]
+                    val id = split[1]
+                    val contentUri = when (type) {
+                        "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                        "video" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                        "image" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                        else -> null
+                    } ?: return null
+                    val selection = "${MediaStore.MediaColumns._ID}=?"
+                    val selectionArgs = arrayOf(id)
+                    logExternal("media document type=$type id=$id contentUri=$contentUri")
+                    queryDataColumn(contentUri, selection, selectionArgs)
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            logExternal("resolvePathFromDocumentUri exception: ${e.message}")
+            Log.e("MusicLibrary", "Error resolving document uri path: $uri", e)
+            null
+        }
+    }
+
+    private fun queryDataColumn(
+        uri: Uri,
+        selection: String? = null,
+        selectionArgs: Array<String>? = null
+    ): String? {
+        return try {
+            val projection = arrayOf(MediaStore.MediaColumns.DATA)
+            logExternal("queryDataColumn uri=${describeExternalUri(uri)}, selection=$selection, args=${selectionArgs?.joinToString()}")
+            contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val columnIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    if (columnIndex >= 0) {
+                        val value = cursor.getString(columnIndex)
+                        logExternal("queryDataColumn result=$value")
+                        value
+                    } else null
+                } else null
+            }
+        } catch (e: Exception) {
+            logExternal("queryDataColumn exception: ${e.message}")
+            null
+        }
+    }
+
+    private fun copyContentUriToCache(uri: Uri): String? {
+        return try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val fileName = getFileName(uri)?.replace('/', '_')?.replace('\\', '_')
+                    ?: "temp_audio_${System.currentTimeMillis()}"
                 val tempFile = File(cacheDir, fileName)
-
                 tempFile.outputStream().use { output ->
                     inputStream.copyTo(output)
                 }
-                inputStream.close()
-
+                logExternal("copyContentUriToCache wrote=${tempFile.absolutePath}")
                 tempFile.absolutePath
-            } catch (e: Exception) {
-                Log.e("MusicLibrary", "Error copying file from content URI", e)
-                null
             }
+        } catch (e: Exception) {
+            logExternal("copyContentUriToCache exception: ${e.message}")
+            Log.e("MusicLibrary", "Error copying file from content URI", e)
+            null
         }
-
-        return null
     }
 
     private fun getPathFromDataColumn(uri: Uri): String? {
         return try {
             val projection = arrayOf("_data")
+            logExternal("getPathFromDataColumn uri=${describeExternalUri(uri)}")
             val cursor = contentResolver.query(uri, projection, null, null, null)
             cursor?.use {
                 if (it.moveToFirst()) {
                     val columnIndex = it.getColumnIndexOrThrow("_data")
-                    it.getString(columnIndex)
+                    val value = it.getString(columnIndex)
+                    logExternal("getPathFromDataColumn result=$value")
+                    value
                 } else {
                     null
                 }
             }
         } catch (e: Exception) {
+            logExternal("getPathFromDataColumn exception: ${e.message}")
             Log.e("MusicLibrary", "Error getting path from _data column", e)
             null
         }
@@ -1033,7 +1254,9 @@ class MusicLibraryActivity : ComponentActivity() {
                 android.provider.MediaStore.Audio.Media.DATA
             )
             val selection = "${android.provider.MediaStore.Audio.Media._ID} = ?"
-            val selectionArgs = arrayOf(uri.lastPathSegment ?: return null)
+            val id = uri.lastPathSegment?.toLongOrNull() ?: return null
+            val selectionArgs = arrayOf(id.toString())
+            logExternal("getPathFromMediaStore uri=${describeExternalUri(uri)}, id=$id")
             val cursor = contentResolver.query(
                 android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 projection,
@@ -1044,12 +1267,15 @@ class MusicLibraryActivity : ComponentActivity() {
             cursor?.use {
                 if (it.moveToFirst()) {
                     val columnIndex = it.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
-                    it.getString(columnIndex)
+                    val value = it.getString(columnIndex)
+                    logExternal("getPathFromMediaStore result=$value")
+                    value
                 } else {
                     null
                 }
             }
         } catch (e: Exception) {
+            logExternal("getPathFromMediaStore exception: ${e.message}")
             Log.e("MusicLibrary", "Error getting path from MediaStore", e)
             null
         }
@@ -1060,14 +1286,18 @@ class MusicLibraryActivity : ComponentActivity() {
             // 检查是否是 DocumentsProvider URI
             if ("com.android.externalstorage.documents" == uri.authority) {
                 val docId = android.provider.DocumentsContract.getDocumentId(uri)
-                val split = docId.split(":")
+                logExternal("legacy getPathFromDocumentsProvider docId=$docId")
+                val split = docId.split(":", limit = 2)
                 val type = split[0]
+                val relativePath = split.getOrNull(1) ?: return null
                 if ("primary".equals(type, ignoreCase = true)) {
-                    return android.os.Environment.getExternalStorageDirectory().toString() + "/" + split[1]
+                    return android.os.Environment.getExternalStorageDirectory().toString() + "/" + relativePath
                 }
+                return "/storage/$type/$relativePath"
             }
             null
         } catch (e: Exception) {
+            logExternal("getPathFromDocumentsProvider exception: ${e.message}")
             Log.e("MusicLibrary", "Error getting path from DocumentsProvider", e)
             null
         }
@@ -1099,8 +1329,12 @@ class MusicLibraryActivity : ComponentActivity() {
     private fun loadExternalAudioFile(path: String) {
         Thread {
             try {
+                logExternal("loadExternalAudioFile start path=$path")
                 val file = File(path)
-                if (!file.exists()) return@Thread
+                if (!file.exists()) {
+                    logExternal("loadExternalAudioFile path not exists: $path")
+                    return@Thread
+                }
                 
                 val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(this, path)
                 
@@ -1125,10 +1359,27 @@ class MusicLibraryActivity : ComponentActivity() {
                 runOnUiThread {
                     externalAudioFile = audioFile
                 }
+                logExternal("loadExternalAudioFile success title=${audioFile.displayTitle}, artist=${audioFile.displayArtist}")
             } catch (e: Exception) {
+                logExternal("loadExternalAudioFile exception: ${e.message}")
                 Log.e("MusicLibrary", "Error loading external audio file", e)
             }
         }.start()
+    }
+
+    private fun describeExternalUri(uri: Uri): String {
+        val docId = runCatching {
+            if (android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                android.provider.DocumentsContract.getDocumentId(uri)
+            } else {
+                null
+            }
+        }.getOrNull()
+        return "uri=$uri, scheme=${uri.scheme}, authority=${uri.authority}, path=${uri.path}, lastSegment=${uri.lastPathSegment}, docId=$docId"
+    }
+
+    private fun logExternal(message: String) {
+        Log.d(EXTERNAL_AUDIO_LOG_TAG, message)
     }
     
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
