@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
@@ -79,6 +81,7 @@ fun LyricSettingsBottomSheet(
     accentColor: Color
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollState = rememberScrollState()
     var page by remember { mutableStateOf(LyricSettingsPage.MAIN) }
     var tempFontSize by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
@@ -94,6 +97,7 @@ fun LyricSettingsBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .animateContentSize(animationSpec = tween(durationMillis = 260))
+                .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

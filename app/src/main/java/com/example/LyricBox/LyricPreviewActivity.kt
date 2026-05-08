@@ -1195,6 +1195,18 @@ fun LyricPreviewScreen(
     val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val settingsDarkMode = com.example.LyricBox.ui.theme.getDarkModeFromSettings(context)
     val isDarkTheme = settingsDarkMode ?: systemDarkTheme
+    val screenConfig = LocalConfiguration.current
+    val isWatchLikeSmallScreen = screenConfig.screenWidthDp <= 240 || screenConfig.screenHeightDp <= 240
+    val isLandscape = screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val useSidePanelLayout = showChrome && isLandscape && !isWatchLikeSmallScreen
+    val useMiniHeader = showChrome && isWatchLikeSmallScreen
+    val landscapeOuterHorizontalPadding = 16.dp
+    val landscapePaneSpacing = 12.dp
+    val landscapeRightPaneHorizontalPadding = 16.dp
+    val sidePanelWidth = (
+        (screenConfig.screenWidthDp.dp - (landscapeOuterHorizontalPadding * 2) - landscapePaneSpacing)
+            .coerceAtLeast(0.dp)
+    ) / 2f
 
     val customFontPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -1339,6 +1351,9 @@ fun LyricPreviewScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val landscapeLeadingPlaceholderCount = if (useSidePanelLayout) 1 else 0
+    fun toLyricListIndex(lyricLineIndex: Int): Int = lyricLineIndex + landscapeLeadingPlaceholderCount
+
     fun requestAutoScroll(targetIndex: Int, forceAnimate: Boolean = false) {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
         if (lyricBlurPreferenceEnabled && !isLyricBlurEnabled) {
@@ -1375,12 +1390,12 @@ fun LyricPreviewScreen(
                     )
                     if (useInstantScroll) {
                         lazyListState.scrollToItem(
-                            index = nextTarget,
+                            index = toLyricListIndex(nextTarget),
                             scrollOffset = -100
                         )
                     } else {
                         lazyListState.animateScrollToItem(
-                            index = nextTarget,
+                            index = toLyricListIndex(nextTarget),
                             scrollOffset = -100
                         )
                     }
@@ -1440,7 +1455,7 @@ fun LyricPreviewScreen(
         val targetIndex = lineNavigator.findTargetIndex(anchorPosition)
         initialBuildTargetIndex = targetIndex
         if (targetIndex >= 0) {
-            lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+            lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = -100)
             lastAutoScrolledIndex = targetIndex
         }
 
@@ -1514,7 +1529,7 @@ fun LyricPreviewScreen(
                 val targetIndex = lineNavigator.findTargetIndex(currentTime)
                 if (targetIndex >= 0) {
                     coroutineScope.launch {
-                        lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+                        lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = -100)
                     }
                 }
             }
@@ -1939,7 +1954,10 @@ fun LyricPreviewScreen(
         androidx.compose.ui.layout.LookaheadScope {
             Box(modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(
+                    start = 16.dp + if (useSidePanelLayout) sidePanelWidth + 12.dp else 0.dp,
+                    end = 16.dp
+                )
             ) {
                 val showLoadingOverlay = isLyricLoading || !lyricsContentReady || isFontSwitchReloading
                 val lyricContentAlpha by animateFloatAsState(
@@ -1961,15 +1979,29 @@ fun LyricPreviewScreen(
                     // 计算屏幕高度的1/4作为顶部padding
                     val configuration = LocalConfiguration.current
                     val screenHeight = configuration.screenHeightDp.dp
-                    val topPadding = if (showChrome) {
+                    val topPadding = if (showChrome && !useSidePanelLayout && !useMiniHeader) {
                         screenHeight * 0.25f
+                    } else if (useMiniHeader) {
+                        36.dp
                     } else {
                         48.dp
                     }
-                    val bottomPadding = if (showChrome) {
+                    val bottomPadding = if (showChrome && !useSidePanelLayout && !useMiniHeader) {
                         screenHeight * 0.6f
+                    } else if (useMiniHeader) {
+                        84.dp
                     } else {
                         96.dp
+                    }
+                    val landscapeTopPlaceholder = if (useSidePanelLayout) {
+                        screenHeight * 0.12f
+                    } else {
+                        0.dp
+                    }
+                    val landscapeBottomPlaceholder = if (useSidePanelLayout) {
+                        screenHeight * 0.36f
+                    } else {
+                        0.dp
                     }
                     
                     // 使用较小的 keepAlive 区域来确保弹簧动画工作，同时不会占用过多空间
@@ -2013,6 +2045,11 @@ fun LyricPreviewScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (useSidePanelLayout) {
+                                item(key = "landscape_top_placeholder") {
+                                    Spacer(modifier = Modifier.height(landscapeTopPlaceholder))
+                                }
+                            }
                             itemsIndexed(processedLyricLines) { index, line ->
                             val nextLine = if (index < processedLyricLines.size - 1) processedLyricLines[index + 1] else null
                             // 判断背景歌词是否应该显示（用于渲染和模糊距离计算）
@@ -2201,6 +2238,11 @@ fun LyricPreviewScreen(
                                     }
                                 }
                             }
+                            if (useSidePanelLayout) {
+                                item(key = "landscape_bottom_placeholder") {
+                                    Spacer(modifier = Modifier.height(landscapeBottomPlaceholder))
+                                }
+                            }
                         }
                     }
                 }
@@ -2224,82 +2266,28 @@ fun LyricPreviewScreen(
         }
         
         if (showChrome) {
-            // Headbar 和播放控制放在上层，遮挡额外歌词区域
-            Column(modifier = Modifier.fillMaxSize()) {
-                LyricPreviewHeader(
-                    title = metadata.title,
-                    artist = metadata.artist,
-                    coverBitmap = metadata.coverBitmap,
-                    onBackClick = onBack,
-                    onHeaderClick = {
-                        if (enableSongInfoSheet) {
-                            showSongInfoSheet = true
-                        }
-                    },
-                    onMenuClick = { menuExpanded = true },
-                    menuContent = { menuButtonPosition ->
-                        CustomDropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                            items = listOf(
-                                MenuItem(
-                                    title = "歌词设置",
-                                    onClick = {
-                                        menuExpanded = false
-                                        showLyricSettingsSheet = true
-                                    }
-                                )
-                            ),
-                            anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
-                            containerColor = menuSurfaceColor,
-                            contentColor = menuContentColor,
-                            pressColor = menuPressedColor,
-                            borderColor = menuBorderColor
+            val lyricSettingsMenuContent: @Composable (MenuAnchorPosition?) -> Unit = { menuButtonPosition ->
+                CustomDropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    items = listOf(
+                        MenuItem(
+                            title = "歌词设置",
+                            onClick = {
+                                menuExpanded = false
+                                showLyricSettingsSheet = true
+                            }
                         )
-                    },
-                    mutedColor = accentColor,
-                    isDarkTheme = isDarkTheme,
-                    backgroundColor = backgroundColor
+                    ),
+                    anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
+                    containerColor = menuSurfaceColor,
+                    contentColor = menuContentColor,
+                    pressColor = menuPressedColor,
+                    borderColor = menuBorderColor
                 )
+            }
 
-                // 顶部渐变透明效果
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { })
-                        }
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    backgroundColor,
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // 底部渐变透明效果
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { })
-                        }
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    backgroundColor
-                                )
-                            )
-                        )
-                )
-
+            val playbackControlsPanel: @Composable () -> Unit = {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2339,7 +2327,7 @@ fun LyricPreviewScreen(
                             coroutineScope.launch {
                                 val targetIndex = lineNavigator.findTargetIndex(position)
                                 if (targetIndex >= 0) {
-                                    lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+                                    lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = -100)
                                 }
                             }
                         },
@@ -2347,6 +2335,164 @@ fun LyricPreviewScreen(
                         backgroundColor = backgroundColor
                     )
                 }
+            }
+
+            if (useSidePanelLayout) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = landscapeOuterHorizontalPadding)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .width(sidePanelWidth)
+                            .fillMaxHeight()
+                            .background(backgroundColor)
+                    ) {
+                        LyricPreviewCompactHeader(
+                            title = metadata.title,
+                            artist = metadata.artist,
+                            backgroundColor = backgroundColor,
+                            onBackClick = onBack,
+                            onMenuClick = { menuExpanded = true },
+                            menuContent = lyricSettingsMenuContent
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LyricPreviewSideCover(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            coverBitmap = metadata.coverBitmap,
+                            accentColor = accentColor,
+                            backgroundColor = backgroundColor,
+                            isPlaying = isPlaying
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        playbackControlsPanel()
+                    }
+                }
+            } else if (useMiniHeader) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    LyricPreviewMiniHeader(
+                        title = metadata.title,
+                        onBackClick = onBack,
+                        onMenuClick = { menuExpanded = true },
+                        menuContent = lyricSettingsMenuContent,
+                        backgroundColor = backgroundColor
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    )
+                    playbackControlsPanel()
+                }
+            } else {
+                // Headbar 和播放控制放在上层，遮挡额外歌词区域
+                Column(modifier = Modifier.fillMaxSize()) {
+                    LyricPreviewHeader(
+                        title = metadata.title,
+                        artist = metadata.artist,
+                        coverBitmap = metadata.coverBitmap,
+                        onBackClick = onBack,
+                        onHeaderClick = {
+                            if (enableSongInfoSheet) {
+                                showSongInfoSheet = true
+                            }
+                        },
+                        onMenuClick = { menuExpanded = true },
+                        menuContent = lyricSettingsMenuContent,
+                        mutedColor = accentColor,
+                        isDarkTheme = isDarkTheme,
+                        backgroundColor = backgroundColor
+                    )
+
+                    // 顶部渐变透明效果
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { })
+                            }
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        backgroundColor,
+                                        Color.Transparent
+                                    )
+                                )
+                            )
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // 底部渐变透明效果
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { })
+                            }
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        backgroundColor
+                                    )
+                                )
+                            )
+                    )
+
+                    playbackControlsPanel()
+                }
+            }
+        }
+
+        if (useSidePanelLayout) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = landscapeOuterHorizontalPadding +
+                            sidePanelWidth +
+                            landscapePaneSpacing +
+                            landscapeRightPaneHorizontalPadding,
+                        end = landscapeRightPaneHorizontalPadding
+                    )
+            ) {
+                // 右侧歌词区顶部 EdgeTranslucent 渐变
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    backgroundColor,
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+                // 右侧歌词区底部 EdgeTranslucent 渐变
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    backgroundColor
+                                )
+                            )
+                        )
+                )
             }
         }
 
@@ -4314,6 +4460,252 @@ private fun isTransliterationNeedsSpace(transliteration: String): Boolean {
 }
 
 // ==================== 新的Header组件 ====================
+
+@Composable
+fun LyricPreviewCompactHeader(
+    title: String,
+    artist: String,
+    backgroundColor: Color,
+    onBackClick: () -> Unit = {},
+    onMenuClick: () -> Unit = {},
+    menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {}
+) {
+    val textColor = getHighContrastBlackOrWhite(backgroundColor)
+    val titleSize = 20.sp
+    val artistSize = 16.sp
+    val artistColor = ensureReadableColor(
+        candidate = textColor.copy(alpha = 0.74f),
+        background = backgroundColor,
+        fallback = textColor,
+        minContrast = 3.2f
+    )
+    val iconColor = getHighContrastBlackOrWhite(backgroundColor)
+    var menuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
+    val density = LocalDensity.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .heightIn(min = 64.dp)
+            .background(backgroundColor)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onBackClick,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_arrow_back_24),
+                contentDescription = "返回",
+                tint = iconColor,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = title,
+                fontSize = titleSize,
+                fontWeight = FontWeight.Bold,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = artist,
+                fontSize = artistSize,
+                color = artistColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        IconButton(
+            onClick = onMenuClick,
+            modifier = Modifier
+                .size(40.dp)
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInRoot()
+                    menuButtonPosition = MenuAnchorPosition(
+                        x = with(density) { bounds.center.x.toDp().value },
+                        y = with(density) { bounds.center.y.toDp().value }
+                    )
+                }
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_more_vert_24),
+                contentDescription = "菜单",
+                tint = iconColor,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+        menuContent(menuButtonPosition)
+    }
+}
+
+@Composable
+fun LyricPreviewMiniHeader(
+    title: String,
+    backgroundColor: Color,
+    onBackClick: () -> Unit = {},
+    onMenuClick: () -> Unit = {},
+    menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {}
+) {
+    val textColor = getHighContrastBlackOrWhite(backgroundColor)
+    val iconColor = getHighContrastBlackOrWhite(backgroundColor)
+    var menuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
+    val density = LocalDensity.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .height(52.dp)
+            .background(backgroundColor)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onBackClick,
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_arrow_back_24),
+                contentDescription = "返回",
+                tint = iconColor,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Text(
+            text = title,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = textColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 6.dp)
+        )
+        IconButton(
+            onClick = onMenuClick,
+            modifier = Modifier
+                .size(36.dp)
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInRoot()
+                    menuButtonPosition = MenuAnchorPosition(
+                        x = with(density) { bounds.center.x.toDp().value },
+                        y = with(density) { bounds.center.y.toDp().value }
+                    )
+                }
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_more_vert_24),
+                contentDescription = "菜单",
+                tint = iconColor,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        menuContent(menuButtonPosition)
+    }
+}
+
+@Composable
+fun LyricPreviewSideCover(
+    modifier: Modifier,
+    coverBitmap: Bitmap?,
+    accentColor: Color,
+    backgroundColor: Color,
+    isPlaying: Boolean
+) {
+    val placeholderColor = blendColors(backgroundColor, accentColor, 0.22f)
+    val screenConfig = LocalConfiguration.current
+    val coverScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.95f,
+        animationSpec = tween(durationMillis = 280),
+        label = "previewCoverScale"
+    )
+    BoxWithConstraints(
+        modifier = modifier
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        val coverAbsoluteMax = when {
+            screenConfig.screenWidthDp >= 1800 -> 500.dp
+            screenConfig.screenWidthDp >= 1200 -> 460.dp
+            else -> 400.dp
+        }
+        val coverMaxWidth = minOf(
+            maxWidth * 0.94f,
+            coverAbsoluteMax
+        )
+        val coverMaxHeight = minOf(
+            maxHeight * 0.90f,
+            coverAbsoluteMax
+        )
+        val coverAspectRatio = remember(coverBitmap) {
+            if (coverBitmap != null && coverBitmap.height > 0) {
+                (coverBitmap.width.toFloat() / coverBitmap.height.toFloat())
+                    .takeIf { it.isFinite() && it > 0f }
+            } else {
+                null
+            }
+        } ?: 1f
+        val coverWidth: Dp
+        val coverHeight: Dp
+        if (coverAspectRatio >= 1f) {
+            val candidateWidth = coverMaxHeight * coverAspectRatio
+            coverWidth = minOf(coverMaxWidth, candidateWidth)
+            coverHeight = (coverWidth / coverAspectRatio).coerceAtMost(coverMaxHeight)
+        } else {
+            val candidateHeight = coverMaxWidth / coverAspectRatio
+            coverHeight = minOf(coverMaxHeight, candidateHeight)
+            coverWidth = (coverHeight * coverAspectRatio).coerceAtMost(coverMaxWidth)
+        }
+
+        if (coverBitmap != null) {
+            Image(
+                bitmap = coverBitmap.asImageBitmap(),
+                contentDescription = "封面",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .width(coverWidth)
+                    .height(coverHeight)
+                    .graphicsLayer(
+                        scaleX = coverScale,
+                        scaleY = coverScale
+                    )
+                    .clip(RoundedCornerShape(16.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .width(coverWidth.coerceAtLeast(120.dp))
+                    .height(coverHeight.coerceAtLeast(120.dp))
+                    .graphicsLayer(
+                        scaleX = coverScale,
+                        scaleY = coverScale
+                    )
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(placeholderColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.img),
+                    contentDescription = "封面占位",
+                    tint = getHighContrastBlackOrWhite(placeholderColor),
+                    modifier = Modifier.size(42.dp)
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
