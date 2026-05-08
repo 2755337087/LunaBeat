@@ -863,6 +863,7 @@ private fun ImportTranslationSheetContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .nestedScroll(scrollBlocker)
         ) {
             LazyColumn(
                 state = lyricScrollState,
@@ -985,7 +986,6 @@ private fun ImportTranslationBottomSheet(
     if (!showSheet) return
 
     val scope = rememberCoroutineScope()
-    var showCancelConfirm by remember { mutableStateOf(false) }
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -995,43 +995,12 @@ private fun ImportTranslationBottomSheet(
         }
     }
 
-    if (showCancelConfirm) {
-        AlertDialog(
-            onDismissRequest = { },
-            properties = DialogProperties(
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false
-            ),
-            title = { Text("确认取消") },
-            text = { Text("输入框中有内容，确定要取消吗？") },
-            confirmButton = {
-                Button(onClick = { showCancelConfirm = false }) {
-                    Text("继续编辑")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showCancelConfirm = false
-                    closeSheet()
-                }) {
-                    Text("放弃修改")
-                }
-            }
-        )
-    }
-
     androidx.compose.material3.ModalBottomSheet(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding(),
         sheetMaxWidth = Dp.Unspecified,
-        onDismissRequest = {
-            if (translationInput.isNotEmpty()) {
-                showCancelConfirm = true
-            } else {
-                closeSheet()
-            }
-        },
+        onDismissRequest = { closeSheet() },
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
@@ -5252,6 +5221,7 @@ fun EditCreatorSheet(
 ) {
     var inputName by remember { mutableStateOf(creatorName) }
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
     
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -5295,7 +5265,12 @@ fun EditCreatorSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
-                    onClick = onDismiss,
+                    onClick = {
+                        scope.launch {
+                            sheetState.hide()
+                            onDismiss()
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("取消")
@@ -9295,16 +9270,6 @@ fun LyricTimingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                     ) {
-                        TextButton(
-                            onClick = { 
-                                showTimeInputDialog = false
-                                inputTimeMinutes = ""
-                                inputTimeSeconds = ""
-                                inputTimeMilliseconds = ""
-                            }
-                        ) {
-                            Text("取消")
-                        }
                         Button(
                             onClick = {
                                 val minutes = inputTimeMinutes.toLongOrNull() ?: 0L
