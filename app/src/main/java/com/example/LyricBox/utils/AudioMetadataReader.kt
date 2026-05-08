@@ -109,9 +109,12 @@ object AudioMetadataReader {
             } else {
                 result.copy(cover = extractCoverWithRetriever(filePath))
             }
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "TagLib unavailable, falling back to framework retriever for $filePath", e)
+            readMetadataWithRetriever(filePath, includeCover)
         } catch (e: Exception) {
             Log.e(TAG, "Error reading metadata from $filePath", e)
-            AudioMetadata()
+            readMetadataWithRetriever(filePath, includeCover)
         }
     }
     
@@ -128,9 +131,12 @@ object AudioMetadataReader {
             } else {
                 result.copy(cover = extractCoverWithRetriever(context, uri))
             }
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "TagLib unavailable, falling back to framework retriever for uri $uri", e)
+            readMetadataWithRetriever(context, uri, includeCover)
         } catch (e: Exception) {
             Log.e(TAG, "Error reading metadata from uri $uri", e)
-            AudioMetadata()
+            readMetadataWithRetriever(context, uri, includeCover)
         }
     }
 
@@ -148,6 +154,62 @@ object AudioMetadataReader {
         val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId) ?: return fromFile
         val fromUri = readMetadataFromUri(context, mediaUri, includeCover = includeCover)
         return mergePreferPrimary(fromFile, fromUri)
+    }
+
+    private fun readMetadataWithRetriever(filePath: String, includeCover: Boolean): AudioMetadata {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            val coverData = if (includeCover) retriever.embeddedPicture else null
+            AudioMetadata(
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).orEmpty(),
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(),
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).orEmpty(),
+                lyrics = "",
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L,
+                cover = coverData,
+                year = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR).orEmpty(),
+                trackNumber = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER).orEmpty(),
+                discNumber = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER).orEmpty(),
+                albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST).orEmpty()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Framework retriever fallback failed for $filePath", e)
+            AudioMetadata()
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun readMetadataWithRetriever(context: Context, uri: Uri, includeCover: Boolean): AudioMetadata {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val coverData = if (includeCover) retriever.embeddedPicture else null
+            AudioMetadata(
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).orEmpty(),
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(),
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).orEmpty(),
+                lyrics = "",
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L,
+                cover = coverData,
+                year = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR).orEmpty(),
+                trackNumber = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER).orEmpty(),
+                discNumber = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER).orEmpty(),
+                albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST).orEmpty()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Framework retriever fallback failed for uri $uri", e)
+            AudioMetadata()
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun shouldFallbackToUri(metadata: AudioMetadata, includeCover: Boolean): Boolean {
