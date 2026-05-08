@@ -30,9 +30,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.歌词转换"
         android:networkSecurityConfig="@xml/network_security_config">
-        <property
-            android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
-            android:value="true" />
         <meta-data
             android:name="lyricon_module"
             android:value="true" />

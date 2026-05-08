@@ -346,7 +346,6 @@ class LyricPreviewActivity : ComponentActivity() {
         const val EXTRA_CREATORS = "creators"
         const val EXTRA_USE_SHARED_PLAYBACK = "use_shared_playback"
         const val EXTRA_SHARED_PLAYBACK_USED = "shared_playback_used"
-        const val EXTRA_SPLIT_EMBEDDED_MODE = "split_embedded_mode"
         const val EXTRA_PREVIEW_ENTRY_SOURCE = "preview_entry_source"
         const val PREVIEW_ENTRY_SOURCE_DEFAULT = 0
         const val PREVIEW_ENTRY_SOURCE_TIMING = 1
@@ -378,7 +377,6 @@ class LyricPreviewActivity : ComponentActivity() {
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
             useSharedPlayback: Boolean = false,
-            splitEmbeddedMode: Boolean = false,
             previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ): Intent {
             return Intent(context, LyricPreviewActivity::class.java).apply {
@@ -388,7 +386,6 @@ class LyricPreviewActivity : ComponentActivity() {
                 putExtra(EXTRA_INITIAL_POSITION, initialPosition)
                 putExtra(EXTRA_CREATORS, creators.toTypedArray())
                 putExtra(EXTRA_USE_SHARED_PLAYBACK, useSharedPlayback)
-                putExtra(EXTRA_SPLIT_EMBEDDED_MODE, splitEmbeddedMode)
                 putExtra(EXTRA_PREVIEW_ENTRY_SOURCE, previewEntrySource)
                 // 传递行数
                 putExtra("line_count", lyricLines.size)
@@ -429,7 +426,6 @@ class LyricPreviewActivity : ComponentActivity() {
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
             useSharedPlayback: Boolean = false,
-            splitEmbeddedMode: Boolean = false,
             previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ) {
             val intent = createIntent(
@@ -441,7 +437,6 @@ class LyricPreviewActivity : ComponentActivity() {
                 creators = creators,
                 sourceAudioPath = sourceAudioPath,
                 useSharedPlayback = useSharedPlayback,
-                splitEmbeddedMode = splitEmbeddedMode,
                 previewEntrySource = previewEntrySource
             )
             context.startActivity(intent)
@@ -462,7 +457,6 @@ class LyricPreviewActivity : ComponentActivity() {
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "歌词预览"
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
         useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, false)
-        val splitEmbeddedMode = intent.getBooleanExtra(EXTRA_SPLIT_EMBEDDED_MODE, false)
         val previewEntrySource = intent.getIntExtra(EXTRA_PREVIEW_ENTRY_SOURCE, PREVIEW_ENTRY_SOURCE_DEFAULT)
         val isTimingPreviewEntry = previewEntrySource == PREVIEW_ENTRY_SOURCE_TIMING
         val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
@@ -701,9 +695,7 @@ class LyricPreviewActivity : ComponentActivity() {
                     },
                     enableSongInfoSheet = !isTimingPreviewEntry,
                     playbackCompleted = playbackCompleted,
-                    onPlaybackCompletedHandled = { playbackCompleted = false },
-                    showBottomControls = !splitEmbeddedMode,
-                    headerMenuOnlyMode = splitEmbeddedMode
+                    onPlaybackCompletedHandled = { playbackCompleted = false }
                 )
             }
         }
@@ -1145,14 +1137,8 @@ fun LyricPreviewScreen(
     playbackCompleted: Boolean = false,
     onPlaybackCompletedHandled: () -> Unit = {},
     showChrome: Boolean = true,
-    showHeader: Boolean = true,
-    showBottomControls: Boolean = true,
-    headerMenuOnlyMode: Boolean = false,
     enableBackHandler: Boolean = true
 ) {
-    val actualShowHeader = showChrome && showHeader
-    val actualShowBottomControls = showChrome && showBottomControls
-
     // 使用 BackHandler 拦截系统返回事件
     androidx.activity.compose.BackHandler(enabled = enableBackHandler) {
         onBack()
@@ -1975,12 +1961,12 @@ fun LyricPreviewScreen(
                     // 计算屏幕高度的1/4作为顶部padding
                     val configuration = LocalConfiguration.current
                     val screenHeight = configuration.screenHeightDp.dp
-                    val topPadding = if (actualShowHeader) {
+                    val topPadding = if (showChrome) {
                         screenHeight * 0.25f
                     } else {
                         48.dp
                     }
-                    val bottomPadding = if (actualShowBottomControls) {
+                    val bottomPadding = if (showChrome) {
                         screenHeight * 0.6f
                     } else {
                         96.dp
@@ -2237,135 +2223,129 @@ fun LyricPreviewScreen(
             }
         }
         
-        if (actualShowHeader || actualShowBottomControls) {
+        if (showChrome) {
             // Headbar 和播放控制放在上层，遮挡额外歌词区域
             Column(modifier = Modifier.fillMaxSize()) {
-                if (actualShowHeader) {
-                    LyricPreviewHeader(
-                        title = metadata.title,
-                        artist = metadata.artist,
-                        coverBitmap = metadata.coverBitmap,
-                        onBackClick = onBack,
-                        onHeaderClick = {
-                            if (enableSongInfoSheet && !headerMenuOnlyMode) {
-                                showSongInfoSheet = true
-                            }
-                        },
-                        onMenuClick = { menuExpanded = true },
-                        menuContent = { menuButtonPosition ->
-                            CustomDropdownMenu(
-                                expanded = menuExpanded,
-                                onDismissRequest = { menuExpanded = false },
-                                items = listOf(
-                                    MenuItem(
-                                        title = "歌词设置",
-                                        onClick = {
-                                            menuExpanded = false
-                                            showLyricSettingsSheet = true
-                                        }
-                                    )
-                                ),
-                                anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
-                                containerColor = menuSurfaceColor,
-                                contentColor = menuContentColor,
-                                pressColor = menuPressedColor,
-                                borderColor = menuBorderColor
-                            )
-                        },
-                        mutedColor = accentColor,
-                        isDarkTheme = isDarkTheme,
-                        backgroundColor = backgroundColor,
-                        showBackButton = !headerMenuOnlyMode,
-                        showCoverAndMeta = !headerMenuOnlyMode
-                    )
+                LyricPreviewHeader(
+                    title = metadata.title,
+                    artist = metadata.artist,
+                    coverBitmap = metadata.coverBitmap,
+                    onBackClick = onBack,
+                    onHeaderClick = {
+                        if (enableSongInfoSheet) {
+                            showSongInfoSheet = true
+                        }
+                    },
+                    onMenuClick = { menuExpanded = true },
+                    menuContent = { menuButtonPosition ->
+                        CustomDropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                            items = listOf(
+                                MenuItem(
+                                    title = "歌词设置",
+                                    onClick = {
+                                        menuExpanded = false
+                                        showLyricSettingsSheet = true
+                                    }
+                                )
+                            ),
+                            anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
+                            containerColor = menuSurfaceColor,
+                            contentColor = menuContentColor,
+                            pressColor = menuPressedColor,
+                            borderColor = menuBorderColor
+                        )
+                    },
+                    mutedColor = accentColor,
+                    isDarkTheme = isDarkTheme,
+                    backgroundColor = backgroundColor
+                )
 
-                    // 顶部渐变透明效果
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { })
-                            }
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        backgroundColor,
-                                        Color.Transparent
-                                    )
+                // 顶部渐变透明效果
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { })
+                        }
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    backgroundColor,
+                                    Color.Transparent
                                 )
                             )
-                    )
-                }
+                        )
+                )
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                if (actualShowBottomControls) {
-                    // 底部渐变透明效果
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { })
-                            }
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        backgroundColor
-                                    )
+                // 底部渐变透明效果
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { })
+                        }
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    backgroundColor
                                 )
                             )
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {}
-                    ) {
-                        PlaybackControls(
-                            currentTime = currentTime,
-                            duration = dynamicDuration,
-                            isPlaying = isPlaying,
-                            isDarkTheme = isDarkTheme,
-                            seekTimeMs = seekTimeMs,
-                            seekTimeSeconds = seekTimeSeconds,
-                            onPlayPauseClick = {
-                                onPlayPause(!isPlaying)
-                            },
-                            onSkipPreviousClick = onSkipPreviousTrack,
-                            onSkipNextClick = onSkipNextTrack,
-                            isSkipNextEnabled = if (onSkipNextTrack == null) true else canSkipNextTrack,
-                            onSeek = { position ->
-                                onSeekTo(position)
-                                currentTime = position
-                                // 拖动进度条后重置用户滚动状态，立即滚动到对应位置
-                                isUserScrolling = false
-                                scrollJob?.cancel()
-                                // 只有在非0秒处才触发歌词动画重置
-                                if (position > 0) {
-                                    seekResetCounter += 1
-                                }
-                                // 强制重新计算自动滚动索引
-                                lastAutoScrolledIndex = -1
-                                // 重置跳过的索引状态
-                                lastSkippedScrollIndex = -1
-                                // 立即滚动到当前歌词位置，不使用动画
-                                coroutineScope.launch {
-                                    val targetIndex = lineNavigator.findTargetIndex(position)
-                                    if (targetIndex >= 0) {
-                                        lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
-                                    }
-                                }
-                            },
-                            vibrantColor = coverThemeColor ?: accentColor,
-                            backgroundColor = backgroundColor
                         )
-                    }
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {}
+                ) {
+                    PlaybackControls(
+                        currentTime = currentTime,
+                        duration = dynamicDuration,
+                        isPlaying = isPlaying,
+                        isDarkTheme = isDarkTheme,
+                        seekTimeMs = seekTimeMs,
+                        seekTimeSeconds = seekTimeSeconds,
+                        onPlayPauseClick = {
+                            onPlayPause(!isPlaying)
+                        },
+                        onSkipPreviousClick = onSkipPreviousTrack,
+                        onSkipNextClick = onSkipNextTrack,
+                        isSkipNextEnabled = if (onSkipNextTrack == null) true else canSkipNextTrack,
+                        onSeek = { position ->
+                            onSeekTo(position)
+                            currentTime = position
+                            // 拖动进度条后重置用户滚动状态，立即滚动到对应位置
+                            isUserScrolling = false
+                            scrollJob?.cancel()
+                            // 只有在非0秒处才触发歌词动画重置
+                            if (position > 0) {
+                                seekResetCounter += 1
+                            }
+                            // 强制重新计算自动滚动索引
+                            lastAutoScrolledIndex = -1
+                            // 重置跳过的索引状态
+                            lastSkippedScrollIndex = -1
+                            // 立即滚动到当前歌词位置，不使用动画
+                            coroutineScope.launch {
+                                val targetIndex = lineNavigator.findTargetIndex(position)
+                                if (targetIndex >= 0) {
+                                    lazyListState.scrollToItem(index = targetIndex, scrollOffset = -100)
+                                }
+                            }
+                        },
+                        vibrantColor = coverThemeColor ?: accentColor,
+                        backgroundColor = backgroundColor
+                    )
                 }
             }
         }
@@ -4347,9 +4327,7 @@ fun LyricPreviewHeader(
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {},
     mutedColor: Color? = null,
     isDarkTheme: Boolean = false,
-    backgroundColor: Color? = null,
-    showBackButton: Boolean = true,
-    showCoverAndMeta: Boolean = true
+    backgroundColor: Color? = null
 ) {
     val headerBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
     val textColor = getHighContrastBlackOrWhite(headerBackground)
@@ -4362,7 +4340,7 @@ fun LyricPreviewHeader(
     val iconColor = getHighContrastBlackOrWhite(headerBackground)
     var menuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     val density = LocalDensity.current
-    val headerHeight = if (showCoverAndMeta) 150.dp else 64.dp
+    val headerHeight = 150.dp
 
     Column(
         modifier = Modifier
@@ -4378,115 +4356,107 @@ fun LyricPreviewHeader(
                 .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (showBackButton) {
-                // 返回按钮
-                IconButton(
-                    onClick = onBackClick,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.baseline_arrow_back_24),
-                        contentDescription = "返回",
-                        tint = iconColor,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.size(40.dp))
+            // 返回按钮
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.baseline_arrow_back_24),
+                    contentDescription = "返回",
+                    tint = iconColor,
+                    modifier = Modifier.size(28.dp)
+                )
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            if (showCoverAndMeta) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            onHeaderClick()
-                        },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val coverAspectRatio = remember(coverBitmap) {
-                        coverBitmap?.let { bitmap ->
-                            if (bitmap.height > 0) {
-                                (bitmap.width.toFloat() / bitmap.height.toFloat())
-                                    .takeIf { it.isFinite() && it > 0f }
-                            } else {
-                                null
-                            }
-                        } ?: 1f
-                    }
-                    val coverBoxMax = 75.dp
-                    val coverWidth = if (coverAspectRatio >= 1f) {
-                        coverBoxMax
-                    } else {
-                        (coverBoxMax * coverAspectRatio).coerceAtLeast(42.dp)
-                    }
-                    val coverHeight = if (coverAspectRatio >= 1f) {
-                        (coverBoxMax / coverAspectRatio).coerceAtLeast(42.dp)
-                    } else {
-                        coverBoxMax
-                    }
-
-                    // 封面
-                    if (coverBitmap != null) {
-                        Image(
-                            bitmap = coverBitmap.asImageBitmap(),
-                            contentDescription = "封面",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .width(coverWidth)
-                                .height(coverHeight)
-                                .clip(RoundedCornerShape(12.dp))
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(75.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.img),
-                                contentDescription = "音乐",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .align(Alignment.Center)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    // 标题和艺术家
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.Center
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
                     ) {
-                        Text(
-                            text = title,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = artist,
-                            fontSize = 16.sp,
-                            color = artistColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                        onHeaderClick()
+                    },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val coverAspectRatio = remember(coverBitmap) {
+                    coverBitmap?.let { bitmap ->
+                        if (bitmap.height > 0) {
+                            (bitmap.width.toFloat() / bitmap.height.toFloat())
+                                .takeIf { it.isFinite() && it > 0f }
+                        } else {
+                            null
+                        }
+                    } ?: 1f
+                }
+                val coverBoxMax = 75.dp
+                val coverWidth = if (coverAspectRatio >= 1f) {
+                    coverBoxMax
+                } else {
+                    (coverBoxMax * coverAspectRatio).coerceAtLeast(42.dp)
+                }
+                val coverHeight = if (coverAspectRatio >= 1f) {
+                    (coverBoxMax / coverAspectRatio).coerceAtLeast(42.dp)
+                } else {
+                    coverBoxMax
+                }
+
+                // 封面
+                if (coverBitmap != null) {
+                    Image(
+                        bitmap = coverBitmap.asImageBitmap(),
+                        contentDescription = "封面",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .width(coverWidth)
+                            .height(coverHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(75.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.img),
+                            contentDescription = "音乐",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .align(Alignment.Center)
                         )
                     }
                 }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // 标题和艺术家
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = artist,
+                        fontSize = 16.sp,
+                        color = artistColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
