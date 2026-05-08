@@ -985,20 +985,11 @@ private fun ImportTranslationBottomSheet(
     if (!showSheet) return
 
     val scope = rememberCoroutineScope()
-    var allowSheetHide by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
-    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { targetValue ->
-            targetValue != androidx.compose.material3.SheetValue.Hidden ||
-                allowSheetHide ||
-                translationInput.isEmpty()
-        }
-    )
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val closeSheet = {
-        allowSheetHide = true
         hideSheetAndDismiss(scope, sheetState) {
             onDismissSheet()
         }
@@ -4134,9 +4125,7 @@ private fun MergeLyricBottomSheet(
         val displayTimeUnits = if (mergeLyricPreview.isNotEmpty()) mergeLyricPreview else currentLine.timeUnits
 
         androidx.compose.material3.ModalBottomSheet(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
+            modifier = Modifier.statusBarsPadding(),
             sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
                 if (hasChanges) {
@@ -4153,9 +4142,8 @@ private fun MergeLyricBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight()
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(16.dp)
             ) {
                 Text(
                     text = "合并歌词",
