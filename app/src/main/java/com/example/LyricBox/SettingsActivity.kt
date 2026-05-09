@@ -72,6 +72,7 @@ private const val PREF_KEY_AM_URL = "amUrl"
 private const val PREF_KEY_AM_URL_NAME = "amUrlName"
 private const val PREF_KEY_AM_URL_NAME_CONTRIBUTOR = "amUrlNameContributor"
 private const val PREF_KEY_NOTICE_CONTRIBUTOR = "noticeContributor"
+private const val PREF_SONG_CLICK_ACTION_CONFIRMED = "songClickActionConfirmed"
 private const val DEFAULT_AM_TOKEN_SOURCE = "cloudflare"
 private const val DEFAULT_AM_URL_NAME = "软件内置"
 private const val DEFAULT_AM_URL_NAME_CONTRIBUTOR = "贡献配置"
@@ -777,6 +778,7 @@ fun SettingsScreen(
                 currentSongClickAction.value = tempSongClickAction
                 val editor = musicLibraryPrefs.edit()
                 editor.putString("songClickAction", tempSongClickAction)
+                editor.putBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, true)
                 currentAutoDetectEmbeddedLyricsType.value = tempAutoDetectEmbeddedLyricsType
                 editor.putBoolean("autoDetectEmbeddedLyricsType", tempAutoDetectEmbeddedLyricsType)
                 editor.apply()

@@ -289,6 +289,7 @@ private const val ALBUM_SEARCH_PREFIX_ASCII = "#专辑:"
 private const val SEARCH_HISTORY_PREFS_KEY = "music_library_recent_search_history"
 private const val SEARCH_HISTORY_LIMIT = 5
 private const val EXTERNAL_AUDIO_LOG_TAG = "MusicLibraryExternal"
+private const val PREF_SONG_CLICK_ACTION_CONFIRMED = "songClickActionConfirmed"
 private const val STARTUP_APP_SETTINGS_PREFS_NAME = "AppSettings"
 private const val STARTUP_NOTICE_SNOOZE_DATE_KEY = "noticeSnoozeDate"
 
@@ -1633,6 +1634,9 @@ fun MusicLibraryScreen(
     var songClickAction by remember {
         mutableStateOf(prefs.getString("songClickAction", "") ?: "")
     }
+    var hasConfirmedSongClickAction by remember {
+        mutableStateOf(prefs.getBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, false))
+    }
     var autoDetectEmbeddedLyricsType by remember {
         mutableStateOf(prefs.getBoolean("autoDetectEmbeddedLyricsType", false))
     }
@@ -1976,6 +1980,7 @@ fun MusicLibraryScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 songClickAction = prefs.getString("songClickAction", "") ?: ""
+                hasConfirmedSongClickAction = prefs.getBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, false)
                 autoDetectEmbeddedLyricsType = prefs.getBoolean("autoDetectEmbeddedLyricsType", false)
                 val pathToRefresh = activity.getRefreshMetadataPath()
                 if (pathToRefresh != null) {
@@ -2661,7 +2666,7 @@ fun MusicLibraryScreen(
                                                 }
                                             }
                                         } else {
-                                            if (songClickAction.isBlank()) {
+                                            if (!hasConfirmedSongClickAction) {
                                                 pendingSongClickAudio = audio
                                                 tempSongClickAction = ""
                                                 tempAutoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType
@@ -3006,9 +3011,11 @@ fun MusicLibraryScreen(
                     Toast.makeText(context, "请选择默认操作", Toast.LENGTH_SHORT).show()
                 } else {
                     songClickAction = tempSongClickAction
+                    hasConfirmedSongClickAction = true
                     autoDetectEmbeddedLyricsType = tempAutoDetectEmbeddedLyricsType
                     prefs.edit()
                         .putString("songClickAction", tempSongClickAction)
+                        .putBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, true)
                         .putBoolean("autoDetectEmbeddedLyricsType", tempAutoDetectEmbeddedLyricsType)
                         .apply()
                     showSongClickActionDialog = false
@@ -5335,6 +5342,9 @@ fun ExternalAudioScreen(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val songClickAction = remember { prefs.getString("songClickAction", "") } ?: ""
+    val hasConfirmedSongClickAction = remember {
+        prefs.getBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, false)
+    }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -5343,7 +5353,7 @@ fun ExternalAudioScreen(
         if (hasAppliedDefaultAction) return@LaunchedEffect
         hasAppliedDefaultAction = true
         showAudioOptionsDialog = false
-        if (songClickAction.isBlank()) {
+        if (!hasConfirmedSongClickAction || songClickAction.isBlank()) {
             showAudioOptionsDialog = true
         } else if (songClickAction == "editMetadata") {
             onEditMetadata(audio.path, true)
