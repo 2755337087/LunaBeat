@@ -40,7 +40,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
@@ -78,11 +77,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -323,6 +324,8 @@ private fun MusicPlayerScreen(
             onControlAccentColor = onControlAccentColor,
             oppositeControlColor = oppositeControlColor,
             onOppositeControlColor = onOppositeControlColor,
+            playbackMode = controller.playbackMode,
+            nextTrackTitle = controller.nextTrackTitle,
             showLyricPreviewButton = true,
             onLyricPreviewClick = openLyricPreview,
             onShowPlaylist = { showPlaylistSheet = true },
@@ -417,6 +420,8 @@ private fun MusicPlayerPrimaryPane(
     onControlAccentColor: Color,
     oppositeControlColor: Color,
     onOppositeControlColor: Color,
+    playbackMode: PlaybackMode,
+    nextTrackTitle: String,
     showLyricPreviewButton: Boolean,
     onLyricPreviewClick: () -> Unit,
     onShowPlaylist: () -> Unit,
@@ -424,6 +429,22 @@ private fun MusicPlayerPrimaryPane(
     onArtistsClick: (List<String>) -> Unit
 ) {
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    var showNextTrackHint by remember(nextTrackTitle) { mutableStateOf(false) }
+    LaunchedEffect(nextTrackTitle, playbackMode) {
+        showNextTrackHint = false
+        if (nextTrackTitle.isBlank()) return@LaunchedEffect
+        while (true) {
+            delay(5000)
+            showNextTrackHint = true
+            delay(5000)
+            showNextTrackHint = false
+        }
+    }
+    val topTitleText = if (showNextTrackHint && nextTrackTitle.isNotBlank()) {
+        "下一首：$nextTrackTitle"
+    } else {
+        "正在播放"
+    }
 
     if (isLandscape) {
         BoxWithConstraints(modifier = modifier) {
@@ -474,24 +495,39 @@ private fun MusicPlayerPrimaryPane(
         }
     } else {
         Column(modifier = modifier) {
+            val headerSideSize = 40.dp
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onClose) {
+                IconButton(
+                    modifier = Modifier.size(headerSideSize),
+                    onClick = onClose
+                ) {
                     Icon(
-                        imageVector = Icons.Rounded.ArrowDownward,
+                        painter = painterResource(id = R.drawable.down),
                         contentDescription = "收起播放器",
-                        tint = onBackgroundColor
+                        tint = onBackgroundColor,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                Text(
-                    text = "正在播放",
-                    fontSize = 14.sp,
-                    color = onBackgroundColor.copy(alpha = 0.88f)
-                )
-                Spacer(modifier = Modifier.width(48.dp))
+                Crossfade(
+                    targetState = topTitleText,
+                    animationSpec = tween(durationMillis = 260),
+                    modifier = Modifier.weight(1f),
+                    label = "playerTopTitle"
+                ) { text ->
+                    Text(
+                        text = text,
+                        fontSize = 14.sp,
+                        color = onBackgroundColor.copy(alpha = 0.88f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Spacer(modifier = Modifier.width(headerSideSize))
             }
 
             Spacer(modifier = Modifier.height(10.dp))

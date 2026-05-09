@@ -87,6 +87,10 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var hasNextTrack by mutableStateOf(false)
         private set
+    var nextTrackAudioPath by mutableStateOf<String?>(null)
+        private set
+    var nextTrackTitle by mutableStateOf("")
+        private set
 
     val hasCurrentItem: Boolean
         get() = currentAudioPath != null
@@ -488,6 +492,27 @@ class MusicPlaybackController(private val context: Context) {
             player.repeatMode == Player.REPEAT_MODE_ONE -> PlaybackMode.SINGLE_REPEAT
             player.shuffleModeEnabled -> PlaybackMode.SHUFFLE
             else -> PlaybackMode.SEQUENTIAL
+        }
+        val resolvedNextIndex = when {
+            currentIndex < 0 || mediaCount <= 0 -> -1
+            playbackMode == PlaybackMode.SINGLE_REPEAT -> {
+                if (currentIndex + 1 in 0 until mediaCount) currentIndex + 1 else 0
+            }
+            else -> {
+                val candidate = player.nextMediaItemIndex
+                if (candidate in 0 until mediaCount) candidate else 0
+            }
+        }
+        if (resolvedNextIndex in 0 until mediaCount) {
+            val nextItem = player.getMediaItemAt(resolvedNextIndex)
+            val nextExtras = nextItem.mediaMetadata.extras
+            nextTrackAudioPath = nextExtras?.getString(EXTRA_AUDIO_PATH)
+                ?: nextItem.mediaId.takeIf { it.isNotBlank() }
+            nextTrackTitle = nextItem.mediaMetadata.title?.toString()
+                ?: File(nextTrackAudioPath ?: "").nameWithoutExtension
+        } else {
+            nextTrackAudioPath = null
+            nextTrackTitle = ""
         }
         persistPlaybackModeState(playbackMode)
         persistCurrentQueue(player)
