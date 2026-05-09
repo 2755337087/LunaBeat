@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.androidx.foundation)
     implementation(libs.lottie.compose)
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.transition:transition:1.5.1")
     implementation("com.github.yalantis:ucrop:2.2.11-native")
     implementation("androidx.palette:palette:1.0.0")
     implementation("androidx.room:room-runtime:2.7.2")

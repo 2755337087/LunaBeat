@@ -12,9 +12,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.MimeTypeMap
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -110,6 +112,7 @@ private const val REQUEST_CODE_SEARCH_METADATA = 1001
 private const val REQUEST_CODE_LYRIC_TIMING = 1002
 private const val REQUEST_CODE_UCROP = 1004
 private val GENRE_SPLIT_REGEX = Regex("""[;；:：、&]+""")
+private const val ACCOMPANIMENT_DIR_PATH = "/storage/emulated/0/Music/.sing"
 
 data class BatchEditFieldValues(
     val titles: Set<String> = emptySet(),
@@ -520,6 +523,7 @@ fun SongMetadataEditScreen(
     var previewType by remember { mutableStateOf("image") }
     var showRemoveImageConfirm by remember { mutableStateOf(false) }
     var showRemoveVideoConfirm by remember { mutableStateOf(false) }
+    var showRemoveAccompanimentConfirm by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showBatchProgressDialog by remember { mutableStateOf(false) }
     var batchProgress by remember { mutableStateOf(0 to 0) }
@@ -592,6 +596,7 @@ fun SongMetadataEditScreen(
     var comment by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
     var copyright by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
     var lyrics by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
+    var accompanimentPath by remember(audioPath) { mutableStateOf<String?>(null) }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
@@ -645,6 +650,12 @@ fun SongMetadataEditScreen(
     val originalCustomFieldValues = rememberSaveable(audioPath, isBatchEdit, saver = stringStateMapSaver) { mutableStateMapOf<String, String>() }
     
     var audioFileName by remember { mutableStateOf("") }
+
+    LaunchedEffect(audioPath) {
+        accompanimentPath = withContext(Dispatchers.IO) {
+            getAccompanimentPathForAudio(audioPath)
+        }
+    }
     
     fun hasUnsavedChanges(): Boolean {
         if (isBatchEdit) {
@@ -1580,6 +1591,25 @@ fun SongMetadataEditScreen(
             }
         }
     }
+
+    fun removeAccompaniment() {
+        scope.launch {
+            val result = removeAccompanimentFile(context, accompanimentPath)
+            when {
+                result.success -> {
+                    accompanimentPath = null
+                    showSuccessDialog = true
+                }
+                result.needPermission -> {
+                    showPermissionDialog = true
+                }
+                else -> {
+                    errorMessage = result.errorMessage ?: "移除伴奏失败"
+                    showErrorDialog = true
+                }
+            }
+        }
+    }
     
     val pickImageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -1610,6 +1640,29 @@ fun SongMetadataEditScreen(
                         showSuccessDialog = true
                     } else if (result.errorMessage != null) {
                         errorMessage = result.errorMessage
+                        showErrorDialog = true
+                    }
+                }
+            }
+        }
+    }
+
+    val pickAccompanimentLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            scope.launch {
+                val result = copyAccompanimentToDefaultPath(context, audioPath, it)
+                when {
+                    result.success -> {
+                        accompanimentPath = result.path
+                        showSuccessDialog = true
+                    }
+                    result.needPermission -> {
+                        showPermissionDialog = true
+                    }
+                    else -> {
+                        errorMessage = result.errorMessage ?: "添加伴奏失败"
                         showErrorDialog = true
                     }
                 }
@@ -1977,8 +2030,14 @@ fun SongMetadataEditScreen(
                     }
                 }
                 
+                val renderedFieldKeys = if (isBatchEdit) {
+                    visibleFieldKeys.filterNot { it == "accompaniment" }
+                } else {
+                    visibleFieldKeys
+                }
+
                 itemsIndexed(
-                    items = visibleFieldKeys,
+                    items = renderedFieldKeys,
                     key = { _, fieldKey -> fieldKey }
                 ) { index, fieldKey ->
                     when (fieldKey) {
@@ -2328,6 +2387,12 @@ fun SongMetadataEditScreen(
                                 currentSelectionField = "copyrightInfo"
                                 showFieldSelectionSheet = true
                             }
+                        )
+
+                        "accompaniment" -> AccompanimentMetadataField(
+                            path = accompanimentPath,
+                            onAddClick = { pickAccompanimentLauncher.launch("audio/*") },
+                            onRemoveClick = { showRemoveAccompanimentConfirm = true }
                         )
 
                         "lyrics" -> Column {
@@ -2761,6 +2826,29 @@ fun SongMetadataEditScreen(
             }
         )
     }
+
+    if (showRemoveAccompanimentConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRemoveAccompanimentConfirm = false },
+            title = { Text("确认移除") },
+            text = { Text("确定要移除伴奏文件吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRemoveAccompanimentConfirm = false
+                        removeAccompaniment()
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveAccompanimentConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
     
     if (showPermissionDialog) {
         AlertDialog(
@@ -3053,6 +3141,87 @@ fun SongMetadataEditScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun AccompanimentMetadataField(
+    path: String?,
+    onAddClick: () -> Unit,
+    onRemoveClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val fieldContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+    val fieldTextColor = MaterialTheme.colorScheme.onPrimaryContainer
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "伴奏",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.size(48.dp))
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = fieldContainerColor,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!path.isNullOrBlank()) {
+                    Text(
+                        text = path,
+                        fontSize = 16.sp,
+                        color = fieldTextColor,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onAddClick,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "添加伴奏",
+                            color = fieldTextColor
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onRemoveClick,
+                        enabled = !path.isNullOrBlank(),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("移除伴奏")
+                    }
+                }
             }
         }
     }
@@ -3516,6 +3685,130 @@ data class VideoSaveResult(
     val success: Boolean,
     val errorMessage: String? = null
 )
+
+data class AccompanimentOperationResult(
+    val success: Boolean,
+    val needPermission: Boolean = false,
+    val path: String? = null,
+    val errorMessage: String? = null
+)
+
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) cursor.getString(nameIndex) else null
+                } else {
+                    null
+                }
+            }
+    }.getOrNull()
+}
+
+private fun resolveUriExtension(context: Context, uri: Uri): String {
+    val displayName = queryDisplayName(context, uri).orEmpty()
+    val fromDisplayName = displayName.substringAfterLast('.', "").trim()
+    if (fromDisplayName.isNotEmpty()) return fromDisplayName
+
+    val mimeType = context.contentResolver.getType(uri).orEmpty()
+    val fromMime = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType).orEmpty()
+    if (fromMime.isNotEmpty()) return fromMime
+
+    val fromPathSegment = uri.lastPathSegment.orEmpty().substringAfterLast('.', "").trim()
+    return fromPathSegment
+}
+
+fun findAccompanimentFileForAudio(audioPath: String?): File? {
+    if (audioPath.isNullOrBlank()) return null
+    val sourceAudio = File(audioPath)
+    if (!sourceAudio.exists()) return null
+    val dir = File(ACCOMPANIMENT_DIR_PATH)
+    if (!dir.exists() || !dir.isDirectory) return null
+    val baseName = sourceAudio.nameWithoutExtension
+    return dir.listFiles()
+        ?.filter { it.isFile }
+        ?.sortedBy { it.name }
+        ?.firstOrNull { it.nameWithoutExtension.equals(baseName, ignoreCase = true) }
+}
+
+fun getAccompanimentPathForAudio(audioPath: String?): String? {
+    return findAccompanimentFileForAudio(audioPath)?.absolutePath
+}
+
+suspend fun copyAccompanimentToDefaultPath(
+    context: Context,
+    audioPath: String?,
+    sourceUri: Uri
+): AccompanimentOperationResult = withContext(Dispatchers.IO) {
+    try {
+        if (!hasStoragePermission(context)) {
+            return@withContext AccompanimentOperationResult(success = false, needPermission = true)
+        }
+        if (audioPath.isNullOrBlank()) {
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = "未找到当前歌曲路径")
+        }
+
+        val sourceAudio = File(audioPath)
+        if (!sourceAudio.exists()) {
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = "当前歌曲文件不存在")
+        }
+
+        val targetDir = File(ACCOMPANIMENT_DIR_PATH)
+        if (!targetDir.exists() && !targetDir.mkdirs()) {
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = "无法创建伴奏目录")
+        }
+
+        val baseName = sourceAudio.nameWithoutExtension
+        val extension = resolveUriExtension(context, sourceUri)
+        val targetName = if (extension.isNotBlank()) "$baseName.$extension" else baseName
+        val targetFile = File(targetDir, targetName)
+
+        targetDir.listFiles()
+            ?.filter { it.isFile && it.nameWithoutExtension.equals(baseName, ignoreCase = true) && it.absolutePath != targetFile.absolutePath }
+            ?.forEach { oldFile ->
+                runCatching { oldFile.delete() }
+            }
+
+        context.contentResolver.openInputStream(sourceUri)?.use { input ->
+            targetFile.outputStream().use { output ->
+                input.copyTo(output)
+                output.flush()
+            }
+        } ?: return@withContext AccompanimentOperationResult(success = false, errorMessage = "读取伴奏文件失败")
+
+        AccompanimentOperationResult(success = true, path = targetFile.absolutePath)
+    } catch (e: Exception) {
+        Log.e(TAG, "Error copying accompaniment file", e)
+        AccompanimentOperationResult(success = false, errorMessage = e.message ?: "添加伴奏失败")
+    }
+}
+
+suspend fun removeAccompanimentFile(
+    context: Context,
+    accompanimentPath: String?
+): AccompanimentOperationResult = withContext(Dispatchers.IO) {
+    try {
+        if (!hasStoragePermission(context)) {
+            return@withContext AccompanimentOperationResult(success = false, needPermission = true)
+        }
+        if (accompanimentPath.isNullOrBlank()) {
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = "当前没有可移除的伴奏文件")
+        }
+        val file = File(accompanimentPath)
+        if (!file.exists()) {
+            return@withContext AccompanimentOperationResult(success = true)
+        }
+        if (!file.delete()) {
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = "删除伴奏文件失败")
+        }
+        AccompanimentOperationResult(success = true)
+    } catch (e: Exception) {
+        Log.e(TAG, "Error removing accompaniment file", e)
+        AccompanimentOperationResult(success = false, errorMessage = e.message ?: "移除伴奏失败")
+    }
+}
 
 // 音乐库音频文件数据类
 data class MusicLibraryAudioFile(

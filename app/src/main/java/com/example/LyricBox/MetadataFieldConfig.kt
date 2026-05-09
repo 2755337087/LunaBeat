@@ -28,6 +28,7 @@ val BUILT_IN_METADATA_FIELDS: List<BuiltInMetadataField> = listOf(
     BuiltInMetadataField("lyricist", "作词"),
     BuiltInMetadataField("comment", "注释"),
     BuiltInMetadataField("copyrightInfo", "版权信息"),
+    BuiltInMetadataField("accompaniment", "伴奏"),
     BuiltInMetadataField("lyrics", "歌词")
 )
 
@@ -115,7 +116,15 @@ object MetadataFieldConfigStore {
 
         for (builtInKey in builtInDefaultVisible) {
             if (!used.contains(builtInKey)) {
-                visible.add(builtInKey)
+                val insertionIndex = BUILT_IN_METADATA_FIELDS
+                    .dropWhile { it.key != builtInKey }
+                    .drop(1)
+                    .mapNotNull { nextField ->
+                        visible.indexOf(nextField.key).takeIf { it >= 0 }
+                    }
+                    .minOrNull()
+                    ?: visible.size
+                visible.add(insertionIndex, builtInKey)
                 used.add(builtInKey)
             }
         }
