@@ -64,6 +64,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -73,6 +74,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
@@ -93,6 +95,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -139,6 +142,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -148,6 +154,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -6078,6 +6085,19 @@ private fun BatchMatchConfigSheet(
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val blockSheetDragFromContent = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(x = 0f, y = available.y)
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                Velocity(x = 0f, y = available.y)
+        }
+    }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("BatchMatchConfig", Context.MODE_PRIVATE) }
     
@@ -6140,6 +6160,12 @@ private fun BatchMatchConfigSheet(
     var fields by remember { mutableStateOf(initialConfig.first) }
     var selectedSources by remember { mutableStateOf(initialConfig.second) }
     var threadCount by remember { mutableStateOf(initialConfig.third) }
+    val closeSheet: () -> Unit = {
+        scope.launch {
+            sheetState.hide()
+            onDismiss()
+        }
+    }
     
     LaunchedEffect(fields, selectedSources, threadCount) {
         saveConfig(fields, selectedSources, threadCount)
@@ -6148,21 +6174,30 @@ private fun BatchMatchConfigSheet(
     LaunchedEffect(Unit) { sheetState.show() }
     
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        modifier = modifier.statusBarsPadding(),
+        onDismissRequest = closeSheet,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         val scrollState = rememberScrollState()
         
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+                .fillMaxHeight()
                 .navigationBarsPadding()
         ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .nestedScroll(blockSheetDragFromContent)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 20.dp)
+            ) {
             Text(
                 text = "批量匹配标签配置",
                 fontSize = 18.sp,
@@ -6411,13 +6446,16 @@ private fun BatchMatchConfigSheet(
             )
             
             Spacer(modifier = Modifier.height(24.dp))
-            
+            }
+            HorizontalDivider()
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedButton(
-                    onClick = onDismiss,
+                    onClick = closeSheet,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("取消")
@@ -6889,6 +6927,19 @@ private fun BatchMatchLyricsSheet(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val blockSheetDragFromContent = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(x = 0f, y = available.y)
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                Velocity(x = 0f, y = available.y)
+        }
+    }
     
     val defaultSources = remember {
         prefs.getString("batchLyricMatchSources", null)
@@ -6929,25 +6980,40 @@ private fun BatchMatchLyricsSheet(
     var threadCount by remember { mutableStateOf(defaultThreadCount) }
     var filterMetadata by remember { mutableStateOf(defaultFilterMetadata) }
     var includeTranslation by remember { mutableStateOf(defaultIncludeTranslation) }
+    val closeSheet: () -> Unit = {
+        scope.launch {
+            sheetState.hide()
+            onDismiss()
+        }
+    }
     
     LaunchedEffect(Unit) { sheetState.show() }
     
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        modifier = modifier.statusBarsPadding(),
+        onDismissRequest = closeSheet,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         val scrollState = rememberScrollState()
         
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+                .fillMaxHeight()
                 .navigationBarsPadding()
         ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .nestedScroll(blockSheetDragFromContent)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 20.dp)
+            ) {
             Text(
                 text = "批量匹配歌词",
                 fontSize = 18.sp,
@@ -7259,13 +7325,16 @@ private fun BatchMatchLyricsSheet(
             )
             
             Spacer(modifier = Modifier.height(24.dp))
-            
+            }
+            HorizontalDivider()
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedButton(
-                    onClick = onDismiss,
+                    onClick = closeSheet,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("取消")
@@ -9523,6 +9592,36 @@ private fun processArtists(artistString: String, separator: String): String {
     return processed
 }
 
+private fun renameSingAccompanimentFile(oldAudioFile: File, newAudioFile: File) {
+    val singDir = File("/storage/emulated/0/Music/.sing")
+    if (!singDir.exists() || !singDir.isDirectory) return
+
+    val oldBaseName = oldAudioFile.nameWithoutExtension
+    val newBaseName = newAudioFile.nameWithoutExtension
+    if (oldBaseName == newBaseName) return
+
+    singDir.listFiles().orEmpty()
+        .filter { it.isFile && it.nameWithoutExtension == oldBaseName }
+        .forEach { oldCompanion ->
+            val newName = if (oldCompanion.extension.isBlank()) {
+                newBaseName
+            } else {
+                "$newBaseName.${oldCompanion.extension}"
+            }
+            val newCompanion = File(singDir, newName)
+            if (oldCompanion.absolutePath == newCompanion.absolutePath || newCompanion.exists()) return@forEach
+
+            runCatching { oldCompanion.renameTo(newCompanion) }
+                .onFailure { error ->
+                    Log.w(
+                        "BatchRename",
+                        "Failed to rename .sing accompaniment: ${oldCompanion.absolutePath} -> ${newCompanion.absolutePath}",
+                        error
+                    )
+                }
+        }
+}
+
 private suspend fun performBatchRename(
     context: Context,
     previewItems: List<RenamePreviewItem>,
@@ -9539,18 +9638,26 @@ private suspend fun performBatchRename(
             val newFile = File(file.parent, item.newName)
             
             try {
+                var audioRenamedOrUnchanged = false
                 if (file.exists() && newFile != file) {
                     val renamed = file.renameTo(newFile)
                     if (renamed) {
                         successItems.add(item)
+                        audioRenamedOrUnchanged = true
+                        renameSingAccompanimentFile(file, newFile)
                     } else {
                         errors[item.oldName] = "重命名失败"
                     }
                 } else if (file.exists() && newFile == file) {
                     successItems.add(item)
+                    audioRenamedOrUnchanged = true
                 }
                 
-                if (config.renameTtml && item.oldTtmlName != null && item.newTtmlName != null) {
+                if (audioRenamedOrUnchanged &&
+                    config.renameTtml &&
+                    item.oldTtmlName != null &&
+                    item.newTtmlName != null
+                ) {
                     val ttmlFile = File(file.parent, item.oldTtmlName)
                     val newTtmlFile = File(file.parent, item.newTtmlName)
                     if (ttmlFile.exists() && newTtmlFile != ttmlFile) {
