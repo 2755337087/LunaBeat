@@ -1630,8 +1630,12 @@ fun MusicLibraryScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val searchFocusRequester = remember { FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
-    val songClickAction = remember { prefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
-    val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
+    var songClickAction by remember {
+        mutableStateOf(prefs.getString("songClickAction", "") ?: "")
+    }
+    var autoDetectEmbeddedLyricsType by remember {
+        mutableStateOf(prefs.getBoolean("autoDetectEmbeddedLyricsType", false))
+    }
     val scope = rememberCoroutineScope()
     val playbackController = rememberMusicPlaybackController()
     val miniPlayerVisible = playbackController.hasCurrentItem
@@ -1643,6 +1647,10 @@ fun MusicLibraryScreen(
     var scanProgress by remember { mutableStateOf(0 to 0) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pageMenuExpanded by remember { mutableStateOf(false) }
+    var showSongClickActionDialog by remember { mutableStateOf(false) }
+    var tempSongClickAction by remember { mutableStateOf(songClickAction) }
+    var tempAutoDetectEmbeddedLyricsType by remember { mutableStateOf(autoDetectEmbeddedLyricsType) }
+    var pendingSongClickAudio by remember { mutableStateOf<AudioFile?>(null) }
     var selectedAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showAudioOptionsDialog by remember { mutableStateOf(false) }
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
@@ -1967,6 +1975,8 @@ fun MusicLibraryScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                songClickAction = prefs.getString("songClickAction", "") ?: ""
+                autoDetectEmbeddedLyricsType = prefs.getBoolean("autoDetectEmbeddedLyricsType", false)
                 val pathToRefresh = activity.getRefreshMetadataPath()
                 if (pathToRefresh != null) {
                     scope.launch {
@@ -2040,6 +2050,35 @@ fun MusicLibraryScreen(
             putExtra("lyricsFormat", format)
         }
         context.startActivity(intent)
+    }
+
+    fun executePrimarySongAction(audio: AudioFile) {
+        when (songClickAction) {
+            "playMusic" -> {
+                playbackController.playQueue(displayAudioFiles.toList(), audio.path)
+            }
+            "editMetadata" -> {
+                onEditMetadata(audio.path)
+            }
+            else -> {
+                handleMusicLibraryItemLyricsAction(
+                    scope = scope,
+                    audio = audio,
+                    autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+                    onShowOptions = {
+                        selectedAudio = it
+                        showAudioOptionsDialog = true
+                    },
+                    onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
+                        startLyricTimingEditor(
+                            audio = targetAudio,
+                            lyricsContent = lyricsContent,
+                            format = format
+                        )
+                    }
+                )
+            }
+        }
     }
 
     fun shouldShowScanComplete(summary: ScanSummary): Boolean {
@@ -2622,31 +2661,13 @@ fun MusicLibraryScreen(
                                                 }
                                             }
                                         } else {
-                                            when (songClickAction) {
-                                                "playMusic" -> {
-                                                    playbackController.playQueue(displayAudioFiles.toList(), audio.path)
-                                                }
-                                                "editMetadata" -> {
-                                                    onEditMetadata(audio.path)
-                                                }
-                                                else -> {
-                                                    handleMusicLibraryItemLyricsAction(
-                                                        scope = scope,
-                                                        audio = audio,
-                                                        autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
-                                                        onShowOptions = {
-                                                            selectedAudio = it
-                                                            showAudioOptionsDialog = true
-                                                        },
-                                                        onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
-                                                            startLyricTimingEditor(
-                                                                audio = targetAudio,
-                                                                lyricsContent = lyricsContent,
-                                                                format = format
-                                                            )
-                                                        }
-                                                    )
-                                                }
+                                            if (songClickAction.isBlank()) {
+                                                pendingSongClickAudio = audio
+                                                tempSongClickAction = ""
+                                                tempAutoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType
+                                                showSongClickActionDialog = true
+                                            } else {
+                                                executePrimarySongAction(audio)
                                             }
                                         }
                                     },
@@ -2966,6 +2987,34 @@ fun MusicLibraryScreen(
             },
             onEditMetadata = { path ->
                 onEditMetadata(path)
+            }
+        )
+    }
+
+    if (showSongClickActionDialog) {
+        SongClickActionDialog(
+            currentValue = tempSongClickAction,
+            onValueChange = { tempSongClickAction = it },
+            autoDetectEmbeddedLyricsType = tempAutoDetectEmbeddedLyricsType,
+            onAutoDetectEmbeddedLyricsTypeChange = { tempAutoDetectEmbeddedLyricsType = it },
+            onDismiss = {
+                showSongClickActionDialog = false
+                pendingSongClickAudio = null
+            },
+            onConfirm = {
+                if (tempSongClickAction.isBlank()) {
+                    Toast.makeText(context, "请选择默认操作", Toast.LENGTH_SHORT).show()
+                } else {
+                    songClickAction = tempSongClickAction
+                    autoDetectEmbeddedLyricsType = tempAutoDetectEmbeddedLyricsType
+                    prefs.edit()
+                        .putString("songClickAction", tempSongClickAction)
+                        .putBoolean("autoDetectEmbeddedLyricsType", tempAutoDetectEmbeddedLyricsType)
+                        .apply()
+                    showSongClickActionDialog = false
+                    pendingSongClickAudio?.let { executePrimarySongAction(it) }
+                    pendingSongClickAudio = null
+                }
             }
         )
     }
@@ -5285,7 +5334,7 @@ fun ExternalAudioScreen(
     var hasAppliedDefaultAction by remember(audio.path) { mutableStateOf(false) }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
-    val songClickAction = remember { prefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
+    val songClickAction = remember { prefs.getString("songClickAction", "") } ?: ""
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -5294,7 +5343,9 @@ fun ExternalAudioScreen(
         if (hasAppliedDefaultAction) return@LaunchedEffect
         hasAppliedDefaultAction = true
         showAudioOptionsDialog = false
-        if (songClickAction == "editMetadata") {
+        if (songClickAction.isBlank()) {
+            showAudioOptionsDialog = true
+        } else if (songClickAction == "editMetadata") {
             onEditMetadata(audio.path, true)
         } else {
             handleMusicLibraryItemLyricsAction(

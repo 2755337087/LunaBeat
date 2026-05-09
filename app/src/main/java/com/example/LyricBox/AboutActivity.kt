@@ -215,7 +215,7 @@ fun AboutScreen(
            // Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "LyricBox",
+                text = "LunaBeat",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary

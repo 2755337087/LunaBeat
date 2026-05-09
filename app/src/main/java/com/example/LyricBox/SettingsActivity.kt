@@ -218,7 +218,7 @@ fun SettingsScreen(
     val savedAMCloudflareUrl = savedAMTokenConfig.cloudflareUrl
     val savedAMCountry = savedAMTokenConfig.country
     
-    val savedSongClickAction = remember { musicLibraryPrefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
+    val savedSongClickAction = remember { musicLibraryPrefs.getString("songClickAction", "") } ?: ""
     var tempSongClickAction by remember { mutableStateOf(savedSongClickAction) }
     val currentSongClickAction = remember { mutableStateOf(savedSongClickAction) }
     val savedAutoDetectEmbeddedLyricsType = remember {
@@ -498,7 +498,7 @@ fun SettingsScreen(
                         "editLyrics" -> "编辑歌词"
                         "editMetadata" -> "编辑元数据"
                         "playMusic" -> "播放音乐"
-                        else -> "编辑歌词"
+                        else -> "未设置"
                     },
                     onClick = {
                         tempSongClickAction = currentSongClickAction.value
@@ -1469,14 +1469,6 @@ fun SongClickActionDialog(
                             text = displayName,
                             fontSize = 16.sp
                         )
-                        if (key == "editLyrics") {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "(默认)",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
                     }
                 }
 

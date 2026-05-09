@@ -38,7 +38,7 @@
             android:value="2755337087" />
         <meta-data
             android:name="lyricon_module_description"
-            android:value="LyricBox状态栏歌词支持" />
+            android:value="LunaBeat状态栏歌词支持" />
         <meta-data
             android:name="lyricon_module_tags"
             android:resource="@array/lyricon_module_tags" />

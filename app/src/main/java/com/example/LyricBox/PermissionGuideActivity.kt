@@ -227,7 +227,7 @@ fun PermissionGuideScreen(
         )
         
         Text(
-            text = "LyricBox",
+            text = "LunaBeat",
             fontSize = 36.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground

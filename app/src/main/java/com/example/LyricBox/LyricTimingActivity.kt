@@ -7125,13 +7125,13 @@ fun ImportExampleDialog(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "欢迎使用_LyricBox",
+                        text = "欢迎使用_LunaBeat",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "分割结果：|欢迎使用_LyricBox|",
+                        text = "分割结果：|欢迎使用_LunaBeat|",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
