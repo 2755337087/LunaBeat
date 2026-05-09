@@ -634,7 +634,7 @@ class LyricTimingActivity : ComponentActivity() {
                             lastSelectedWordIndexSnapshot = wordIndex
                         }
                     )
-                    
+
                     if (showPiracyWarning && piracyCheckResult != null) {
                         com.example.LyricBox.ui.components.PiracyWarningDialog(
                             onExit = {
@@ -6125,12 +6125,15 @@ fun CommonHeadBar(
     title: String,
     showBack: Boolean = true,
     showMenu: Boolean = false,
+    leadingIconResId: Int = R.drawable.baseline_arrow_back_24,
     onBackClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
     onTitleClick: (() -> Unit)? = null,
+    leadingMenuContent: @Composable (backButtonPosition: MenuAnchorPosition?) -> Unit = {},
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {}
 ) {
     val iconColor = MaterialTheme.colorScheme.onPrimaryContainer
+    var backButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     var menuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     val density = LocalDensity.current
     
@@ -6143,7 +6146,7 @@ fun CommonHeadBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(50.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -6151,14 +6154,26 @@ fun CommonHeadBar(
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (showBack) {
-                    IconButton(onClick = onBackClick) {
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            val bounds = coordinates.boundsInRoot()
+                            val centerX = bounds.center.x
+                            val centerY = bounds.center.y
+                            backButtonPosition = MenuAnchorPosition(
+                                x = with(density) { centerX.toDp().value },
+                                y = with(density) { centerY.toDp().value }
+                            )
+                        }
+                    ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.baseline_arrow_back_24),
+                            painter = painterResource(id = leadingIconResId),
                             contentDescription = "返回",
                             tint = iconColor
                         )
                     }
                 }
+                leadingMenuContent(backButtonPosition)
             }
             
             androidx.compose.animation.AnimatedContent(
@@ -8035,18 +8050,13 @@ fun LyricTimingScreen(
             title = displayTitle,
             showBack = true,
             showMenu = !isPreviewMode,
-            onBackClick = {
-                if (hasLyrics) {
-                    onConfirmDialogChange(true)
-                } else {
-                    onBack()
-                }
-            },
+            onBackClick = onBack,
             onMenuClick = { menuExpanded = true },
             onTitleClick = if (isFromMusicLibrary) {
                 { showTitlePathDialog = true }
             } else null,
             menuContent = { menuButtonPosition ->
+                if (isPreviewMode) return@CommonHeadBar
                 val menuItems = if (isFromMusicLibrary) {
                     listOf(
                         MenuItem(

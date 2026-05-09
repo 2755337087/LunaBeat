@@ -77,9 +77,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
         // 初始化安全存储
         SecureStorage.initializeIfNeeded(this)
+
+        // 默认首页直接进入音乐库
+        startActivity(Intent(this, MusicLibraryActivity::class.java))
+        finish()
+        return
         
         val checkResult = PiracyChecker.checkAll(this)
         if (checkResult.isPirated) {
@@ -177,7 +182,8 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets(0, 0, 0, 0)
                 ) { _ ->
                     MainScreen(
-                        onNavigateToLyricTiming = { 
+                        onOpenDrawer = {},
+                        onNavigateToLyricTiming = {
                             startActivity(Intent(this, LyricTimingActivity::class.java))
                         },
                         onNavigateToMusicLibrary = {
@@ -213,6 +219,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainScreen(
+    onOpenDrawer: () -> Unit,
     onNavigateToLyricTiming: () -> Unit,
     onNavigateToMusicLibrary: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -233,8 +240,10 @@ fun MainScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             CommonHeadBar(
                 title = "LyricBox",
-                showBack = false,
-                showMenu = false
+                showBack = true,
+                showMenu = false,
+                onBackClick = onOpenDrawer,
+                leadingIconResId = R.drawable.menu
             )
             
             Column(
@@ -365,6 +374,7 @@ fun NoticeBanner(
 fun MainScreenPreview() {
     歌词转换Theme {
         MainScreen(
+            onOpenDrawer = {},
             onNavigateToLyricTiming = {},
             onNavigateToMusicLibrary = {},
             onNavigateToSettings = {},

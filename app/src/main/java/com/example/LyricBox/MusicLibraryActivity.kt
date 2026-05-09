@@ -1484,6 +1484,7 @@ fun MusicLibraryScreen(
     var isScanning by remember { mutableStateOf(false) }
     var scanProgress by remember { mutableStateOf(0 to 0) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var pageMenuExpanded by remember { mutableStateOf(false) }
     var selectedAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showAudioOptionsDialog by remember { mutableStateOf(false) }
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
@@ -2013,8 +2014,21 @@ fun MusicLibraryScreen(
             CommonHeadBar(
                 title = headbarTitle,
                 showBack = true,
+                leadingIconResId = R.drawable.menu,
                 showMenu = true,
-                onBackClick = onBack,
+                onBackClick = { pageMenuExpanded = true },
+                leadingMenuContent = { backButtonPosition ->
+                    CustomDropdownMenu(
+                        expanded = pageMenuExpanded,
+                        onDismissRequest = { pageMenuExpanded = false },
+                        items = buildPageSwitchMenuItems(
+                            context = context,
+                            currentPage = AppPageDestination.MUSIC_LIBRARY,
+                            includeCurrentPage = false
+                        ),
+                        anchorPosition = backButtonPosition ?: MenuAnchorPosition(0f, 0f)
+                    )
+                },
                 onTitleClick = {
                     val currentTime = System.currentTimeMillis()
                     if (currentTime - lastClickTime < 300) {

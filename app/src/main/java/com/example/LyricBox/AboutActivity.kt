@@ -85,7 +85,7 @@ class AboutActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
         val checkResult = PiracyChecker.checkAll(this)
         isDebugDevice = PiracyChecker.isDebugDevice(this)
         if (checkResult.isPirated) {

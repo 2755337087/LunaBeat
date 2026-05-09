@@ -92,6 +92,7 @@ fun CustomDropdownMenu(
     modifier: Modifier = Modifier,
     anchorPosition: MenuAnchorPosition = MenuAnchorPosition(0f, 0f),
     menuWidth: Float = 200f,
+    screenEdgePadding: Float = 12f,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     pressColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
@@ -133,6 +134,7 @@ fun CustomDropdownMenu(
                 density = density,
                 anchorXDp = anchorPosition.x,
                 anchorYDp = anchorPosition.y,
+                screenEdgePaddingDp = screenEdgePadding,
                 onPositionCalculated = { aBounds, mBounds ->
                     anchorBounds = aBounds
                     menuBounds = mBounds
@@ -420,6 +422,7 @@ private data class SimpleDropdownMenuPositionProvider(
     val density: Density,
     val anchorXDp: Float,
     val anchorYDp: Float,
+    val screenEdgePaddingDp: Float,
     val onPositionCalculated: (anchorBounds: IntRect, menuBounds: IntRect) -> Unit = { _, _ -> }
 ) : PopupPositionProvider {
     override fun calculatePosition(
@@ -430,14 +433,19 @@ private data class SimpleDropdownMenuPositionProvider(
     ): IntOffset {
         val anchorXPx = with(density) { anchorXDp.dp.toPx() }
         val anchorYPx = with(density) { anchorYDp.dp.toPx() }
+        val edgePaddingPx = with(density) { screenEdgePaddingDp.dp.toPx() }.toInt()
+        val maxX = (windowSize.width - popupContentSize.width - edgePaddingPx).coerceAtLeast(edgePaddingPx)
         
         val x = if (layoutDirection == LayoutDirection.Ltr) {
-            (anchorXPx.toInt() - popupContentSize.width).coerceAtLeast(0)
+            (anchorXPx.toInt() - popupContentSize.width).coerceIn(edgePaddingPx, maxX)
         } else {
-            anchorXPx.toInt().coerceAtMost(windowSize.width - popupContentSize.width)
+            anchorXPx.toInt().coerceIn(edgePaddingPx, maxX)
         }
         
-        val y = anchorYPx.toInt().coerceAtMost(windowSize.height - popupContentSize.height)
+        val y = anchorYPx.toInt().coerceIn(
+            edgePaddingPx,
+            (windowSize.height - popupContentSize.height - edgePaddingPx).coerceAtLeast(edgePaddingPx)
+        )
         
         val menuOffset = IntOffset(x, y)
         onPositionCalculated(anchorBounds, IntRect(offset = menuOffset, size = popupContentSize))
