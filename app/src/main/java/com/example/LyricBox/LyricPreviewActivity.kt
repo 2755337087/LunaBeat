@@ -364,12 +364,18 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
+        const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_FONT_WEIGHT = 400 // Normal
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRICON_STATUS_BAR = false
+        const val LYRIC_DISPLAY_POSITION_MIN = -6
+        const val LYRIC_DISPLAY_POSITION_DEFAULT = 0
+        const val LYRIC_DISPLAY_POSITION_MAX = 12
+        const val LYRIC_DISPLAY_STEP_DP = 10
+        const val DEFAULT_LYRIC_DISPLAY_POSITION = LYRIC_DISPLAY_POSITION_DEFAULT
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
@@ -1466,6 +1472,17 @@ fun LyricPreviewScreen(
             )
         )
     }
+    var lyricDisplayPosition by remember {
+        mutableIntStateOf(
+            prefs.getInt(
+                LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION,
+                LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
+            ).coerceIn(
+                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
+                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
+            )
+        )
+    }
     var menuExpanded by remember { mutableStateOf(false) }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
@@ -1569,6 +1586,9 @@ fun LyricPreviewScreen(
     // 懒列表状态
     val lazyListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val lyricDisplayStepPx = with(density) { LyricPreviewActivity.LYRIC_DISPLAY_STEP_DP.dp.roundToPx() }
+    val lyricTargetScrollOffset = (-100 - lyricDisplayPosition * lyricDisplayStepPx).coerceIn(-520, 160)
     
     // 时间导航器 - 修复结束时间为0的情况
     val lineNavigator = remember(processedLyricLines) {
@@ -1579,6 +1599,7 @@ fun LyricPreviewScreen(
     var isUserScrolling by remember { mutableStateOf(false) }
     var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var autoScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var lyricDisplayPreviewJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var pendingAutoScrollIndex by remember { mutableIntStateOf(-1) }
     var autoScrollRunningTarget by remember { mutableIntStateOf(-1) }
     var lastAutoScrollWallTime by remember { mutableLongStateOf(0L) }
@@ -1679,12 +1700,12 @@ fun LyricPreviewScreen(
                     if (useInstantScroll) {
                         lazyListState.scrollToItem(
                             index = toLyricListIndex(nextTarget),
-                            scrollOffset = -100
+                            scrollOffset = lyricTargetScrollOffset
                         )
                     } else {
                         lazyListState.animateScrollToItem(
                             index = toLyricListIndex(nextTarget),
-                            scrollOffset = -100
+                            scrollOffset = lyricTargetScrollOffset
                         )
                     }
                     lastAutoScrollWallTime = now
@@ -1743,7 +1764,7 @@ fun LyricPreviewScreen(
         val targetIndex = lineNavigator.findTargetIndex(anchorPosition)
         initialBuildTargetIndex = targetIndex
         if (targetIndex >= 0) {
-            lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = -100)
+            lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = lyricTargetScrollOffset)
             lastAutoScrolledIndex = targetIndex
         }
 
@@ -1817,7 +1838,7 @@ fun LyricPreviewScreen(
                 val targetIndex = lineNavigator.findTargetIndex(currentTime)
                 if (targetIndex >= 0) {
                     coroutineScope.launch {
-                        lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = -100)
+                        lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = lyricTargetScrollOffset)
                     }
                 }
             }
@@ -1916,6 +1937,33 @@ fun LyricPreviewScreen(
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
         lyriconStatusBarEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, enabled).apply()
+    }
+
+    fun saveLyricDisplayPosition(position: Int) {
+        val normalized = position.coerceIn(
+            LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
+            LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
+        )
+        lyricDisplayPosition = normalized
+        prefs.edit().putInt(LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION, normalized).apply()
+        if (processedLyricLines.isEmpty() || isLyricLoading || !lyricsContentReady) return
+        val anchorIndex = when {
+            manualTapAnchorIndex >= 0 -> manualTapAnchorIndex
+            currentLineIndex >= 0 -> currentLineIndex
+            else -> lineNavigator.findTargetIndex(currentTime.coerceAtLeast(0L))
+        }
+        if (anchorIndex < 0) return
+        val previewOffset = (-100 - normalized * lyricDisplayStepPx).coerceIn(-520, 160)
+        lyricDisplayPreviewJob?.cancel()
+        lyricDisplayPreviewJob = coroutineScope.launch {
+            autoScrollJob?.cancel()
+            pendingAutoScrollIndex = -1
+            autoScrollRunningTarget = -1
+            lazyListState.scrollToItem(
+                index = toLyricListIndex(anchorIndex),
+                scrollOffset = previewOffset
+            )
+        }
     }
     
     // 更新当前时间
@@ -2268,7 +2316,7 @@ fun LyricPreviewScreen(
                     val configuration = LocalConfiguration.current
                     val screenHeight = configuration.screenHeightDp.dp
                     val topPadding = if (showChrome && !useSidePanelLayout && !useMiniHeader) {
-                        screenHeight * 0.25f
+                        screenHeight * 0.30f
                     } else if (useMiniHeader) {
                         36.dp
                     } else {
@@ -2615,7 +2663,7 @@ fun LyricPreviewScreen(
                             coroutineScope.launch {
                                 val targetIndex = lineNavigator.findTargetIndex(position)
                                 if (targetIndex >= 0) {
-                                    lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = -100)
+                                    lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = lyricTargetScrollOffset)
                                 }
                             }
                         },
@@ -2846,6 +2894,7 @@ fun LyricPreviewScreen(
                 supportsLyricBlur = supportsLyricBlur,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+                lyricDisplayPosition = lyricDisplayPosition,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 animationType = animationType,
@@ -2855,6 +2904,7 @@ fun LyricPreviewScreen(
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
+                onLyricDisplayPositionChange = { saveLyricDisplayPosition(it) },
                 onFontSizeChange = { saveFontSize(it) },
                 onFontWeightChange = { saveFontWeight(it) },
                 onAnimationTypeChange = {

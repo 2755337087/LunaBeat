@@ -325,6 +325,17 @@ fun SettingsScreen(
             )
         )
     }
+    var lyricDisplayPosition by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getInt(
+                LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION,
+                LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
+            ).coerceIn(
+                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
+                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
+            )
+        )
+    }
     var lyricFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
     var lyricSelectedFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
     val scope = rememberCoroutineScope()
@@ -826,6 +837,7 @@ fun SettingsScreen(
             supportsLyricBlur = supportsLyricBlur,
             lyricBlurEnabled = lyricBlurEnabled,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+            lyricDisplayPosition = lyricDisplayPosition,
             fontSize = lyricFontSize,
             fontWeight = lyricFontWeight,
             animationType = lyricAnimationType,
@@ -853,6 +865,12 @@ fun SettingsScreen(
                 lyriconStatusBarEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, it)
+                    .apply()
+            },
+            onLyricDisplayPositionChange = {
+                lyricDisplayPosition = it
+                lyricPreviewPrefs.edit()
+                    .putInt(LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION, it)
                     .apply()
             },
             onFontSizeChange = {

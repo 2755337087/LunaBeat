@@ -43,9 +43,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 private enum class LyricSettingsPage {
     MAIN,
+    LYRIC_DISPLAY_POSITION,
     FONT_SIZE,
     FONT_WEIGHT,
     INTERLUDE_ANIMATION,
@@ -61,6 +63,7 @@ fun LyricSettingsBottomSheet(
     supportsLyricBlur: Boolean,
     lyricBlurEnabled: Boolean,
     lyriconStatusBarEnabled: Boolean,
+    lyricDisplayPosition: Int,
     fontSize: Float,
     fontWeight: Int,
     animationType: Int,
@@ -70,6 +73,7 @@ fun LyricSettingsBottomSheet(
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
+    onLyricDisplayPositionChange: (Int) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onFontWeightChange: (Int) -> Unit,
     onAnimationTypeChange: (Int) -> Unit,
@@ -83,6 +87,7 @@ fun LyricSettingsBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
     var page by remember { mutableStateOf(LyricSettingsPage.MAIN) }
+    var tempLyricDisplayPosition by remember(lyricDisplayPosition) { mutableFloatStateOf(lyricDisplayPosition.toFloat()) }
     var tempFontSize by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
     var tempAnimationType by remember(animationType) { mutableIntStateOf(animationType) }
@@ -141,6 +146,14 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     LyricSettingsActionRow(
+                        title = "歌词显示位置（${getLyricDisplayPositionLabel(lyricDisplayPosition)}）",
+                        contentColor = contentColor,
+                        onClick = {
+                            tempLyricDisplayPosition = lyricDisplayPosition.toFloat()
+                            page = LyricSettingsPage.LYRIC_DISPLAY_POSITION
+                        }
+                    )
+                    LyricSettingsActionRow(
                         title = "字体大小 (${fontSize.toInt()}sp)",
                         contentColor = contentColor,
                         onClick = {
@@ -174,6 +187,52 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.CUSTOM_FONT }
                     )
+                }
+
+                LyricSettingsPage.LYRIC_DISPLAY_POSITION -> {
+                    LyricSettingsSubPageTitle(
+                        title = "歌词显示位置",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    val minPosition = LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN.toFloat()
+                    val maxPosition = LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX.toFloat()
+                    val snappedPosition = tempLyricDisplayPosition.roundToInt()
+                        .coerceIn(
+                            LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
+                            LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
+                        )
+                    Text(
+                        text = "当前位置：${getLyricDisplayPositionLabel(snappedPosition)}",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = tempLyricDisplayPosition,
+                        onValueChange = {
+                            val snapped = it.roundToInt().coerceIn(
+                                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
+                                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
+                            )
+                            tempLyricDisplayPosition = snapped.toFloat()
+                            onLyricDisplayPositionChange(snapped)
+                        },
+                        valueRange = minPosition..maxPosition,
+                        steps = (LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX - LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN - 1)
+                            .coerceAtLeast(0),
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("上移", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("默认", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("下移", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                    }
                 }
 
                 LyricSettingsPage.FONT_SIZE -> {
@@ -302,6 +361,14 @@ fun LyricSettingsBottomSheet(
                 }
             }
         }
+    }
+}
+
+private fun getLyricDisplayPositionLabel(position: Int): String {
+    return when (position) {
+        0 -> "默认"
+        in Int.MIN_VALUE..-1 -> "上移${-position}档"
+        else -> "下移${position}档"
     }
 }
 
