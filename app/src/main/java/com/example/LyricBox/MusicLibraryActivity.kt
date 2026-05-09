@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
+import android.content.SharedPreferences
 import androidx.collection.LruCache
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -42,6 +43,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -53,6 +55,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -80,6 +83,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ripple
@@ -108,6 +112,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -132,16 +138,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.documentfile.provider.DocumentFile
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
@@ -260,7 +273,44 @@ fun formatAudioDuration(ms: Long): String {
 private const val FAVORITE_SEARCH_TOKEN = "#收藏歌曲"
 private const val ALBUM_SEARCH_PREFIX_FULL = "#专辑："
 private const val ALBUM_SEARCH_PREFIX_ASCII = "#专辑:"
+private const val SEARCH_HISTORY_PREFS_KEY = "music_library_recent_search_history"
+private const val SEARCH_HISTORY_LIMIT = 5
 private const val EXTERNAL_AUDIO_LOG_TAG = "MusicLibraryExternal"
+
+private fun loadRecentSearchHistory(prefs: SharedPreferences): List<String> {
+    return prefs.getString(SEARCH_HISTORY_PREFS_KEY, null)
+        ?.split("\n")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() && !it.equals(FAVORITE_SEARCH_TOKEN, ignoreCase = true) }
+        ?.distinct()
+        ?.take(SEARCH_HISTORY_LIMIT)
+        ?: emptyList()
+}
+
+private fun saveRecentSearchHistory(prefs: SharedPreferences, history: List<String>) {
+    val normalized = history
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.equals(FAVORITE_SEARCH_TOKEN, ignoreCase = true) }
+        .distinct()
+        .take(SEARCH_HISTORY_LIMIT)
+    prefs.edit().putString(SEARCH_HISTORY_PREFS_KEY, normalized.joinToString("\n")).apply()
+}
+
+private fun appendRecentSearchHistory(
+    prefs: SharedPreferences,
+    history: MutableList<String>,
+    query: String
+) {
+    val normalized = query.trim()
+    if (normalized.isEmpty()) return
+    if (normalized.equals(FAVORITE_SEARCH_TOKEN, ignoreCase = true)) return
+    history.removeAll { it.equals(normalized, ignoreCase = true) }
+    history.add(0, normalized)
+    while (history.size > SEARCH_HISTORY_LIMIT) {
+        history.removeAt(history.lastIndex)
+    }
+    saveRecentSearchHistory(prefs, history)
+}
 
 private fun parseTrackNumberValue(trackRaw: String): Int {
     if (trackRaw.isBlank()) return Int.MAX_VALUE
@@ -1401,6 +1451,7 @@ class MusicLibraryActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MusicLibraryScreen(
     initialSearchQuery: String = "",
@@ -1411,6 +1462,8 @@ fun MusicLibraryScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchFocusRequester = remember { FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val songClickAction = remember { prefs.getString("songClickAction", "editLyrics") } ?: "editLyrics"
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
@@ -1452,6 +1505,12 @@ fun MusicLibraryScreen(
     var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
     
     var searchQuery by remember(initialSearchQuery) { mutableStateOf(initialSearchQuery) }
+    var showSearchHistoryPopup by remember { mutableStateOf(false) }
+    var recentSearchHistory by remember {
+        mutableStateOf(loadRecentSearchHistory(prefs))
+    }
+    var searchBoxFocused by remember { mutableStateOf(false) }
+    var searchQueryApplied by remember { mutableStateOf(searchQuery.trim()) }
     var lastAppliedInitialSearchRequest by remember { mutableIntStateOf(-1) }
     var isSearching by remember { mutableStateOf(false) }
     val favoritePaths = remember { mutableStateSetOf<String>() }
@@ -1461,10 +1520,6 @@ fun MusicLibraryScreen(
     val selectedPaths = remember { mutableStateSetOf<String>() }
     val lastSelectedIndices = remember { mutableStateListOf<Int>() }
     
-    BackHandler(enabled = isMultiSelectMode) {
-        isMultiSelectMode = false
-        selectedPaths.clear()
-    }
     var showBatchMenu by remember { mutableStateOf(false) }
     var showBatchMatchConfig by remember { mutableStateOf(false) }
     var batchMatchResult by remember { mutableStateOf<BatchMatchResult?>(null) }
@@ -1665,11 +1720,42 @@ fun MusicLibraryScreen(
         }
     }
 
+    BackHandler(enabled = showSearchHistoryPopup || searchQuery.isNotBlank() || isMultiSelectMode) {
+        if (showSearchHistoryPopup) {
+            showSearchHistoryPopup = false
+            return@BackHandler
+        }
+        if (searchQuery.isNotBlank()) {
+            searchQuery = ""
+            updateDisplayFiles()
+            return@BackHandler
+        }
+        if (isMultiSelectMode) {
+            isMultiSelectMode = false
+            selectedPaths.clear()
+        }
+    }
+
     LaunchedEffect(initialSearchRequestVersion, initialSearchQuery) {
         if (initialSearchRequestVersion == lastAppliedInitialSearchRequest) return@LaunchedEffect
         lastAppliedInitialSearchRequest = initialSearchRequestVersion
         searchQuery = initialSearchQuery
         updateDisplayFiles()
+    }
+
+    LaunchedEffect(searchQuery) {
+        val normalized = searchQuery.trim()
+        if (normalized.isBlank()) {
+            searchQueryApplied = ""
+            return@LaunchedEffect
+        }
+        if (normalized == searchQueryApplied) return@LaunchedEffect
+        delay(3000L)
+        if (searchQuery.trim() != normalized) return@LaunchedEffect
+        val updatedHistory = recentSearchHistory.toMutableList()
+        appendRecentSearchHistory(prefs, updatedHistory, normalized)
+        recentSearchHistory = updatedHistory
+        searchQueryApplied = normalized
     }
 
     LaunchedEffect(Unit) {
@@ -2000,65 +2086,214 @@ fun MusicLibraryScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = {
-                                searchQuery = it
-                                updateDisplayFiles()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontSize = 16.sp
-                            ),
-                            decorationBox = { innerTextField ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.search),
-                                        contentDescription = "搜索",
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        if (searchQuery.isEmpty()) {
-                                            Text(
-                                                text = "搜索歌曲、艺术家、专辑或“#收藏歌曲”",
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
-                                                fontSize = 16.sp
-                                            )
+                        val historyChipItems = remember(recentSearchHistory) {
+                            buildList {
+                                add(FAVORITE_SEARCH_TOKEN)
+                                addAll(recentSearchHistory.take(SEARCH_HISTORY_LIMIT).filter {
+                                    !it.equals(FAVORITE_SEARCH_TOKEN, ignoreCase = true)
+                                })
+                            }.distinct().take(SEARCH_HISTORY_LIMIT + 1)
+                        }
+                        val rotation by animateFloatAsState(
+                            targetValue = if (showSearchHistoryPopup) 180f else 0f,
+                            animationSpec = tween(180),
+                            label = "searchHistoryArrowRotation"
+                        )
+                        var searchBarWidthPx by remember { mutableIntStateOf(0) }
+                        var searchBarHeightPx by remember { mutableIntStateOf(0) }
+                        val showHistoryPanel = showSearchHistoryPopup && historyChipItems.isNotEmpty()
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    searchBarWidthPx = coordinates.size.width
+                                    searchBarHeightPx = coordinates.size.height
+                                }
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = {
+                                    searchQuery = it
+                                    updateDisplayFiles()
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(searchFocusRequester)
+                                    .onFocusChanged { focusState ->
+                                        searchBoxFocused = focusState.isFocused
+                                        if (focusState.isFocused) {
+                                            showSearchHistoryPopup = true
+                                            keyboardController?.show()
                                         }
-                                        innerTextField()
-                                    }
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(
-                                            onClick = {
-                                                searchQuery = ""
-                                                updateDisplayFiles()
-                                            },
-                                            modifier = Modifier.size(20.dp)
+                                    },
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontSize = 16.sp
+                                ),
+                                decorationBox = { innerTextField ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.search),
+                                            contentDescription = "搜索",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    text = "搜索歌曲、艺术家、专辑或“#收藏歌曲”",
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                                    fontSize = 16.sp
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = android.R.drawable.ic_menu_close_clear_cancel),
-                                                contentDescription = "清除",
-                                                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    showSearchHistoryPopup = true
+                                                    searchFocusRequester.requestFocus()
+                                                    keyboardController?.show()
+                                                },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.down),
+                                                    contentDescription = "最近搜索",
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f),
+                                                    modifier = Modifier
+                                                        .size(16.dp)
+                                                        .graphicsLayer {
+                                                            rotationZ = rotation
+                                                        }
+                                                )
+                                            }
+                                            if (searchQuery.isNotEmpty()) {
+                                                IconButton(
+                                                    onClick = {
+                                                        searchQuery = ""
+                                                        updateDisplayFiles()
+                                                    },
+                                                    modifier = Modifier.size(20.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Close,
+                                                        contentDescription = "清除",
+                                                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        if (showHistoryPanel) {
+                            val popupOffsetY = searchBarHeightPx + with(density) { 4.dp.roundToPx() }
+                            Popup(
+                                alignment = Alignment.TopStart,
+                                offset = IntOffset(x = 0, y = popupOffsetY),
+                                onDismissRequest = { showSearchHistoryPopup = false },
+                                properties = PopupProperties(
+                                    focusable = false,
+                                    dismissOnBackPress = true,
+                                    dismissOnClickOutside = true
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .width(with(density) { searchBarWidthPx.toDp() })
+                                        .heightIn(max = 360.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.surface,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        historyChipItems.forEach { chipText ->
+                                            if (chipText == FAVORITE_SEARCH_TOKEN) {
+                                                SuggestionChip(
+                                                    onClick = {
+                                                        searchQuery = chipText
+                                                        searchQueryApplied = chipText.trim()
+                                                        updateDisplayFiles()
+                                                        showSearchHistoryPopup = false
+                                                    },
+                                                    label = { Text(chipText) },
+                                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                )
+                                            } else {
+                                                SuggestionChip(
+                                                    onClick = {
+                                                        searchQuery = chipText
+                                                        searchQueryApplied = chipText.trim()
+                                                        updateDisplayFiles()
+                                                        showSearchHistoryPopup = false
+                                                        val updatedHistory = recentSearchHistory.toMutableList()
+                                                        appendRecentSearchHistory(prefs, updatedHistory, chipText)
+                                                        recentSearchHistory = updatedHistory
+                                                    },
+                                                    label = {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Text(chipText)
+                                                            Icon(
+                                                                imageVector = Icons.Rounded.Close,
+                                                                contentDescription = "删除历史",
+                                                                tint = MaterialTheme.colorScheme.error,
+                                                                modifier = Modifier
+                                                                    .size(14.dp)
+                                                                    .clickable(
+                                                                        indication = null,
+                                                                        interactionSource = remember { MutableInteractionSource() }
+                                                                    ) {
+                                                                        recentSearchHistory = recentSearchHistory
+                                                                            .filterNot { it.equals(chipText, ignoreCase = true) }
+                                                                        saveRecentSearchHistory(prefs, recentSearchHistory)
+                                                                    }
+                                                            )
+                                                        }
+                                                    },
+                                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
-                        )
+                        }
                     }
                 }
             )
