@@ -2,6 +2,7 @@ package com.example.LyricBox
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -55,10 +56,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +88,7 @@ fun NowPlayingPlaylistBottomSheet(
     onRemoveAtIndex: (Int) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollBlocker = rememberSheetScrollBlocker()
     val haptic = LocalHapticFeedback.current
     val listState = rememberLazyListState()
     var idSeed by remember { mutableLongStateOf(1L) }
@@ -156,6 +163,7 @@ fun NowPlayingPlaylistBottomSheet(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
+                        .nestedScroll(scrollBlocker)
                         .padding(end = 18.dp)
                 ) {
                     itemsIndexed(
@@ -308,6 +316,22 @@ fun NowPlayingPlaylistBottomSheet(
 }
 
 @Composable
+private fun rememberSheetScrollBlocker(): NestedScrollConnection {
+    return remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(x = 0f, y = available.y)
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                Velocity(x = 0f, y = available.y)
+        }
+    }
+}
+
+@Composable
 private fun QueueRow(
     modifier: Modifier,
     audio: AudioFile,
@@ -371,10 +395,10 @@ private fun QueueSongLeadingCover(
     audio: AudioFile,
     isCurrent: Boolean
 ) {
-    var cover by remember(audio.coverCachePath) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(audio.coverCachePath) {
+    var cover by remember(audio.coverCachePath, audio.path) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(audio.coverCachePath, audio.path) {
         cover = withContext(Dispatchers.IO) {
-            decodeQueueCoverBitmap(audio.coverCachePath)
+            decodeQueueCoverBitmap(audio.coverCachePath, audio.path)
         }
     }
 
@@ -495,22 +519,39 @@ private fun reconcileQueueUiItems(
     }
 }
 
-private fun decodeQueueCoverBitmap(cachePath: String?): Bitmap? {
-    if (cachePath.isNullOrBlank()) return null
-    val file = File(cachePath)
-    if (!file.exists()) return null
+private fun decodeQueueCoverBitmap(cachePath: String?, audioPath: String?): Bitmap? {
+    val fromCache = if (!cachePath.isNullOrBlank()) {
+        runCatching {
+            val file = File(cachePath)
+            if (!file.exists()) return@runCatching null
+            val bytes = file.readBytes()
+            decodeQueueCoverBitmapFromBytes(bytes)
+        }.getOrNull()
+    } else {
+        null
+    }
+    if (fromCache != null) return fromCache
+
+    if (audioPath.isNullOrBlank()) return null
     return runCatching {
-        val bytes = file.readBytes()
-        if (bytes.isEmpty()) return null
-        val options = BitmapFactory.Options().apply {
-            inJustDecodeBounds = true
-        }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        if (options.outWidth <= 0 || options.outHeight <= 0) return null
-        options.inJustDecodeBounds = false
-        options.inSampleSize = calculateCoverSampleSize(options, 96, 96)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        val retriever = MediaMetadataRetriever()
+        retriever.setDataSource(audioPath)
+        val coverBytes = retriever.embeddedPicture
+        retriever.release()
+        decodeQueueCoverBitmapFromBytes(coverBytes)
     }.getOrNull()
+}
+
+private fun decodeQueueCoverBitmapFromBytes(bytes: ByteArray?): Bitmap? {
+    if (bytes == null || bytes.isEmpty()) return null
+    val options = BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+    }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+    options.inJustDecodeBounds = false
+    options.inSampleSize = calculateCoverSampleSize(options, 96, 96)
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 }
 
 private fun calculateCoverSampleSize(
