@@ -1487,6 +1487,8 @@ fun MusicLibraryScreen(
     var renameInputValue by remember { mutableStateOf("") }
     var renameFileExtension by remember { mutableStateOf("") }
     var renameSuccessSignal by remember { mutableStateOf(0L) }
+    var bulkFavoriteAddedCount by remember { mutableIntStateOf(0) }
+    var showBulkFavoriteResultDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
     var scanSummary by remember { mutableStateOf(ScanSummary()) }
@@ -2003,7 +2005,7 @@ fun MusicLibraryScreen(
             CommonHeadBar(
                 title = headbarTitle,
                 showBack = true,
-                showMenu = !isMultiSelectMode,
+                showMenu = true,
                 onBackClick = onBack,
                 onTitleClick = {
                     val currentTime = System.currentTimeMillis()
@@ -2017,13 +2019,29 @@ fun MusicLibraryScreen(
                 },
                 onMenuClick = { menuExpanded = true },
                 menuContent = { menuButtonPosition ->
-                    CustomDropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                        items = listOf(
-                            MenuItem(title = "多选模式", onClick = { 
+                    val menuItems = if (isMultiSelectMode) {
+                        listOf(
+                            MenuItem(
+                                title = "添加到收藏",
+                                onClick = {
+                                    menuExpanded = false
+                                    val selectedSnapshot = selectedPaths.toList()
+                                    if (selectedSnapshot.isNotEmpty()) {
+                                        val addedCount = selectedSnapshot.count { it !in favoritePaths }
+                                        favoritePaths.addAll(selectedSnapshot)
+                                        persistFavoritesPlaylist()
+                                        updateDisplayFiles()
+                                        bulkFavoriteAddedCount = addedCount
+                                        showBulkFavoriteResultDialog = true
+                                    }
+                                }
+                            )
+                        )
+                    } else {
+                        listOf(
+                            MenuItem(title = "多选模式", onClick = {
                                 menuExpanded = false
-                                isMultiSelectMode = true 
+                                isMultiSelectMode = true
                             }),
                             MenuItem(title = "目录设置", onClick = { onOpenSettings() }),
                             MenuItem(
@@ -2057,7 +2075,12 @@ fun MusicLibraryScreen(
                                     }
                                 }
                             )
-                        ),
+                        )
+                    }
+                    CustomDropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        items = menuItems,
                         anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f)
                     )
                 }
@@ -2827,6 +2850,19 @@ fun MusicLibraryScreen(
                 updateDisplayFiles()
                 showArtistSelectionSheet = false
                 showSongInfoSheet = false
+            }
+        )
+    }
+
+    if (showBulkFavoriteResultDialog) {
+        AlertDialog(
+            onDismissRequest = { showBulkFavoriteResultDialog = false },
+            title = { Text("提示") },
+            text = { Text("已添加${bulkFavoriteAddedCount}首歌曲到收藏列表中") },
+            confirmButton = {
+                TextButton(onClick = { showBulkFavoriteResultDialog = false }) {
+                    Text("确定")
+                }
             }
         )
     }
