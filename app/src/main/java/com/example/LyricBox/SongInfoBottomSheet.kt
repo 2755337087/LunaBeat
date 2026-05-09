@@ -80,7 +80,8 @@ fun SongInfoBottomSheet(
     onToggleFavorite: (() -> Unit)? = null,
     onShareFile: (() -> Unit)? = null,
     onRenameFile: (() -> Unit)? = null,
-    onDeleteFile: (() -> Unit)? = null
+    onDeleteFile: (() -> Unit)? = null,
+    onEditLyricsFromPreview: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -252,6 +253,7 @@ fun SongInfoBottomSheet(
                             songInfo = infoState
                         )
                         onDismiss()
+                        onEditLyricsFromPreview?.invoke()
                     }
                 }
             )

@@ -2888,7 +2888,8 @@ fun LyricPreviewScreen(
                 audio = previewSongInfoAudio,
                 isFavorite = previewSongInfoIsFavorite,
                 renameSuccessSignal = 0L,
-                onDismiss = { showSongInfoSheet = false }
+                onDismiss = { showSongInfoSheet = false },
+                onEditLyricsFromPreview = { (context as? android.app.Activity)?.let { it.finish() } }
             )
         }
     }
