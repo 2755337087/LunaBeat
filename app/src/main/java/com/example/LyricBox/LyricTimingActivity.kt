@@ -113,8 +113,10 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -4018,6 +4020,22 @@ private fun MergeLyricBottomSheet(
 ) {
     val mergeLyricSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val hasChanges = mergeLyricPreview != originalMergeLyricPreview || mergeSelectedUnits != originalMergeSelectedUnits
+    val hapticFeedback = LocalHapticFeedback.current
+
+    fun toggleUnitSelection(unitIndex: Int, select: Boolean? = null) {
+        val isSelected = mergeSelectedUnits.contains(unitIndex)
+        val targetSelected = select ?: !isSelected
+        if (targetSelected == isSelected) return
+
+        val newSelection = mergeSelectedUnits.toMutableSet()
+        if (targetSelected) {
+            newSelection.add(unitIndex)
+        } else {
+            newSelection.remove(unitIndex)
+        }
+        onMergeSelectedUnitsChange(newSelection)
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
 
     fun resetState() {
         onMergeLyricPreviewChange(emptyList())
@@ -4138,9 +4156,7 @@ private fun MergeLyricBottomSheet(
                                     else MaterialTheme.colorScheme.surfaceVariant
                                 )
                                 .clickable {
-                                    val newSelection = mergeSelectedUnits.toMutableSet()
-                                    if (isSelected) newSelection.remove(unitIndex) else newSelection.add(unitIndex)
-                                    onMergeSelectedUnitsChange(newSelection)
+                                    toggleUnitSelection(unitIndex)
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             contentAlignment = Alignment.Center
