@@ -371,9 +371,9 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRICON_STATUS_BAR = false
-        const val LYRIC_DISPLAY_POSITION_MIN = -6
-        const val LYRIC_DISPLAY_POSITION_DEFAULT = 0
-        const val LYRIC_DISPLAY_POSITION_MAX = 12
+        const val LYRIC_DISPLAY_POSITION_MIN = -12
+        const val LYRIC_DISPLAY_POSITION_DEFAULT = -5
+        const val LYRIC_DISPLAY_POSITION_MAX = 16
         const val LYRIC_DISPLAY_STEP_DP = 10
         const val DEFAULT_LYRIC_DISPLAY_POSITION = LYRIC_DISPLAY_POSITION_DEFAULT
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
@@ -1477,10 +1477,13 @@ fun LyricPreviewScreen(
             prefs.getInt(
                 LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION,
                 LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
-            ).coerceIn(
-                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
-                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
-            )
+            ).let { raw ->
+                if (raw in LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN..LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX) {
+                    raw
+                } else {
+                    LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
+                }
+            }
         )
     }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -2315,8 +2318,12 @@ fun LyricPreviewScreen(
                     // 计算屏幕高度的1/4作为顶部padding
                     val configuration = LocalConfiguration.current
                     val screenHeight = configuration.screenHeightDp.dp
+                    val extraTopPaddingForDisplayPosition = (
+                        (lyricDisplayPosition - LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT)
+                            .coerceAtLeast(0) * LyricPreviewActivity.LYRIC_DISPLAY_STEP_DP
+                    ).dp
                     val topPadding = if (showChrome && !useSidePanelLayout && !useMiniHeader) {
-                        screenHeight * 0.30f
+                        screenHeight * 0.30f + extraTopPaddingForDisplayPosition
                     } else if (useMiniHeader) {
                         36.dp
                     } else {

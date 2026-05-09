@@ -330,10 +330,13 @@ fun SettingsScreen(
             lyricPreviewPrefs.getInt(
                 LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION,
                 LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
-            ).coerceIn(
-                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
-                LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
-            )
+            ).let { raw ->
+                if (raw in LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN..LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX) {
+                    raw
+                } else {
+                    LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
+                }
+            }
         )
     }
     var lyricFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }

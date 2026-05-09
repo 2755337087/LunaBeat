@@ -6,6 +6,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -40,7 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -146,7 +149,7 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     LyricSettingsActionRow(
-                        title = "歌词显示位置（${getLyricDisplayPositionLabel(lyricDisplayPosition)}）",
+                        title = "歌词显示位置",
                         contentColor = contentColor,
                         onClick = {
                             tempLyricDisplayPosition = lyricDisplayPosition.toFloat()
@@ -154,7 +157,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "字体大小 (${fontSize.toInt()}sp)",
+                        title = "字体大小",
                         contentColor = contentColor,
                         onClick = {
                             tempFontSize = fontSize
@@ -162,7 +165,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "字体粗细 (${getFontWeightLabel(fontWeight)})",
+                        title = "字体粗细",
                         contentColor = contentColor,
                         onClick = {
                             tempFontWeight = fontWeight.toFloat()
@@ -170,20 +173,15 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) {
-                            "间奏动画：恐龙"
-                        } else {
-                            "间奏动画：默认"
-                        },
+                        title = "间奏动画",
                         contentColor = contentColor,
                         onClick = {
                             tempAnimationType = animationType
                             page = LyricSettingsPage.INTERLUDE_ANIMATION
                         }
                     )
-                    val currentFontName = fontOptions.firstOrNull { it.id == selectedFontId }?.displayName ?: "默认字体"
                     LyricSettingsActionRow(
-                        title = "自定义字体：$currentFontName",
+                        title = "自定义字体",
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.CUSTOM_FONT }
                     )
@@ -195,6 +193,11 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
+                    val labelColor = if (containerColor.luminance() > 0.5f) {
+                        Color.Black
+                    } else {
+                        Color.White
+                    }
                     val minPosition = LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN.toFloat()
                     val maxPosition = LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX.toFloat()
                     val snappedPosition = tempLyricDisplayPosition.roundToInt()
@@ -204,7 +207,10 @@ fun LyricSettingsBottomSheet(
                         )
                     Text(
                         text = "当前位置：${getLyricDisplayPositionLabel(snappedPosition)}",
-                        color = contentColor
+                        color = labelColor,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 2.dp)
                     )
                     Slider(
                         value = tempLyricDisplayPosition,
@@ -229,9 +235,27 @@ fun LyricSettingsBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("上移", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("默认", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("下移", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text(
+                            getLyricDisplayPositionLabel(LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN),
+                            fontSize = 12.sp,
+                            color = labelColor.copy(alpha = 0.92f),
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            getLyricDisplayPositionLabel(LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT),
+                            fontSize = 12.sp,
+                            color = labelColor.copy(alpha = 0.92f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            getLyricDisplayPositionLabel(LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX),
+                            fontSize = 12.sp,
+                            color = labelColor.copy(alpha = 0.92f),
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 
@@ -276,7 +300,7 @@ fun LyricSettingsBottomSheet(
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     Text(
-                        text = "当前粗细: ${getFontWeightLabel(tempFontWeight.toInt().coerceIn(100, 900) / 100 * 100)}",
+                        text = "当前粗细: ${getFontWeightLabelForSheet(tempFontWeight.toInt().coerceIn(100, 900) / 100 * 100)}",
                         color = contentColor
                     )
                     Slider(
@@ -312,7 +336,7 @@ fun LyricSettingsBottomSheet(
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsRadioRow(
-                        title = "默认（圆点）",
+                        title = "默认 圆点",
                         selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DEFAULT,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -366,9 +390,26 @@ fun LyricSettingsBottomSheet(
 
 private fun getLyricDisplayPositionLabel(position: Int): String {
     return when (position) {
-        0 -> "默认"
+        LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT -> "默认 上移5档"
         in Int.MIN_VALUE..-1 -> "上移${-position}档"
+        0 -> "0档"
         else -> "下移${position}档"
+    }
+}
+
+private fun getFontWeightLabelForSheet(weight: Int): String {
+    val safeWeight = weight.coerceIn(100, 900) / 100 * 100
+    return when (safeWeight) {
+        100 -> "极细 100"
+        200 -> "特细 200"
+        300 -> "细 300"
+        400 -> "正常 400"
+        500 -> "中 500"
+        600 -> "半粗 600"
+        700 -> "粗 700"
+        800 -> "特粗 800"
+        900 -> "极粗 900"
+        else -> "正常 400"
     }
 }
 
@@ -411,10 +452,11 @@ private fun LyricSettingsSwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(56.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(contentColor.copy(alpha = 0.10f))
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -446,10 +488,11 @@ private fun LyricSettingsActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(56.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(contentColor.copy(alpha = 0.10f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
