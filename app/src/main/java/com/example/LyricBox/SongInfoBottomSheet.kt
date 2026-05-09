@@ -76,7 +76,7 @@ fun SongInfoBottomSheet(
     onDismiss: () -> Unit,
     onPlayNext: (() -> Unit)? = null,
     onViewAlbum: ((String) -> Unit)? = null,
-    onViewArtists: ((List<String>) -> Unit)? = null,
+    onViewArtists: ((String, List<String>) -> Unit)? = null,
     onToggleFavorite: (() -> Unit)? = null,
     onShareFile: (() -> Unit)? = null,
     onRenameFile: (() -> Unit)? = null,
@@ -218,23 +218,14 @@ fun SongInfoBottomSheet(
                     }
                 }
             )
-            SongInfoActionItem(title = "查看专辑", onClick = {
-                if (infoState.album.isNotBlank()) {
-                    if (onViewAlbum != null) {
-                        onViewAlbum(infoState.album)
-                    } else {
-                        launchMusicLibrarySearch(context, "#专辑：${infoState.album}")
-                    }
-                }
-            })
-            SongInfoActionItem(title = "查看艺术家", onClick = {
+            SongInfoActionItem(title = "查看专辑、艺术家", onClick = {
                 val artists = extractAllArtistsForSheet(
                     title = infoState.title,
                     artist = infoState.artist
                 )
-                if (artists.isEmpty()) {
+                if (artists.isEmpty() && infoState.album.isBlank()) {
                 } else if (onViewArtists != null) {
-                    onViewArtists(artists)
+                    onViewArtists(infoState.album, artists)
                 } else {
                     pendingArtists = artists
                     showArtistSelectionSheet = true
@@ -313,8 +304,17 @@ fun SongInfoBottomSheet(
 
     if (showArtistSelectionSheet) {
         ArtistSelectionBottomSheet(
+            albumName = infoState.album,
             artists = pendingArtists,
             onDismiss = { showArtistSelectionSheet = false },
+            onSelectAlbum = { albumName ->
+                showArtistSelectionSheet = false
+                if (onViewAlbum != null) {
+                    onViewAlbum(albumName)
+                } else {
+                    launchMusicLibrarySearch(context, "#专辑：$albumName")
+                }
+            },
             onSelectArtist = { artist ->
                 showArtistSelectionSheet = false
                 launchMusicLibrarySearch(context, artist)

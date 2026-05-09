@@ -23,8 +23,10 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtistSelectionBottomSheet(
+    albumName: String = "",
     artists: List<String>,
     onDismiss: () -> Unit,
+    onSelectAlbum: ((String) -> Unit)? = null,
     onSelectArtist: (String) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -43,6 +45,27 @@ fun ArtistSelectionBottomSheet(
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
+            if (albumName.isNotBlank()) {
+                Text(
+                    text = "专辑",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { onSelectAlbum?.invoke(albumName) },
+                    enabled = onSelectAlbum != null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = albumName,
+                        fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
             Text(
                 text = "艺术家",
                 fontSize = 18.sp,

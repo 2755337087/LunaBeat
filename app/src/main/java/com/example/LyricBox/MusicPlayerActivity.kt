@@ -138,6 +138,7 @@ private fun MusicPlayerScreen(
     val controller = rememberMusicPlaybackController()
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     var showArtistSheet by remember { mutableStateOf(false) }
+    var pendingAlbum by remember { mutableStateOf("") }
     var pendingArtists by remember { mutableStateOf<List<String>>(emptyList()) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
@@ -166,6 +167,7 @@ private fun MusicPlayerScreen(
         controller.currentAudioPath,
         controller.currentTitle,
         controller.currentArtist,
+        controller.currentAlbum,
         controller.currentCoverCachePath,
         controller.durationMs
     ) {
@@ -174,6 +176,7 @@ private fun MusicPlayerScreen(
                 path = path,
                 titleHint = controller.currentTitle,
                 artistHint = controller.currentArtist,
+                albumHint = controller.currentAlbum,
                 coverCachePath = controller.currentCoverCachePath
                     ?: resolveCoverCachePathForAudio(context, path),
                 durationHint = controller.durationMs
@@ -342,6 +345,7 @@ private fun MusicPlayerScreen(
             },
             onArtistsClick = { artists ->
                 if (artists.isNotEmpty()) {
+                    pendingAlbum = currentAudio?.displayAlbum.orEmpty()
                     pendingArtists = artists
                     showArtistSheet = true
                 }
@@ -379,19 +383,31 @@ private fun MusicPlayerScreen(
             onPlayNext = {
                 controller.insertNext(infoAudio)
             },
-            onViewArtists = { artists ->
-                if (artists.isNotEmpty()) {
-                    pendingArtists = artists
-                    showArtistSheet = true
-                }
+            onViewArtists = { albumName, artists ->
+                pendingAlbum = albumName
+                pendingArtists = artists
+                showArtistSheet = true
             }
         )
     }
 
     if (showArtistSheet) {
         ArtistSelectionBottomSheet(
+            albumName = pendingAlbum,
             artists = pendingArtists,
             onDismiss = { showArtistSheet = false },
+            onSelectAlbum = { albumName ->
+                showArtistSheet = false
+                val intent = Intent(context, MusicLibraryActivity::class.java).apply {
+                    putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, "#专辑：$albumName")
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    if (context !is Activity) {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+                context.startActivity(intent)
+            },
             onSelectArtist = { artist ->
                 showArtistSheet = false
                 val intent = Intent(context, MusicLibraryActivity::class.java).apply {
@@ -437,14 +453,15 @@ private fun MusicPlayerPrimaryPane(
 ) {
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     var showNextTrackHint by remember(nextTrackTitle) { mutableStateOf(false) }
+    var titleSwitchToken by remember(nextTrackTitle, playbackMode) { mutableStateOf(0) }
     LaunchedEffect(nextTrackTitle, playbackMode) {
         showNextTrackHint = false
+    }
+    LaunchedEffect(nextTrackTitle, playbackMode, titleSwitchToken) {
         if (nextTrackTitle.isBlank()) return@LaunchedEffect
         while (true) {
             delay(5000)
-            showNextTrackHint = true
-            delay(5000)
-            showNextTrackHint = false
+            showNextTrackHint = !showNextTrackHint
         }
     }
     val topTitleText = if (showNextTrackHint && nextTrackTitle.isNotBlank()) {
@@ -483,7 +500,12 @@ private fun MusicPlayerPrimaryPane(
                     Crossfade(
                         targetState = topTitleText,
                         animationSpec = tween(durationMillis = 260),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = nextTrackTitle.isNotBlank()) {
+                                showNextTrackHint = !showNextTrackHint
+                                titleSwitchToken += 1
+                            },
                         label = "playerTopTitleLandscape"
                     ) { text ->
                         Text(
@@ -563,7 +585,12 @@ private fun MusicPlayerPrimaryPane(
                 Crossfade(
                     targetState = topTitleText,
                     animationSpec = tween(durationMillis = 260),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = nextTrackTitle.isNotBlank()) {
+                            showNextTrackHint = !showNextTrackHint
+                            titleSwitchToken += 1
+                        },
                     label = "playerTopTitle"
                 ) { text ->
                     Text(
@@ -1057,6 +1084,7 @@ private fun buildAudioFileForPlayer(
     path: String,
     titleHint: String = "",
     artistHint: String = "",
+    albumHint: String = "",
     coverCachePath: String? = null,
     durationHint: Long = 0L
 ): AudioFile {
@@ -1066,7 +1094,7 @@ private fun buildAudioFileForPlayer(
         path = path,
         title = title,
         artist = artistHint,
-        album = "",
+        album = albumHint,
         duration = durationHint.coerceAtLeast(0L),
         fileSize = if (file.exists()) file.length() else 0L,
         lastModified = if (file.exists()) file.lastModified() else 0L,

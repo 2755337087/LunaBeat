@@ -34,6 +34,7 @@ private const val PLAYBACK_STATE_PREFS = "music_playback_state"
 private const val KEY_LAST_AUDIO_PATH = "last_audio_path"
 private const val KEY_LAST_TITLE = "last_title"
 private const val KEY_LAST_ARTIST = "last_artist"
+private const val KEY_LAST_ALBUM = "last_album"
 private const val KEY_LAST_COVER_CACHE_PATH = "last_cover_cache_path"
 private const val KEY_PLAYBACK_MODE = "playback_mode"
 @Volatile
@@ -79,6 +80,8 @@ class MusicPlaybackController(private val context: Context) {
     var currentTitle by mutableStateOf("")
         private set
     var currentArtist by mutableStateOf("")
+        private set
+    var currentAlbum by mutableStateOf("")
         private set
     var currentIndex by mutableStateOf(-1)
         private set
@@ -504,6 +507,7 @@ class MusicPlaybackController(private val context: Context) {
             currentArtworkData = null
             currentTitle = ""
             currentArtist = ""
+            currentAlbum = ""
             currentIndex = -1
             mediaCount = 0
             clearSnapshotState()
@@ -632,6 +636,7 @@ class MusicPlaybackController(private val context: Context) {
         currentTitle = item?.mediaMetadata?.title?.toString()
             ?: File(currentAudioPath ?: "").nameWithoutExtension
         currentArtist = item?.mediaMetadata?.artist?.toString() ?: "未知艺术家"
+        currentAlbum = item?.mediaMetadata?.albumTitle?.toString().orEmpty()
         if (currentAudioPath.isNullOrBlank()) {
             clearSnapshotState()
         } else {
@@ -770,6 +775,7 @@ class MusicPlaybackController(private val context: Context) {
             .putString(KEY_LAST_AUDIO_PATH, path)
             .putString(KEY_LAST_TITLE, currentTitle)
             .putString(KEY_LAST_ARTIST, currentArtist)
+            .putString(KEY_LAST_ALBUM, currentAlbum)
             .putString(KEY_LAST_COVER_CACHE_PATH, currentCoverCachePath)
             .apply()
     }
@@ -784,6 +790,9 @@ class MusicPlaybackController(private val context: Context) {
         currentArtist = playbackStatePrefs.getString(KEY_LAST_ARTIST, null)
             ?.takeIf { it.isNotBlank() }
             ?: "未知艺术家"
+        currentAlbum = playbackStatePrefs.getString(KEY_LAST_ALBUM, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: ""
         currentCoverCachePath = playbackStatePrefs.getString(KEY_LAST_COVER_CACHE_PATH, null)
             ?.takeIf { !it.isNullOrBlank() && File(it).exists() }
             ?: resolveExistingCoverCachePath(savedPath)
@@ -869,6 +878,7 @@ class MusicPlaybackController(private val context: Context) {
             .remove(KEY_LAST_AUDIO_PATH)
             .remove(KEY_LAST_TITLE)
             .remove(KEY_LAST_ARTIST)
+            .remove(KEY_LAST_ALBUM)
             .remove(KEY_LAST_COVER_CACHE_PATH)
             .apply()
     }

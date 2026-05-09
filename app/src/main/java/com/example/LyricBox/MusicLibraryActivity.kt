@@ -1482,6 +1482,7 @@ fun MusicLibraryScreen(
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
+    var pendingAlbumCandidate by remember { mutableStateOf("") }
     var pendingArtistCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInputValue by remember { mutableStateOf("") }
@@ -2808,8 +2809,9 @@ fun MusicLibraryScreen(
                 searchQuery = "$ALBUM_SEARCH_PREFIX_FULL$albumName"
                 updateDisplayFiles()
             },
-            onViewArtists = { artists ->
-                if (artists.isNotEmpty()) {
+            onViewArtists = { albumName, artists ->
+                if (artists.isNotEmpty() || albumName.isNotBlank()) {
+                    pendingAlbumCandidate = albumName
                     pendingArtistCandidates = artists
                     showSongInfoSheet = false
                     showArtistSelectionSheet = true
@@ -2843,8 +2845,15 @@ fun MusicLibraryScreen(
 
     if (showArtistSelectionSheet) {
         ArtistSelectionBottomSheet(
+            albumName = pendingAlbumCandidate,
             artists = pendingArtistCandidates,
             onDismiss = { showArtistSelectionSheet = false },
+            onSelectAlbum = { albumName ->
+                searchQuery = "$ALBUM_SEARCH_PREFIX_FULL$albumName"
+                updateDisplayFiles()
+                showArtistSelectionSheet = false
+                showSongInfoSheet = false
+            },
             onSelectArtist = { artist ->
                 searchQuery = artist
                 updateDisplayFiles()

@@ -2834,6 +2834,9 @@ fun LyricPreviewScreen(
                 lastModified = if (file.exists()) file.lastModified() else 0L
             )
         }
+        val previewSongInfoIsFavorite = remember(showSongInfoSheet, previewSongInfoAudio.path) {
+            previewSongInfoAudio.path in LocalPlaylistStore.loadFavoritePaths(context)
+        }
 
         if (showLyricSettingsSheet) {
             LyricSettingsBottomSheet(
@@ -2883,7 +2886,7 @@ fun LyricPreviewScreen(
         if (enableSongInfoSheet && showSongInfoSheet) {
             SongInfoBottomSheet(
                 audio = previewSongInfoAudio,
-                isFavorite = false,
+                isFavorite = previewSongInfoIsFavorite,
                 renameSuccessSignal = 0L,
                 onDismiss = { showSongInfoSheet = false }
             )
