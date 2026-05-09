@@ -109,6 +109,7 @@ class MusicPlaybackService : MediaSessionService() {
             setHandleAudioBecomingNoisy(true)
             addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    enforceManualNextPriorityOnAutoTransition(this@apply, reason)
                     lastTransitionSourcePath = mediaItem?.resolveOriginalAudioPath()
                     lastTransitionIndex = this@apply.currentMediaItemIndex
                     lastTransitionAtMs = SystemClock.elapsedRealtime()
@@ -331,6 +332,11 @@ class MusicPlaybackService : MediaSessionService() {
         if (count <= 0) return false
         val currentIndex = player.currentMediaItemIndex
         if (currentIndex < 0) return false
+        val manualNextIndex = resolveManualNextIndex(applicationContext, player, consume = true)
+        if (manualNextIndex in 0 until count) {
+            playQueueItemWithPreTranscode(player, manualNextIndex, forcePlay = true)
+            return true
+        }
         if (player.repeatMode == Player.REPEAT_MODE_ONE) {
             val targetIndex = if (currentIndex + 1 in 0 until count) currentIndex + 1 else 0
             playQueueItemWithPreTranscode(player, targetIndex, forcePlay = true)
@@ -341,6 +347,15 @@ class MusicPlaybackService : MediaSessionService() {
         }
         playQueueItemWithPreTranscode(player, targetIndex, forcePlay = true)
         return true
+    }
+
+    private fun enforceManualNextPriorityOnAutoTransition(player: ExoPlayer, reason: Int) {
+        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
+        if (player.mediaItemCount <= 0) return
+        val manualNextIndex = resolveManualNextIndex(applicationContext, player, consume = true)
+        val currentIndex = player.currentMediaItemIndex
+        if (manualNextIndex !in 0 until player.mediaItemCount || manualNextIndex == currentIndex) return
+        playQueueItemWithPreTranscode(player, manualNextIndex, forcePlay = true)
     }
 
     private fun handleNotificationSkipPrevious(player: ExoPlayer): Boolean {

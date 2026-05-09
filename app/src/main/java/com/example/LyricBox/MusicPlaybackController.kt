@@ -25,6 +25,7 @@ import com.example.LyricBox.utils.AudioMetadataReader
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.Executors
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
@@ -202,17 +203,20 @@ class MusicPlaybackController(private val context: Context) {
         } else {
             player.mediaItemCount
         }
+        val manualNextToken = UUID.randomUUID().toString()
         transcodeQueueExecutor.execute {
             val playbackPath = resolvePlayablePathForPlayback(context, audio.path)
             val mediaItem = audio.toPlayableMediaItem(
                 context = context,
                 preferOriginalCover = false,
-                playbackPathOverride = playbackPath
+                playbackPathOverride = playbackPath,
+                manualNextToken = manualNextToken
             )
             ContextCompat.getMainExecutor(context).execute {
                 val latestPlayer = controller ?: return@execute
                 val safeInsertIndex = insertIndex.coerceIn(0, latestPlayer.mediaItemCount)
                 latestPlayer.addMediaItem(safeInsertIndex, mediaItem)
+                ManualNextPriorityStore.enqueue(context, manualNextToken)
                 if (latestPlayer.playbackState == Player.STATE_IDLE) {
                     latestPlayer.prepare()
                 }
@@ -227,6 +231,11 @@ class MusicPlaybackController(private val context: Context) {
         if (current < 0) return
         val count = player.mediaItemCount
         if (count <= 0) return
+        val manualNextIndex = resolveManualNextIndex(context, player, consume = true)
+        if (manualNextIndex in 0 until count) {
+            playQueueItemWithPreTranscode(manualNextIndex, forcePlay = true)
+            return
+        }
         if (playbackMode == PlaybackMode.SINGLE_REPEAT) {
             val nextIndex = if (current + 1 in 0 until count) current + 1 else 0
             playQueueItemWithPreTranscode(nextIndex, forcePlay = true)
@@ -570,8 +579,10 @@ class MusicPlaybackController(private val context: Context) {
             player.shuffleModeEnabled -> PlaybackMode.SHUFFLE
             else -> PlaybackMode.SEQUENTIAL
         }
+        val manualNextIndex = resolveManualNextIndex(context, player, consume = false)
         val resolvedNextIndex = when {
             currentIndex < 0 || mediaCount <= 0 -> -1
+            manualNextIndex in 0 until mediaCount -> manualNextIndex
             playbackMode == PlaybackMode.SINGLE_REPEAT -> {
                 if (currentIndex + 1 in 0 until mediaCount) currentIndex + 1 else 0
             }
@@ -871,7 +882,8 @@ class MusicPlaybackController(private val context: Context) {
 private fun AudioFile.toPlayableMediaItem(
     context: Context,
     preferOriginalCover: Boolean,
-    playbackPathOverride: String? = null
+    playbackPathOverride: String? = null,
+    manualNextToken: String? = null
 ): MediaItem {
     val playbackPath = playbackPathOverride
         ?.takeIf { it.isNotBlank() && File(it).exists() }
@@ -883,6 +895,7 @@ private fun AudioFile.toPlayableMediaItem(
         .setExtras(Bundle().apply {
             putString(EXTRA_AUDIO_PATH, path)
             putString(EXTRA_COVER_CACHE_PATH, coverCachePath)
+            putString(EXTRA_MANUAL_NEXT_TOKEN, manualNextToken)
         })
 
     if (preferOriginalCover) {
