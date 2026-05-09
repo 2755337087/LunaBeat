@@ -60,6 +60,7 @@ object LocalPlaylistStore {
             val lines = file.readLines(Charsets.UTF_8)
             lines.map { it.trim() }
                 .filter { it.isNotEmpty() && !it.startsWith("#") }
+                .distinct()
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing m3u file: ${file.absolutePath}", e)
             emptyList()
@@ -113,7 +114,7 @@ object LocalPlaylistStore {
                 pendingDuration = -1L
             }
 
-            result
+            result.distinctBy { it.path }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing m3u entries: ${file.absolutePath}", e)
             emptyList()

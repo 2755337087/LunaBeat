@@ -96,14 +96,14 @@ fun NowPlayingPlaylistBottomSheet(
     var dragTranslationY by remember { mutableFloatStateOf(0f) }
     var hasAutoLocatedCurrent by remember { mutableStateOf(false) }
     var localQueue by remember {
-        mutableStateOf(queue.map { QueueUiItem(id = idSeed++, audio = it) })
+        mutableStateOf(queue.distinctBy { it.path }.map { QueueUiItem(id = idSeed++, audio = it) })
     }
 
     LaunchedEffect(queue, draggingItemId) {
         if (draggingItemId < 0L) {
             localQueue = reconcileQueueUiItems(
                 current = localQueue,
-                incoming = queue,
+                incoming = queue.distinctBy { it.path },
                 nextId = { idSeed++ }
             )
         }
@@ -142,6 +142,12 @@ fun NowPlayingPlaylistBottomSheet(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${localQueue.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 2.dp)
                 )
                 IconButton(
                     onClick = {
@@ -343,7 +349,9 @@ private fun QueueRow(
     onDragEnd: () -> Unit
 ) {
     ListItem(
-        modifier = modifier.clickable(onClick = onPlay),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onPlay),
         colors = ListItemDefaults.colors(
             containerColor = if (isDragging) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
@@ -441,7 +449,7 @@ private fun QueueFastScrollbar(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onRequestScroll: (Int) -> Unit
 ) {
-    if (totalCount <= 1) return
+    if (totalCount < 15) return
     val density = LocalDensity.current
     val visibleCount = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
     val maxStartIndex = (totalCount - visibleCount).coerceAtLeast(1).toFloat()

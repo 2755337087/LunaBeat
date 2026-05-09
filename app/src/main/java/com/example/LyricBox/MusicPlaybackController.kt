@@ -162,8 +162,8 @@ class MusicPlaybackController(private val context: Context) {
     fun playQueue(queue: List<AudioFile>, startPath: String) {
         val player = controller ?: return
         if (queue.isEmpty()) return
-        val startIndex = queue.indexOfFirst { it.path == startPath }.coerceAtLeast(0)
-        val queueSnapshot = queue.toList()
+        val queueSnapshot = queue.distinctBy { it.path }
+        val startIndex = queueSnapshot.indexOfFirst { it.path == startPath }.coerceAtLeast(0)
         transcodeQueueExecutor.execute {
             val playablePathBySource = queueSnapshot.associate { audio ->
                 audio.path to resolvePlayablePathForPlayback(context, audio.path)
@@ -185,7 +185,7 @@ class MusicPlaybackController(private val context: Context) {
         }
         LocalPlaylistStore.savePlaybackQueue(
             context,
-            queue.map {
+            queueSnapshot.map {
                 LocalPlaylistEntry(
                     path = it.path,
                     title = it.displayTitle,
@@ -214,7 +214,19 @@ class MusicPlaybackController(private val context: Context) {
             )
             ContextCompat.getMainExecutor(context).execute {
                 val latestPlayer = controller ?: return@execute
-                val safeInsertIndex = insertIndex.coerceIn(0, latestPlayer.mediaItemCount)
+                val removalIndexes = (0 until latestPlayer.mediaItemCount).filter { idx ->
+                    latestPlayer.getMediaItemAt(idx).resolveSourcePath() == audio.path
+                }
+                var safeInsertIndex = insertIndex.coerceIn(0, latestPlayer.mediaItemCount)
+                removalIndexes.sortedDescending().forEach { removeIndex ->
+                    if (removeIndex == latestPlayer.currentMediaItemIndex) {
+                        return@execute
+                    }
+                    if (removeIndex < safeInsertIndex) {
+                        safeInsertIndex--
+                    }
+                    latestPlayer.removeMediaItem(removeIndex)
+                }
                 latestPlayer.addMediaItem(safeInsertIndex, mediaItem)
                 ManualNextPriorityStore.enqueue(context, manualNextToken)
                 if (latestPlayer.playbackState == Player.STATE_IDLE) {
@@ -554,6 +566,10 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     private fun syncFromPlayer(player: Player) {
+        if (removeDuplicateQueueItems(player)) {
+            persistCurrentQueue(player)
+            return
+        }
         restoreTemporaryCompanionIfNeeded(player)
         isPlaying = player.isPlaying
         playWhenReadyRequested = player.playWhenReady
@@ -623,6 +639,38 @@ class MusicPlaybackController(private val context: Context) {
         }
     }
 
+    private fun removeDuplicateQueueItems(player: Player): Boolean {
+        val count = player.mediaItemCount
+        if (count <= 1) return false
+        val currentIndex = player.currentMediaItemIndex
+        val currentPath = if (currentIndex in 0 until count) {
+            player.getMediaItemAt(currentIndex).resolveSourcePath()
+        } else {
+            null
+        }
+        val keepIndexByPath = linkedMapOf<String, Int>()
+        for (index in 0 until count) {
+            val path = player.getMediaItemAt(index).resolveSourcePath() ?: continue
+            val existed = keepIndexByPath[path]
+            if (existed == null) {
+                keepIndexByPath[path] = index
+            } else if (path == currentPath && index == currentIndex) {
+                keepIndexByPath[path] = index
+            }
+        }
+        val removeIndexes = mutableListOf<Int>()
+        for (index in 0 until count) {
+            val path = player.getMediaItemAt(index).resolveSourcePath() ?: continue
+            val keepIndex = keepIndexByPath[path] ?: continue
+            if (index != keepIndex) {
+                removeIndexes += index
+            }
+        }
+        if (removeIndexes.isEmpty()) return false
+        removeIndexes.sortedDescending().forEach { player.removeMediaItem(it) }
+        return true
+    }
+
     private fun restoreTemporaryCompanionIfNeeded(player: Player) {
         val sourcePath = temporaryCompanionSourcePath ?: return
         val index = temporaryCompanionMediaIndex
@@ -673,17 +721,18 @@ class MusicPlaybackController(private val context: Context) {
                 artist = mediaItem.mediaMetadata.artist?.toString().orEmpty(),
                 durationSeconds = -1L
             )
-        }
+        }.distinctBy { it.path }
         LocalPlaylistStore.savePlaybackQueue(context, entries)
     }
 
     private fun restoreQueueIfNeeded(player: MediaController) {
         if (player.mediaItemCount > 0) return
         val savedPaths = LocalPlaylistStore.loadPlaybackQueuePaths(context)
-        if (savedPaths.isEmpty()) return
+        val uniqueSavedPaths = savedPaths.distinct()
+        if (uniqueSavedPaths.isEmpty()) return
         val targetPath = playbackStatePrefs.getString(KEY_LAST_AUDIO_PATH, null)
-        val targetIndex = savedPaths.indexOfFirst { it == targetPath }.let { if (it >= 0) it else 0 }
-        val restoredItems = savedPaths.mapNotNull { path ->
+        val targetIndex = uniqueSavedPaths.indexOfFirst { it == targetPath }.let { if (it >= 0) it else 0 }
+        val restoredItems = uniqueSavedPaths.mapNotNull { path ->
             val file = File(path)
             if (!file.exists()) return@mapNotNull null
             val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
@@ -701,7 +750,7 @@ class MusicPlaybackController(private val context: Context) {
                 year = metadata?.year.orEmpty(),
                 mediaStoreId = -1L
             )
-            val shouldPreferOriginalCover = path == savedPaths.getOrNull(targetIndex)
+            val shouldPreferOriginalCover = path == uniqueSavedPaths.getOrNull(targetIndex)
             audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
         }
         if (restoredItems.isEmpty()) return
