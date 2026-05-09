@@ -426,38 +426,51 @@ private fun MusicPlayerPrimaryPane(
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     if (isLandscape) {
-        Row(
-            modifier = modifier,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            MusicPlayerCoverView(
-                modifier = Modifier
-                    .weight(0.95f)
-                    .fillMaxHeight(),
-                displayCoverBitmap = displayCoverBitmap,
-                coverScale = coverScale
-            )
-            MusicPlayerControlPanel(
-                modifier = Modifier
-                    .weight(1.05f)
-                    .fillMaxHeight(),
-                controller = controller,
-                currentAudio = currentAudio,
-                position = position,
-                duration = duration,
-                panelColor = panelColor,
-                panelOnColor = panelOnColor,
-                accentColor = accentColor,
-                controlAccentColor = controlAccentColor,
-                onControlAccentColor = onControlAccentColor,
-                oppositeControlColor = oppositeControlColor,
-                onOppositeControlColor = onOppositeControlColor,
-                showLyricPreviewButton = showLyricPreviewButton,
-                onLyricPreviewClick = onLyricPreviewClick,
-                onShowPlaylist = onShowPlaylist,
-                onSongInfoClick = onSongInfoClick,
-                onArtistsClick = onArtistsClick
-            )
+        BoxWithConstraints(modifier = modifier) {
+            val landscapePanelHeight = (maxHeight * 0.92f)
+                .coerceAtMost(520.dp)
+                .coerceAtLeast(220.dp)
+            val coverHostHeight = (landscapePanelHeight * 0.92f)
+                .coerceAtMost(460.dp)
+                .coerceAtLeast(180.dp)
+
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MusicPlayerCoverView(
+                    modifier = Modifier
+                        .weight(0.95f)
+                        .height(coverHostHeight),
+                    displayCoverBitmap = displayCoverBitmap,
+                    coverScale = coverScale,
+                    contentScaleFactor = 1f,
+                    applyPreviewLandscapeBounds = true
+                )
+                MusicPlayerControlPanel(
+                    modifier = Modifier
+                        .weight(1.05f)
+                        .height(coverHostHeight),
+                    isLandscape = true,
+                    controller = controller,
+                    currentAudio = currentAudio,
+                    position = position,
+                    duration = duration,
+                    panelColor = panelColor,
+                    panelOnColor = panelOnColor,
+                    accentColor = accentColor,
+                    controlAccentColor = controlAccentColor,
+                    onControlAccentColor = onControlAccentColor,
+                    oppositeControlColor = oppositeControlColor,
+                    onOppositeControlColor = onOppositeControlColor,
+                    showLyricPreviewButton = showLyricPreviewButton,
+                    onLyricPreviewClick = onLyricPreviewClick,
+                    onShowPlaylist = onShowPlaylist,
+                    onSongInfoClick = onSongInfoClick,
+                    onArtistsClick = onArtistsClick
+                )
+            }
         }
     } else {
         Column(modifier = modifier) {
@@ -498,6 +511,7 @@ private fun MusicPlayerPrimaryPane(
 
             MusicPlayerControlPanel(
                 modifier = Modifier.fillMaxWidth(),
+                isLandscape = false,
                 controller = controller,
                 currentAudio = currentAudio,
                 position = position,
@@ -523,14 +537,18 @@ private fun MusicPlayerPrimaryPane(
 private fun MusicPlayerCoverView(
     modifier: Modifier,
     displayCoverBitmap: android.graphics.Bitmap?,
-    coverScale: Float
+    coverScale: Float,
+    contentScaleFactor: Float = 0.92f,
+    applyPreviewLandscapeBounds: Boolean = false
 ) {
     BoxWithConstraints(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        val targetWidth = maxWidth * 0.92f
-        val targetHeight = maxHeight * 0.92f
+        val screenConfig = LocalConfiguration.current
+        val safeScaleFactor = contentScaleFactor.coerceIn(0.6f, 1f)
+        val targetWidth = maxWidth * safeScaleFactor
+        val targetHeight = maxHeight * safeScaleFactor
         val coverAspectRatio = remember(displayCoverBitmap) {
             displayCoverBitmap?.let { bitmap ->
                 if (bitmap.height > 0) {
@@ -541,8 +559,21 @@ private fun MusicPlayerCoverView(
                 }
             } ?: 1f
         }
-        val maxCoverWidth = targetWidth.coerceAtMost(520.dp).coerceAtLeast(120.dp)
-        val maxCoverHeight = targetHeight.coerceAtMost(520.dp).coerceAtLeast(120.dp)
+        val previewLikeAbsoluteMax = when {
+            screenConfig.screenWidthDp >= 1800 -> 500.dp
+            screenConfig.screenWidthDp >= 1200 -> 460.dp
+            else -> 400.dp
+        }
+        val maxCoverWidth = if (applyPreviewLandscapeBounds) {
+            minOf(targetWidth * 0.94f, previewLikeAbsoluteMax).coerceAtLeast(120.dp)
+        } else {
+            targetWidth.coerceAtMost(520.dp).coerceAtLeast(120.dp)
+        }
+        val maxCoverHeight = if (applyPreviewLandscapeBounds) {
+            minOf(targetHeight * 0.90f, previewLikeAbsoluteMax).coerceAtLeast(120.dp)
+        } else {
+            targetHeight.coerceAtMost(520.dp).coerceAtLeast(120.dp)
+        }
         val coverWidth: androidx.compose.ui.unit.Dp
         val coverHeight: androidx.compose.ui.unit.Dp
         if (coverAspectRatio >= 1f) {
@@ -605,6 +636,7 @@ private fun MusicPlayerCoverView(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun MusicPlayerControlPanel(
     modifier: Modifier,
+    isLandscape: Boolean,
     controller: MusicPlaybackController,
     currentAudio: AudioFile?,
     position: Long,
@@ -622,11 +654,25 @@ private fun MusicPlayerControlPanel(
     onSongInfoClick: () -> Unit,
     onArtistsClick: (List<String>) -> Unit
 ) {
+    val controlScale = if (isLandscape) 1.12f else 1f
+    val panelPaddingH = if (isLandscape) 20.dp else 16.dp
+    val panelPaddingV = if (isLandscape) 18.dp else 14.dp
+    val titleSize = (24f * controlScale).sp
+    val artistSize = (15f * controlScale).sp
+    val timeSize = (12f * controlScale).sp
+    val progressHeight = if (isLandscape) 36.dp else 32.dp
+    val transportHeight = if (isLandscape) 56.dp else 48.dp
+    val actionIconSize = if (isLandscape) 22.dp else 20.dp
+    val actionButtonRadius = if (isLandscape) 18.dp else 16.dp
+    val actionButtonPaddingH = if (isLandscape) 20.dp else 18.dp
+    val actionButtonPaddingV = if (isLandscape) 11.dp else 10.dp
+
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
             .background(panelColor)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = panelPaddingH, vertical = panelPaddingV),
+        verticalArrangement = Arrangement.Center
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -646,7 +692,7 @@ private fun MusicPlayerControlPanel(
             ) {
                 Text(
                     text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                    fontSize = 24.sp,
+                    fontSize = titleSize,
                     fontWeight = FontWeight.Bold,
                     color = panelOnColor,
                     maxLines = 1,
@@ -655,7 +701,7 @@ private fun MusicPlayerControlPanel(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = controller.currentArtist.ifBlank { "未知艺术家" },
-                    fontSize = 15.sp,
+                    fontSize = artistSize,
                     color = panelOnColor.copy(alpha = 0.78f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -692,7 +738,7 @@ private fun MusicPlayerControlPanel(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp)
+                .height(progressHeight)
                 .padding(vertical = 6.dp)
         ) {
             val displayProgress = if (safeDuration > 0L) {
@@ -739,12 +785,12 @@ private fun MusicPlayerControlPanel(
             Text(
                 text = formatPlaybackTime(position),
                 color = panelOnColor.copy(alpha = 0.74f),
-                fontSize = 12.sp
+                fontSize = timeSize
             )
             Text(
                 text = formatPlaybackTime(safeDuration),
                 color = panelOnColor.copy(alpha = 0.74f),
-                fontSize = 12.sp
+                fontSize = timeSize
             )
         }
 
@@ -759,7 +805,7 @@ private fun MusicPlayerControlPanel(
         ButtonGroup(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(transportHeight),
             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
         ) {
             ToggleButton(
@@ -837,7 +883,11 @@ private fun MusicPlayerControlPanel(
                 icon = modeIcon,
                 tint = accentColor,
                 onClick = { controller.cyclePlaybackMode() },
-                contentDescription = "播放模式"
+                contentDescription = "播放模式",
+                iconSize = actionIconSize,
+                cornerRadius = actionButtonRadius,
+                horizontalPadding = actionButtonPaddingH,
+                verticalPadding = actionButtonPaddingV
             )
             if (showLyricPreviewButton) {
                 PlayerBottomActionButton(
@@ -845,7 +895,11 @@ private fun MusicPlayerControlPanel(
                     icon = Icons.Rounded.Lyrics,
                     tint = accentColor,
                     onClick = onLyricPreviewClick,
-                    contentDescription = "歌词预览"
+                    contentDescription = "歌词预览",
+                    iconSize = actionIconSize,
+                    cornerRadius = actionButtonRadius,
+                    horizontalPadding = actionButtonPaddingH,
+                    verticalPadding = actionButtonPaddingV
                 )
             }
             PlayerBottomActionButton(
@@ -853,7 +907,11 @@ private fun MusicPlayerControlPanel(
                 icon = Icons.AutoMirrored.Rounded.QueueMusic,
                 tint = accentColor,
                 onClick = onShowPlaylist,
-                contentDescription = "播放列表"
+                contentDescription = "播放列表",
+                iconSize = actionIconSize,
+                cornerRadius = actionButtonRadius,
+                horizontalPadding = actionButtonPaddingH,
+                verticalPadding = actionButtonPaddingV
             )
         }
     }
@@ -865,21 +923,25 @@ private fun PlayerBottomActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
     onClick: () -> Unit,
-    contentDescription: String
+    contentDescription: String,
+    iconSize: androidx.compose.ui.unit.Dp = 20.dp,
+    cornerRadius: androidx.compose.ui.unit.Dp = 16.dp,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 18.dp,
+    verticalPadding: androidx.compose.ui.unit.Dp = 10.dp
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(cornerRadius))
             .background(tint.copy(alpha = 0.18f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(iconSize)
         )
     }
 }
