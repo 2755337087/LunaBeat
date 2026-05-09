@@ -134,6 +134,7 @@ private fun MusicPlayerScreen(
     onClose: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val controller = rememberMusicPlaybackController()
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     var showArtistSheet by remember { mutableStateOf(false) }
@@ -298,9 +299,15 @@ private fun MusicPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(gradientTop, gradientBottom)
-                )
+                brush = if (isLandscape) {
+                    Brush.horizontalGradient(
+                        colors = listOf(gradientTop, gradientBottom)
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        colors = listOf(gradientTop, gradientBottom)
+                    )
+                }
             )
     ) {
         MusicPlayerPrimaryPane(
@@ -454,43 +461,84 @@ private fun MusicPlayerPrimaryPane(
             val coverHostHeight = (landscapePanelHeight * 0.92f)
                 .coerceAtMost(460.dp)
                 .coerceAtLeast(180.dp)
+            val headerSideSize = 40.dp
 
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MusicPlayerCoverView(
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        modifier = Modifier.size(headerSideSize),
+                        onClick = onClose
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.down),
+                            contentDescription = "收起播放器",
+                            tint = onBackgroundColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Crossfade(
+                        targetState = topTitleText,
+                        animationSpec = tween(durationMillis = 260),
+                        modifier = Modifier.weight(1f),
+                        label = "playerTopTitleLandscape"
+                    ) { text ->
+                        Text(
+                            text = text,
+                            fontSize = 14.sp,
+                            color = onBackgroundColor.copy(alpha = 0.88f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(headerSideSize))
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
                     modifier = Modifier
-                        .weight(0.95f)
-                        .height(coverHostHeight),
-                    displayCoverBitmap = displayCoverBitmap,
-                    coverScale = coverScale,
-                    contentScaleFactor = 1f,
-                    applyPreviewLandscapeBounds = true
-                )
-                MusicPlayerControlPanel(
-                    modifier = Modifier
-                        .weight(1.05f)
-                        .height(coverHostHeight),
-                    isLandscape = true,
-                    controller = controller,
-                    currentAudio = currentAudio,
-                    position = position,
-                    duration = duration,
-                    panelColor = panelColor,
-                    panelOnColor = panelOnColor,
-                    accentColor = accentColor,
-                    controlAccentColor = controlAccentColor,
-                    onControlAccentColor = onControlAccentColor,
-                    oppositeControlColor = oppositeControlColor,
-                    onOppositeControlColor = onOppositeControlColor,
-                    showLyricPreviewButton = showLyricPreviewButton,
-                    onLyricPreviewClick = onLyricPreviewClick,
-                    onShowPlaylist = onShowPlaylist,
-                    onSongInfoClick = onSongInfoClick,
-                    onArtistsClick = onArtistsClick
-                )
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MusicPlayerCoverView(
+                        modifier = Modifier
+                            .weight(0.95f)
+                            .height(coverHostHeight),
+                        displayCoverBitmap = displayCoverBitmap,
+                        coverScale = coverScale,
+                        contentScaleFactor = 1f,
+                        applyPreviewLandscapeBounds = true
+                    )
+                    MusicPlayerControlPanel(
+                        modifier = Modifier
+                            .weight(1.05f)
+                            .height(coverHostHeight),
+                        isLandscape = true,
+                        controller = controller,
+                        currentAudio = currentAudio,
+                        position = position,
+                        duration = duration,
+                        panelColor = panelColor,
+                        panelOnColor = panelOnColor,
+                        accentColor = accentColor,
+                        controlAccentColor = controlAccentColor,
+                        onControlAccentColor = onControlAccentColor,
+                        oppositeControlColor = oppositeControlColor,
+                        onOppositeControlColor = onOppositeControlColor,
+                        showLyricPreviewButton = showLyricPreviewButton,
+                        onLyricPreviewClick = onLyricPreviewClick,
+                        onShowPlaylist = onShowPlaylist,
+                        onSongInfoClick = onSongInfoClick,
+                        onArtistsClick = onArtistsClick
+                    )
+                }
             }
         }
     } else {
