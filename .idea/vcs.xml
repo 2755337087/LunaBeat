@@ -4,6 +4,5 @@
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/audiotag/src/main/cpp/taglib" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/audiotag/src/main/cpp/taglib/3rdparty/utfcpp" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/third_party/androidx-media" vcs="Git" />
   </component>
 </project>

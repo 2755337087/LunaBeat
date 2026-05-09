@@ -1,0 +1,198 @@
+{
+  "info": {
+    "name": "x86_64",
+    "bitness": 64,
+    "isDefault": true,
+    "isDeprecated": false,
+    "architecture": "x86_64",
+    "triple": "x86_64-linux-android",
+    "llvmTriple": "x86_64-none-linux-android"
+  },
+  "cxxBuildFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\.cxx\\Debug\\1x2k6lo1\\x86_64",
+  "soFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates\\cxx\\Debug\\1x2k6lo1\\obj\\x86_64",
+  "soRepublishFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates\\cmake\\debug\\obj\\x86_64",
+  "abiPlatformVersion": 24,
+  "cmake": {
+    "effectiveConfiguration": {
+      "inheritEnvironments": [],
+      "variables": []
+    }
+  },
+  "variant": {
+    "buildSystemArgumentList": [],
+    "cFlagsList": [],
+    "cppFlagsList": [
+      ""
+    ],
+    "variantName": "debug",
+    "isDebuggableEnabled": true,
+    "validAbiList": [
+      "armeabi-v7a",
+      "arm64-v8a",
+      "x86",
+      "x86_64"
+    ],
+    "buildTargetSet": [],
+    "implicitBuildTargetSet": [],
+    "cmakeSettingsConfiguration": "android-gradle-plugin-predetermined-name",
+    "module": {
+      "cxxFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\.cxx",
+      "intermediatesBaseFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates",
+      "intermediatesFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates\\cxx",
+      "gradleModulePathName": ":audiotag",
+      "moduleRootFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag",
+      "moduleBuildFile": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build.gradle.kts",
+      "makeFile": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\src\\main\\cpp\\CMakeLists.txt",
+      "buildSystem": "CMAKE",
+      "ndkFolder": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358",
+      "ndkFolderBeforeSymLinking": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358",
+      "ndkVersion": "28.2.13676358",
+      "ndkSupportedAbiList": [
+        "armeabi-v7a",
+        "arm64-v8a",
+        "riscv64",
+        "x86",
+        "x86_64"
+      ],
+      "ndkDefaultAbiList": [
+        "armeabi-v7a",
+        "arm64-v8a",
+        "x86",
+        "x86_64"
+      ],
+      "ndkDefaultStl": "LIBCXX_STATIC",
+      "ndkMetaPlatforms": {
+        "min": 21,
+        "max": 35,
+        "aliases": {
+          "20": 19,
+          "25": 24,
+          "J": 16,
+          "J-MR1": 17,
+          "J-MR2": 18,
+          "K": 19,
+          "L": 21,
+          "L-MR1": 22,
+          "M": 23,
+          "N": 24,
+          "N-MR1": 24,
+          "O": 26,
+          "O-MR1": 27,
+          "P": 28,
+          "Q": 29,
+          "R": 30,
+          "S": 31,
+          "Sv2": 32,
+          "Tiramisu": 33,
+          "UpsideDownCake": 34,
+          "VanillaIceCream": 35
+        }
+      },
+      "ndkMetaAbiList": [
+        {
+          "name": "armeabi-v7a",
+          "bitness": 32,
+          "isDefault": true,
+          "isDeprecated": false,
+          "architecture": "arm",
+          "triple": "arm-linux-androideabi",
+          "llvmTriple": "armv7-none-linux-androideabi"
+        },
+        {
+          "name": "arm64-v8a",
+          "bitness": 64,
+          "isDefault": true,
+          "isDeprecated": false,
+          "architecture": "arm64",
+          "triple": "aarch64-linux-android",
+          "llvmTriple": "aarch64-none-linux-android"
+        },
+        {
+          "name": "riscv64",
+          "bitness": 64,
+          "isDefault": false,
+          "isDeprecated": false,
+          "architecture": "riscv64",
+          "triple": "riscv64-linux-android",
+          "llvmTriple": "riscv64-none-linux-android"
+        },
+        {
+          "name": "x86",
+          "bitness": 32,
+          "isDefault": true,
+          "isDeprecated": false,
+          "architecture": "x86",
+          "triple": "i686-linux-android",
+          "llvmTriple": "i686-none-linux-android"
+        },
+        {
+          "name": "x86_64",
+          "bitness": 64,
+          "isDefault": true,
+          "isDeprecated": false,
+          "architecture": "x86_64",
+          "triple": "x86_64-linux-android",
+          "llvmTriple": "x86_64-none-linux-android"
+        }
+      ],
+      "cmakeToolchainFile": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\build\\cmake\\android.toolchain.cmake",
+      "cmake": {
+        "cmakeExe": "D:\\Users\\B\\AppData\\AndroidSDK\\cmake\\3.22.1\\bin\\cmake.exe",
+        "cmakeVersionFromDsl": "3.22.1"
+      },
+      "stlSharedObjectMap": {
+        "LIBCXX_SHARED": {
+          "armeabi-v7a": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\arm-linux-androideabi\\libc++_shared.so",
+          "arm64-v8a": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\aarch64-linux-android\\libc++_shared.so",
+          "riscv64": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\riscv64-linux-android\\libc++_shared.so",
+          "x86": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\i686-linux-android\\libc++_shared.so",
+          "x86_64": "D:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\toolchains\\llvm\\prebuilt\\windows-x86_64\\sysroot\\usr\\lib\\x86_64-linux-android\\libc++_shared.so"
+        },
+        "LIBCXX_STATIC": {},
+        "NONE": {},
+        "SYSTEM": {}
+      },
+      "project": {
+        "rootBuildGradleFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite",
+        "sdkFolder": "D:\\Users\\B\\AppData\\AndroidSDK",
+        "isBuildOnlyTargetAbiEnabled": true,
+        "isCmakeBuildCohabitationEnabled": false,
+        "isPrefabEnabled": false
+      },
+      "outputOptions": [],
+      "ninjaExe": "D:\\Users\\B\\AppData\\AndroidSDK\\cmake\\3.22.1\\bin\\ninja.exe",
+      "hasBuildTimeInformation": true
+    },
+    "prefabClassPaths": [],
+    "prefabPackages": [],
+    "prefabPackageConfigurations": [],
+    "stlType": "c++_static",
+    "optimizationTag": "Debug"
+  },
+  "buildSettings": {
+    "environmentVariables": []
+  },
+  "prefabFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\.cxx\\Debug\\1x2k6lo1\\prefab\\x86_64",
+  "isActiveAbi": true,
+  "fullConfigurationHash": "1x2k6lo161d613i4z24192o5i686l6j2x26626w685nn133v3i3r5oz46336",
+  "fullConfigurationHashKey": "# Values used to calculate the hash in this folder name.\n# Should not depend on the absolute path of the project itself.\n#   - AGP: 9.1.1.\n#   - $NDK is the path to NDK 28.2.13676358.\n#   - $PROJECT is the path to the parent folder of the root Gradle build file.\n#   - $ABI is the ABI to be built with. The specific value doesn\u0027t contribute to the value of the hash.\n#   - $HASH is the hash value computed from this text.\n#   - $CMAKE is the path to CMake 3.22.1.\n#   - $NINJA is the path to Ninja.\n-H$PROJECT/audiotag/src/main/cpp\n-DCMAKE_SYSTEM_NAME\u003dAndroid\n-DCMAKE_EXPORT_COMPILE_COMMANDS\u003dON\n-DCMAKE_SYSTEM_VERSION\u003d24\n-DANDROID_PLATFORM\u003dandroid-24\n-DANDROID_ABI\u003d$ABI\n-DCMAKE_ANDROID_ARCH_ABI\u003d$ABI\n-DANDROID_NDK\u003d$NDK\n-DCMAKE_ANDROID_NDK\u003d$NDK\n-DCMAKE_TOOLCHAIN_FILE\u003d$NDK/build/cmake/android.toolchain.cmake\n-DCMAKE_MAKE_PROGRAM\u003d$NINJA\n-DCMAKE_LIBRARY_OUTPUT_DIRECTORY\u003d$PROJECT/audiotag/build/intermediates/cxx/Debug/$HASH/obj/$ABI\n-DCMAKE_RUNTIME_OUTPUT_DIRECTORY\u003d$PROJECT/audiotag/build/intermediates/cxx/Debug/$HASH/obj/$ABI\n-DCMAKE_BUILD_TYPE\u003dDebug\n-B$PROJECT/audiotag/.cxx/Debug/$HASH/$ABI\n-GNinja",
+  "configurationArguments": [
+    "-HD:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\src\\main\\cpp",
+    "-DCMAKE_SYSTEM_NAME\u003dAndroid",
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS\u003dON",
+    "-DCMAKE_SYSTEM_VERSION\u003d24",
+    "-DANDROID_PLATFORM\u003dandroid-24",
+    "-DANDROID_ABI\u003dx86_64",
+    "-DCMAKE_ANDROID_ARCH_ABI\u003dx86_64",
+    "-DANDROID_NDK\u003dD:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358",
+    "-DCMAKE_ANDROID_NDK\u003dD:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358",
+    "-DCMAKE_TOOLCHAIN_FILE\u003dD:\\Users\\B\\AppData\\AndroidSDK\\ndk\\28.2.13676358\\build\\cmake\\android.toolchain.cmake",
+    "-DCMAKE_MAKE_PROGRAM\u003dD:\\Users\\B\\AppData\\AndroidSDK\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY\u003dD:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates\\cxx\\Debug\\1x2k6lo1\\obj\\x86_64",
+    "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY\u003dD:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates\\cxx\\Debug\\1x2k6lo1\\obj\\x86_64",
+    "-DCMAKE_BUILD_TYPE\u003dDebug",
+    "-BD:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\.cxx\\Debug\\1x2k6lo1\\x86_64",
+    "-GNinja"
+  ],
+  "intermediatesParentFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\build\\intermediates\\cxx\\Debug\\1x2k6lo1"
+}

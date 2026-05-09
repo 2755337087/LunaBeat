@@ -2354,6 +2354,11 @@ fun LyricPreviewScreen(
                             artist = metadata.artist,
                             backgroundColor = backgroundColor,
                             onBackClick = onBack,
+                            onHeaderClick = {
+                                if (enableSongInfoSheet) {
+                                    showSongInfoSheet = true
+                                }
+                            },
                             onMenuClick = { menuExpanded = true },
                             menuContent = lyricSettingsMenuContent
                         )
@@ -2375,6 +2380,11 @@ fun LyricPreviewScreen(
                 Column(modifier = Modifier.fillMaxSize()) {
                     LyricPreviewMiniHeader(
                         title = metadata.title,
+                        onHeaderClick = {
+                            if (enableSongInfoSheet) {
+                                showSongInfoSheet = true
+                            }
+                        },
                         onBackClick = onBack,
                         onMenuClick = { menuExpanded = true },
                         menuContent = lyricSettingsMenuContent,
@@ -4467,6 +4477,7 @@ fun LyricPreviewCompactHeader(
     artist: String,
     backgroundColor: Color,
     onBackClick: () -> Unit = {},
+    onHeaderClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {}
 ) {
@@ -4505,7 +4516,14 @@ fun LyricPreviewCompactHeader(
         }
         Spacer(modifier = Modifier.width(8.dp))
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    onHeaderClick()
+                },
             verticalArrangement = Arrangement.Center
         ) {
             Text(
@@ -4553,6 +4571,7 @@ fun LyricPreviewCompactHeader(
 fun LyricPreviewMiniHeader(
     title: String,
     backgroundColor: Color,
+    onHeaderClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {}
@@ -4591,6 +4610,12 @@ fun LyricPreviewMiniHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    onHeaderClick()
+                }
                 .padding(horizontal = 6.dp)
         )
         IconButton(

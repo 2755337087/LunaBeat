@@ -62,6 +62,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -3588,6 +3593,30 @@ fun loadMusicLibraryCache(context: Context): List<MusicLibraryAudioFile> {
     }
 }
 
+suspend fun loadCoverSelectionCachedAudioFiles(context: Context): List<MusicLibraryAudioFile> {
+    return withContext(Dispatchers.IO) {
+        val roomCached = musicLibraryCacheStore(context).loadAllPaged()
+        if (roomCached.isNotEmpty()) {
+            return@withContext roomCached.map {
+                MusicLibraryAudioFile(
+                    path = it.path,
+                    title = it.title,
+                    artist = it.artist,
+                    album = it.album,
+                    duration = it.duration,
+                    fileSize = it.fileSize,
+                    lastModified = it.lastModified,
+                    addedTime = it.addedTime,
+                    coverCachePath = it.coverCachePath,
+                    year = it.year
+                )
+            }
+        }
+        // 兜底兼容历史缓存
+        return@withContext loadMusicLibraryCache(context)
+    }
+}
+
 // 从缓存加载封面位图
 fun loadCoverBitmapFromCache(coverCachePath: String): Bitmap? {
     return try {
@@ -3660,14 +3689,35 @@ fun MusicLibraryCoverSelectionSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val contentNoPassNestedScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(0f, available.y)
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                return Velocity(0f, available.y)
+            }
+        }
+    }
     
     var searchQuery by remember { mutableStateOf("") }
     var audioFiles by remember { mutableStateOf<List<MusicLibraryAudioFile>?>(null) }
     val lazyListState = rememberLazyListState()
+
+    fun dismissWithAnimation() {
+        scope.launch {
+            sheetState.hide()
+            onDismiss()
+        }
+    }
     
     // 加载音乐库缓存
     LaunchedEffect(Unit) {
-        audioFiles = loadMusicLibraryCache(context)
+        audioFiles = loadCoverSelectionCachedAudioFiles(context)
     }
     
     // 过滤搜索结果
@@ -3684,7 +3734,7 @@ fun MusicLibraryCoverSelectionSheet(
     }
     
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { dismissWithAnimation() },
         sheetState = sheetState,
     ) {
         Column(
@@ -3705,7 +3755,7 @@ fun MusicLibraryCoverSelectionSheet(
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = { dismissWithAnimation() }) {
                     Icon(
                         painter = painterResource(id = android.R.drawable.ic_menu_close_clear_cancel),
                         contentDescription = "关闭",
@@ -3815,7 +3865,8 @@ fun MusicLibraryCoverSelectionSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 16.dp)
+                        .nestedScroll(contentNoPassNestedScroll),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(
@@ -3843,8 +3894,21 @@ fun MusicLibraryCoverItem(
     audioFile: MusicLibraryAudioFile,
     onClick: () -> Unit
 ) {
-    val coverBitmap = remember(audioFile.coverCachePath) {
-        audioFile.coverCachePath?.let { loadCoverBitmapFromCache(it) }
+    val context = LocalContext.current
+    val coverBitmap by produceState<Bitmap?>(initialValue = null, audioFile.path, audioFile.coverCachePath) {
+        value = withContext(Dispatchers.IO) {
+            val fromCache = audioFile.coverCachePath
+                ?.takeIf { it.isNotBlank() }
+                ?.let { loadCoverBitmapFromCache(it) }
+            if (fromCache != null) {
+                fromCache
+            } else {
+                val coverBytes = loadAudioCover(context, audioFile.path)
+                coverBytes?.let { bytes ->
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+            }
+        }
     }
     
     Surface(
@@ -3870,7 +3934,7 @@ fun MusicLibraryCoverItem(
             ) {
                 if (coverBitmap != null) {
                     Image(
-                        bitmap = coverBitmap.asImageBitmap(),
+                        bitmap = coverBitmap!!.asImageBitmap(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
