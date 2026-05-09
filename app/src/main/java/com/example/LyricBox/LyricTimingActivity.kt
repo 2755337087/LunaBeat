@@ -3684,7 +3684,9 @@ private fun SplitLyricBottomSheet(
                                 val endMs = parseTimeToMs(currentUnit.endTime)
                                 val totalDuration = endMs - startMs
 
-                                val normalizedText = splitLyricText.replace('\u00A0', ' ')
+                                val normalizedText = splitLyricText
+                                    .replace('\u00A0', ' ')
+                                    .replace('\u2009', ' ')
                                 val segments = mutableListOf<String>()
                                 var currentSegment = ""
                                 var index = 0
@@ -8472,7 +8474,9 @@ fun LyricTimingScreen(
                 }
                 val parsedLyricLines = lines.map { line ->
                     val parts = line.split("=", limit = 2)
-                    val originalLyric = parts[0].replace('\u00A0', ' ')
+                    val originalLyric = parts[0]
+                        .replace('\u00A0', ' ')
+                        .replace('\u2009', ' ')
                     val translation = if (parts.size > 1) parts[1] else ""
                     val words = if (useSpace) {
                         val splitResult = originalLyric.split(" ")
@@ -11174,10 +11178,25 @@ fun isCJKCharacter(char: Char): Boolean {
            (codePoint in 0x30..0x39) // 数字0-9也作为CJK字符
 }
 
+private fun isAttachablePunctuation(char: Char): Boolean {
+    // 一键分词时：标点不单独成词，优先附着前一个词；句首无前词时附着后一个词。
+    // 注意：不把英文单引号(')作为此类标点，避免打断 don't 等英文缩写。
+    val type = Character.getType(char)
+    return type == Character.START_PUNCTUATION.toInt() ||
+        type == Character.END_PUNCTUATION.toInt() ||
+        type == Character.INITIAL_QUOTE_PUNCTUATION.toInt() ||
+        type == Character.FINAL_QUOTE_PUNCTUATION.toInt() ||
+        type == Character.OTHER_PUNCTUATION.toInt() ||
+        type == Character.DASH_PUNCTUATION.toInt()
+}
+
 fun smartSegmentLyric(text: String): List<String> {
-    val normalizedText = text.replace('\u00A0', ' ')
+    val normalizedText = text
+        .replace('\u00A0', ' ')
+        .replace('\u2009', ' ')
     val result = mutableListOf<String>()
     var pendingSpaces = ""
+    var pendingPrefixPunctuation = ""
     var i = 0
     
     while (i < normalizedText.length) {
@@ -11188,10 +11207,23 @@ fun smartSegmentLyric(text: String): List<String> {
             i++
             continue
         }
+
+        if (char != '\'' && isAttachablePunctuation(char)) {
+            if (result.isNotEmpty()) {
+                val lastIndex = result.lastIndex
+                result[lastIndex] = result[lastIndex] + char
+            } else {
+                // 句首标点：缓存，附着到后一个词/字。
+                pendingPrefixPunctuation += char
+            }
+            i++
+            continue
+        }
         
         if (isCJKCharacter(char)) {
             val shouldAttachToPrevious = isJapaneseSmallKana(char) &&
                     pendingSpaces.isEmpty() &&
+                    pendingPrefixPunctuation.isEmpty() &&
                     result.isNotEmpty() &&
                     result.last().lastOrNull()?.let { isCJKCharacter(it) } == true
 
@@ -11202,17 +11234,33 @@ fun smartSegmentLyric(text: String): List<String> {
                 continue
             }
 
-            result.add(pendingSpaces + char)
+            result.add(pendingSpaces + pendingPrefixPunctuation + char)
             pendingSpaces = ""
+            pendingPrefixPunctuation = ""
             i++
         } else {
             val wordStart = i
-            while (i < normalizedText.length && normalizedText[i] != ' ' && !isCJKCharacter(normalizedText[i])) {
+            while (
+                i < normalizedText.length &&
+                normalizedText[i] != ' ' &&
+                !isCJKCharacter(normalizedText[i]) &&
+                (normalizedText[i] == '\'' || !isAttachablePunctuation(normalizedText[i]))
+            ) {
                 i++
             }
             val word = normalizedText.substring(wordStart, i)
-            result.add(pendingSpaces + word)
+            result.add(pendingSpaces + pendingPrefixPunctuation + word)
             pendingSpaces = ""
+            pendingPrefixPunctuation = ""
+        }
+    }
+
+    if (pendingPrefixPunctuation.isNotEmpty()) {
+        if (result.isNotEmpty()) {
+            val lastIndex = result.lastIndex
+            result[lastIndex] = result[lastIndex] + pendingPrefixPunctuation
+        } else {
+            result.add(pendingSpaces + pendingPrefixPunctuation)
         }
     }
     
