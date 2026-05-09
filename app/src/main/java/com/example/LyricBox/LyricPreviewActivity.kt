@@ -25,6 +25,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
@@ -49,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -73,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.LayoutModifier
 import androidx.compose.ui.layout.Measurable
@@ -114,6 +117,7 @@ private const val ENABLE_CREATOR_SYNC_TRACE = false
 private const val PLAYED_LINE_BLUR_RADIUS = 3f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
+private const val COMPANION_AUDIO_LOG_TAG = "LyricPreviewCompanion"
 
 // ==================== 数据模型 ====================
 
@@ -328,11 +332,14 @@ class WordLiftAnimator {
 
 class LyricPreviewActivity : ComponentActivity() {
     private var mediaPlayer: ExoPlayer? = null
+    private var companionPlayer: ExoPlayer? = null
     private var sharedPlaybackController: MusicPlaybackController? = null
     private var useSharedPlayback: Boolean = false
     private var currentPlaybackPosition: Long = 0L
     private var playbackCompleted by mutableStateOf(false)
+    private var companionModeEnabled by mutableStateOf(false)
     private var previewAudioDuration by mutableLongStateOf(0L)
+    private var previewLastKnownDuration by mutableLongStateOf(0L)
     private var previewConvertedAudioPath: String? = null
     private var isFallbackTranscoding by mutableStateOf(false)
     
@@ -367,6 +374,9 @@ class LyricPreviewActivity : ComponentActivity() {
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
         private const val STATE_IS_PLAYING = "state_is_playing"
+        private const val DEFAULT_COMPANION_FOLDER_NAME = "sing"
+        private const val DEFAULT_COMPANION_EXACT_DIR = "/storage/emulated/0/Music/.sing"
+        private const val CROSSFADE_DURATION_MS = 420L
         
         fun createIntent(
             context: Context,
@@ -548,6 +558,14 @@ class LyricPreviewActivity : ComponentActivity() {
         val previewCreatorsState = mutableStateOf(creators)
         val previewLyricLinesState = mutableStateOf(reorganizedLines)
         val previewLyricsLoadingState = mutableStateOf(useSharedPlayback && reorganizedLines.isEmpty())
+        val companionAudioPathState = mutableStateOf(
+            resolveCompanionAudioPath(previewSourceAudioPathState.value)
+        )
+        Log.d(
+            COMPANION_AUDIO_LOG_TAG,
+            "onCreate source=${previewSourceAudioPathState.value} companion=${companionAudioPathState.value ?: "null"}"
+        )
+        val companionSwitchingState = mutableStateOf(false)
         
         if (!useSharedPlayback && audioPath.isNotEmpty()) {
             loadAudio(audioPath, restoredPosition, shouldAutoPlayOnLoad)
@@ -582,6 +600,12 @@ class LyricPreviewActivity : ComponentActivity() {
                             previewCreatorsState.value = payload?.creators ?: emptyList()
                             previewLyricLinesState.value = rebuiltLines
                             previewLyricsLoadingState.value = false
+                            companionModeEnabled = false
+                            companionAudioPathState.value = resolveCompanionAudioPath(resolvedNowPath)
+                            Log.d(
+                                COMPANION_AUDIO_LOG_TAG,
+                                "sharedTrackChanged source=$resolvedNowPath companion=${companionAudioPathState.value ?: "null"}"
+                            )
                             currentPlaybackPosition = controller.positionMs
                             playbackCompleted = false
                             lastResolvedPath = resolvedNowPath
@@ -595,6 +619,11 @@ class LyricPreviewActivity : ComponentActivity() {
         setContent {
             歌词转换Theme {
                 val useTrackSkipControls = useSharedPlayback && !isTimingPreviewEntry
+                val resolvedCompanionSelected = if (companionSwitchingState.value) {
+                    companionModeEnabled
+                } else {
+                    resolveCompanionSelectedState(companionAudioPathState.value)
+                }
                 LyricPreviewScreen(
                     title = previewTitleState.value,
                     audioPath = previewAudioPathState.value,
@@ -693,6 +722,53 @@ class LyricPreviewActivity : ComponentActivity() {
                             previewAudioDuration.coerceAtLeast(0L)
                         }
                     },
+                    companionAvailable = companionAudioPathState.value != null,
+                    companionSelected = resolvedCompanionSelected,
+                    companionBusy = companionSwitchingState.value,
+                    onCompanionToggle = { enabled ->
+                        Log.d(
+                            COMPANION_AUDIO_LOG_TAG,
+                            "toggle requested enabled=$enabled selected=$companionModeEnabled busy=${companionSwitchingState.value} source=${previewSourceAudioPathState.value} companion=${companionAudioPathState.value ?: "null"}"
+                        )
+                        if (!companionSwitchingState.value) {
+                            val sourcePathForToggle = previewSourceAudioPathState.value
+                            val companionPath = companionAudioPathState.value
+                            val targetPath = if (enabled) companionPath else sourcePathForToggle
+                            if (!targetPath.isNullOrBlank()) {
+                                companionSwitchingState.value = true
+                                lifecycleScope.launch {
+                                    try {
+                                        val switchSucceeded = if (useSharedPlayback) {
+                                            sharedPlaybackController?.switchCurrentAudioKeepingMetadata(
+                                                expectedSourcePath = sourcePathForToggle,
+                                                targetAudioPath = targetPath,
+                                                crossfadeDurationMs = CROSSFADE_DURATION_MS
+                                            ) == true
+                                        } else {
+                                            switchLocalPreviewAudioKeepingProgress(
+                                                targetPath = targetPath,
+                                                crossfadeDurationMs = CROSSFADE_DURATION_MS
+                                            )
+                                        }
+                                        if (switchSucceeded) {
+                                            companionModeEnabled = enabled
+                                        }
+                                        Log.d(
+                                            COMPANION_AUDIO_LOG_TAG,
+                                            "toggle result enabled=$enabled success=$switchSucceeded target=$targetPath"
+                                        )
+                                    } finally {
+                                        companionSwitchingState.value = false
+                                    }
+                                }
+                            } else {
+                                Log.d(
+                                    COMPANION_AUDIO_LOG_TAG,
+                                    "toggle skipped: targetPath empty enabled=$enabled source=$sourcePathForToggle companion=${companionPath ?: "null"}"
+                                )
+                            }
+                        }
+                    },
                     enableSongInfoSheet = !isTimingPreviewEntry,
                     playbackCompleted = playbackCompleted,
                     onPlaybackCompletedHandled = { playbackCompleted = false }
@@ -721,6 +797,7 @@ class LyricPreviewActivity : ComponentActivity() {
             previewAudioDuration = 0L
             return
         }
+        companionModeEnabled = false
 
         val loaded = tryLoadAudioDirect(path, initialPosition, autoPlay, allowFallback = true)
         if (!loaded) {
@@ -736,32 +813,13 @@ class LyricPreviewActivity : ComponentActivity() {
     ): Boolean {
         try {
             mediaPlayer?.release()
+            companionPlayer?.release()
+            companionPlayer = null
             val renderersFactory = DefaultRenderersFactory(this).apply {
                 setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             }
             mediaPlayer = ExoPlayer.Builder(this, renderersFactory).build().apply {
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: PlaybackException) {
-                        Log.e(
-                            "LyricPreview",
-                            "ExoPlayer error: code=${error.errorCodeName} message=${error.message} path=$path"
-                        )
-                        if (allowFallback) {
-                            val resumePosition = currentPosition.coerceAtLeast(0L)
-                            startFallbackTranscode(path, resumePosition, autoPlay = true, reason = "exoplayer_error")
-                        }
-                    }
-
-                    override fun onPlaybackStateChanged(state: Int) {
-                        if (state == Player.STATE_ENDED) {
-                            playbackCompleted = true
-                        } else if (state == Player.STATE_READY) {
-                            previewAudioDuration = duration
-                                .takeIf { it != C.TIME_UNSET && it > 0L }
-                                ?: 0L
-                        }
-                    }
-                })
+                attachPreviewPlayerListener(this, fallbackPath = path, allowFallback = allowFallback)
                 setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(File(path))))
                 prepare()
                 if (initialPosition > 0L) {
@@ -775,6 +833,9 @@ class LyricPreviewActivity : ComponentActivity() {
             previewAudioDuration = mediaPlayer?.duration
                 ?.takeIf { it != C.TIME_UNSET && it > 0L }
                 ?: 0L
+            if (previewAudioDuration > 0L) {
+                previewLastKnownDuration = previewAudioDuration
+            }
             return true
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to load audio: $path", e)
@@ -813,6 +874,8 @@ class LyricPreviewActivity : ComponentActivity() {
         previewAudioDuration = 0L
         mediaPlayer?.release()
         mediaPlayer = null
+        companionPlayer?.release()
+        companionPlayer = null
         previewConvertedAudioPath = null
         cleanupPreviewConvertCacheFiles()
         Log.w("LyricPreview", "Transcode fallback disabled. reason=$reason input=$inputPath")
@@ -846,6 +909,225 @@ class LyricPreviewActivity : ComponentActivity() {
         }
     }
 
+    private fun resolveCompanionAudioPath(sourcePath: String): String? {
+        val sourceFile = File(sourcePath)
+        val exactFileName = sourceFile.name.takeIf { it.isNotBlank() } ?: return null
+        val sourceBaseName = sourceFile.nameWithoutExtension.takeIf { it.isNotBlank() } ?: return null
+        val candidateDirs = linkedSetOf<File>()
+        candidateDirs += File(DEFAULT_COMPANION_EXACT_DIR)
+        val sourceParent = sourceFile.parentFile
+        if (sourceParent != null) {
+            candidateDirs += File(sourceParent, DEFAULT_COMPANION_FOLDER_NAME)
+            candidateDirs += File(sourceParent, ".$DEFAULT_COMPANION_FOLDER_NAME")
+            sourceParent.parentFile?.let { parent ->
+                candidateDirs += File(parent, "music${File.separator}$DEFAULT_COMPANION_FOLDER_NAME")
+                candidateDirs += File(parent, "Music${File.separator}$DEFAULT_COMPANION_FOLDER_NAME")
+                candidateDirs += File(parent, "music${File.separator}.$DEFAULT_COMPANION_FOLDER_NAME")
+                candidateDirs += File(parent, "Music${File.separator}.$DEFAULT_COMPANION_FOLDER_NAME")
+            }
+        }
+        Log.d(
+            COMPANION_AUDIO_LOG_TAG,
+            "resolve source=$sourcePath exact=$exactFileName base=$sourceBaseName dirs=${candidateDirs.size}"
+        )
+        candidateDirs.forEach { dir ->
+            Log.d(
+                COMPANION_AUDIO_LOG_TAG,
+                "dir=${dir.absolutePath} exists=${dir.exists()} isDirectory=${dir.isDirectory}"
+            )
+        }
+        val resolvedFile = candidateDirs.firstNotNullOfOrNull { dir ->
+            findCompanionInDir(
+                dir = dir,
+                exactFileName = exactFileName,
+                sourceBaseName = sourceBaseName
+            )
+        }
+        val resolved = resolvedFile?.absolutePath
+        Log.d(
+            COMPANION_AUDIO_LOG_TAG,
+            "resolved=${resolved ?: "null"} source=$sourcePath"
+        )
+        return resolved
+    }
+
+    private fun findCompanionInDir(
+        dir: File,
+        exactFileName: String,
+        sourceBaseName: String
+    ): File? {
+        if (!dir.exists() || !dir.isDirectory) return null
+
+        val exactCandidate = File(dir, exactFileName)
+        if (exactCandidate.exists() && exactCandidate.isFile) {
+            Log.d(
+                COMPANION_AUDIO_LOG_TAG,
+                "match exact=${exactCandidate.absolutePath}"
+            )
+            return exactCandidate
+        }
+
+        val files = dir.listFiles() ?: return null
+        val baseMatched = files.firstOrNull { file ->
+            file.isFile && file.nameWithoutExtension.equals(sourceBaseName, ignoreCase = true)
+        }
+        if (baseMatched != null) {
+            Log.d(
+                COMPANION_AUDIO_LOG_TAG,
+                "match base=${baseMatched.absolutePath}"
+            )
+        }
+        return baseMatched
+    }
+
+    private fun resolveCompanionSelectedState(companionPath: String?): Boolean {
+        if (companionPath.isNullOrBlank()) return false
+        val currentPlaybackPath = if (useSharedPlayback) {
+            sharedPlaybackController?.currentPlaybackUriPath
+        } else {
+            mediaPlayer?.currentMediaItem?.localConfiguration?.uri?.path
+        }
+        return isSameAudioPath(currentPlaybackPath, companionPath)
+    }
+
+    private fun isSameAudioPath(pathA: String?, pathB: String?): Boolean {
+        if (pathA.isNullOrBlank() || pathB.isNullOrBlank()) return false
+        val normalizedA = runCatching { File(pathA).absolutePath }.getOrElse { pathA }
+        val normalizedB = runCatching { File(pathB).absolutePath }.getOrElse { pathB }
+        return normalizedA == normalizedB
+    }
+
+    private suspend fun switchLocalPreviewAudioKeepingProgress(
+        targetPath: String,
+        crossfadeDurationMs: Long
+    ): Boolean {
+        return try {
+            val targetFile = File(targetPath)
+            if (!targetFile.exists() || !targetFile.isFile) return false
+
+            val primaryPlayer = mediaPlayer ?: return false
+            val currentUriPath = primaryPlayer.currentMediaItem?.localConfiguration?.uri?.path
+            if (currentUriPath == targetFile.absolutePath) return true
+
+            val resumePosition = primaryPlayer.currentPosition.coerceAtLeast(0L)
+            val keepPlaying = primaryPlayer.isPlaying || primaryPlayer.playWhenReady
+            val baselineVolume = primaryPlayer.volume.takeIf { it > 0f } ?: 1f
+            val halfDuration = (crossfadeDurationMs / 2L).coerceAtLeast(90L)
+
+            companionPlayer?.release()
+            companionPlayer = ExoPlayer.Builder(
+                this,
+                DefaultRenderersFactory(this).apply {
+                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                }
+            ).build().apply {
+                attachPreviewPlayerListener(this, fallbackPath = targetPath, allowFallback = false)
+                setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(targetFile)))
+                prepare()
+                if (resumePosition > 0L) {
+                    seekTo(resumePosition)
+                }
+                volume = 0f
+                playWhenReady = keepPlaying
+                if (keepPlaying) {
+                    play()
+                }
+            }
+
+            val targetPlayer = companionPlayer ?: return false
+
+            var waitRounds = 0
+            while (
+                waitRounds < 12 &&
+                (targetPlayer.playbackState == Player.STATE_IDLE || targetPlayer.playbackState == Player.STATE_BUFFERING)
+            ) {
+                delay(35L)
+                waitRounds += 1
+            }
+
+            animateDualPlayerVolume(primaryPlayer, targetPlayer, baselineVolume, halfDuration)
+
+            val oldPlayer = mediaPlayer
+            mediaPlayer = targetPlayer
+            companionPlayer = null
+            oldPlayer?.release()
+            mediaPlayer?.volume = baselineVolume
+            playbackCompleted = false
+            previewAudioDuration = mediaPlayer?.duration
+                ?.takeIf { it != C.TIME_UNSET && it > 0L }
+                ?: previewAudioDuration
+            if (previewAudioDuration > 0L) {
+                previewLastKnownDuration = previewAudioDuration
+            } else if (previewLastKnownDuration > 0L) {
+                previewAudioDuration = previewLastKnownDuration
+            }
+            currentPlaybackPosition = mediaPlayer?.currentPosition?.coerceAtLeast(0L) ?: currentPlaybackPosition
+            true
+        } catch (e: Exception) {
+            Log.e("LyricPreview", "Failed to switch preview companion audio: $targetPath", e)
+            companionPlayer?.release()
+            companionPlayer = null
+            false
+        }
+    }
+
+    private fun attachPreviewPlayerListener(
+        player: ExoPlayer,
+        fallbackPath: String,
+        allowFallback: Boolean
+    ) {
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e(
+                    "LyricPreview",
+                    "ExoPlayer error: code=${error.errorCodeName} message=${error.message} path=$fallbackPath"
+                )
+                if (allowFallback) {
+                    val resumePosition = player.currentPosition.coerceAtLeast(0L)
+                    startFallbackTranscode(fallbackPath, resumePosition, autoPlay = true, reason = "exoplayer_error")
+                }
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    playbackCompleted = true
+                } else if (state == Player.STATE_READY) {
+                    val updatedDuration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L }
+                    if (updatedDuration != null) {
+                        previewAudioDuration = updatedDuration
+                        previewLastKnownDuration = updatedDuration
+                    } else if (previewAudioDuration <= 0L && previewLastKnownDuration > 0L) {
+                        previewAudioDuration = previewLastKnownDuration
+                    }
+                }
+            }
+        })
+    }
+
+    private suspend fun animateDualPlayerVolume(
+        fadeOutPlayer: Player,
+        fadeInPlayer: Player,
+        targetVolume: Float,
+        durationMs: Long
+    ) {
+        val clampedTarget = targetVolume.coerceIn(0f, 1f)
+        if (durationMs <= 0L) {
+            fadeOutPlayer.volume = 0f
+            fadeInPlayer.volume = clampedTarget
+            return
+        }
+        val steps = 12
+        val stepDelay = (durationMs / steps).coerceAtLeast(12L)
+        for (step in 0..steps) {
+            val fraction = step / steps.toFloat()
+            fadeOutPlayer.volume = clampedTarget * (1f - fraction)
+            fadeInPlayer.volume = clampedTarget * fraction
+            delay(stepDelay)
+        }
+        fadeOutPlayer.volume = 0f
+        fadeInPlayer.volume = clampedTarget
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         val currentPos = if (useSharedPlayback) {
@@ -870,6 +1152,8 @@ class LyricPreviewActivity : ComponentActivity() {
     override fun onDestroy() {
         mediaPlayer?.release()
         mediaPlayer = null
+        companionPlayer?.release()
+        companionPlayer = null
         sharedPlaybackController?.release()
         sharedPlaybackController = null
         if (isFinishing && !useSharedPlayback) {
@@ -1133,6 +1417,10 @@ fun LyricPreviewScreen(
     getCurrentPosition: () -> Long,
     getIsPlayingState: () -> Boolean,
     getAudioDuration: () -> Long,
+    companionAvailable: Boolean = false,
+    companionSelected: Boolean = false,
+    companionBusy: Boolean = false,
+    onCompanionToggle: (Boolean) -> Unit = {},
     enableSongInfoSheet: Boolean = true,
     playbackCompleted: Boolean = false,
     onPlaybackCompletedHandled: () -> Unit = {},
@@ -2288,7 +2576,7 @@ fun LyricPreviewScreen(
             }
 
             val playbackControlsPanel: @Composable () -> Unit = {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(
@@ -2453,8 +2741,20 @@ fun LyricPreviewScreen(
                                         backgroundColor
                                     )
                                 )
+                            ),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        if (companionAvailable) {
+                            CompanionToggleButton(
+                                checked = companionSelected,
+                                enabled = !companionBusy,
+                                accentColor = coverThemeColor ?: accentColor,
+                                backgroundColor = backgroundColor,
+                                onToggle = { onCompanionToggle(!companionSelected) },
+                                modifier = Modifier.padding(end = 16.dp)
                             )
-                    )
+                        }
+                    }
 
                     playbackControlsPanel()
                 }
@@ -2503,6 +2803,22 @@ fun LyricPreviewScreen(
                             )
                         )
                 )
+                if (companionAvailable) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = 20.dp)
+                            .navigationBarsPadding()
+                    ) {
+                        CompanionToggleButton(
+                            checked = companionSelected,
+                            enabled = !companionBusy,
+                            accentColor = coverThemeColor ?: accentColor,
+                            backgroundColor = backgroundColor,
+                            onToggle = { onCompanionToggle(!companionSelected) }
+                        )
+                    }
+                }
             }
         }
 
@@ -4427,6 +4743,61 @@ fun PlaybackControls(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun CompanionToggleButton(
+    checked: Boolean,
+    enabled: Boolean,
+    accentColor: Color,
+    backgroundColor: Color,
+    modifier: Modifier = Modifier,
+    onToggle: () -> Unit
+) {
+    val backgroundIsLight = colorLuminance(backgroundColor) > 0.5f
+    val uncheckedColorTarget = if (backgroundIsLight) {
+        blendColorForUi(accentColor, Color.White, 0.60f).copy(alpha = 0.72f)
+    } else {
+        blendColorForUi(accentColor, Color.White, 0.76f).copy(alpha = 0.64f)
+    }
+    val checkedColorTarget = if (backgroundIsLight) {
+        blendColorForUi(accentColor, Color.Black, 0.80f).copy(alpha = 0.94f)
+    } else {
+        blendColorForUi(accentColor, Color.Black, 0.86f).copy(alpha = 0.92f)
+    }
+    val borderColorTarget = if (checked) {
+        if (backgroundIsLight) Color.Black.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.28f)
+    } else {
+        if (backgroundIsLight) Color.Black.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.14f)
+    }
+    val containerColor by animateColorAsState(
+        targetValue = if (checked) checkedColorTarget else uncheckedColorTarget,
+        animationSpec = tween(durationMillis = 260),
+        label = "companionContainerColor"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = borderColorTarget,
+        animationSpec = tween(durationMillis = 260),
+        label = "companionBorderColor"
+    )
+    val iconColor = getHighContrastBlackOrWhite(containerColor)
+    Box(
+        modifier = modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(containerColor)
+            .border(width = 1.dp, color = borderColor, shape = RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled) { onToggle() }
+            .padding(9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.sing),
+            contentDescription = "伴奏",
+            tint = iconColor,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 

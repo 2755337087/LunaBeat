@@ -69,6 +69,8 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var currentAudioPath by mutableStateOf<String?>(null)
         private set
+    var currentPlaybackUriPath by mutableStateOf<String?>(null)
+        private set
     var currentCoverCachePath by mutableStateOf<String?>(null)
         private set
     var currentArtworkData by mutableStateOf<ByteArray?>(null)
@@ -91,6 +93,9 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var nextTrackTitle by mutableStateOf("")
         private set
+    private var temporaryCompanionMediaIndex: Int = -1
+    private var temporaryCompanionSourcePath: String? = null
+    private var lastKnownDurationMs: Long = 0L
 
     val hasCurrentItem: Boolean
         get() = currentAudioPath != null
@@ -256,6 +261,65 @@ class MusicPlaybackController(private val context: Context) {
 
     fun seekTo(position: Long) {
         controller?.seekTo(position.coerceAtLeast(0L))
+    }
+
+    suspend fun switchCurrentAudioKeepingMetadata(
+        expectedSourcePath: String,
+        targetAudioPath: String,
+        crossfadeDurationMs: Long = 360L
+    ): Boolean {
+        val player = controller ?: return false
+        val currentIndex = player.currentMediaItemIndex
+        if (currentIndex !in 0 until player.mediaItemCount) return false
+
+        val currentItem = player.getMediaItemAt(currentIndex)
+        val currentSourcePath = currentItem.resolveSourcePath()
+        if (currentSourcePath.isNullOrBlank() || currentSourcePath != expectedSourcePath) {
+            return false
+        }
+
+        val targetFile = File(targetAudioPath)
+        if (!targetFile.exists() || !targetFile.isFile) return false
+
+        val targetPlaybackPath = resolvePlayablePathForPlayback(context, targetFile.absolutePath)
+        val resolvedTargetFile = File(targetPlaybackPath)
+        if (!resolvedTargetFile.exists() || !resolvedTargetFile.isFile) return false
+
+        val currentUriPath = currentItem.localConfiguration?.uri?.path
+        if (currentUriPath == resolvedTargetFile.absolutePath) return true
+
+        val wasPlaying = player.isPlaying || player.playWhenReady
+        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+        val baselineVolume = player.volume.takeIf { it > 0f } ?: 1f
+        val halfDuration = (crossfadeDurationMs / 2L).coerceAtLeast(90L)
+
+        animatePlayerVolume(player, baselineVolume, 0f, halfDuration)
+
+        val updatedItem = currentItem.buildUpon()
+            .setUri(Uri.fromFile(resolvedTargetFile))
+            .build()
+        player.replaceMediaItem(currentIndex, updatedItem)
+        if (player.playbackState == Player.STATE_IDLE) {
+            player.prepare()
+        }
+        player.seekTo(currentIndex, resumePosition)
+        player.playWhenReady = wasPlaying
+        if (wasPlaying) {
+            player.play()
+        }
+
+        player.volume = 0f
+        animatePlayerVolume(player, 0f, baselineVolume, halfDuration)
+        val enablingCompanion = File(targetAudioPath).absolutePath != File(expectedSourcePath).absolutePath
+        if (enablingCompanion) {
+            temporaryCompanionMediaIndex = currentIndex
+            temporaryCompanionSourcePath = expectedSourcePath
+        } else {
+            temporaryCompanionMediaIndex = -1
+            temporaryCompanionSourcePath = null
+        }
+        syncFromPlayer(player)
+        return true
     }
 
     fun playAtQueueIndex(index: Int) {
@@ -471,15 +535,28 @@ class MusicPlaybackController(private val context: Context) {
     fun refreshProgress() {
         val player = controller ?: return
         positionMs = player.currentPosition.coerceAtLeast(0L)
-        durationMs = player.duration.takeIf { it > 0L } ?: 0L
+        val updatedDuration = player.duration.takeIf { it > 0L }
+        if (updatedDuration != null) {
+            lastKnownDurationMs = updatedDuration
+            durationMs = updatedDuration
+        } else if (durationMs <= 0L && lastKnownDurationMs > 0L) {
+            durationMs = lastKnownDurationMs
+        }
     }
 
     private fun syncFromPlayer(player: Player) {
+        restoreTemporaryCompanionIfNeeded(player)
         isPlaying = player.isPlaying
         playWhenReadyRequested = player.playWhenReady
         playbackState = player.playbackState
         positionMs = player.currentPosition.coerceAtLeast(0L)
-        durationMs = player.duration.takeIf { it > 0L } ?: 0L
+        val updatedDuration = player.duration.takeIf { it > 0L }
+        if (updatedDuration != null) {
+            lastKnownDurationMs = updatedDuration
+            durationMs = updatedDuration
+        } else if (durationMs <= 0L && lastKnownDurationMs > 0L) {
+            durationMs = lastKnownDurationMs
+        }
         currentIndex = player.currentMediaItemIndex
         mediaCount = player.mediaItemCount
         hasNextTrack = currentIndex >= 0 && player.mediaItemCount > 0
@@ -519,6 +596,7 @@ class MusicPlaybackController(private val context: Context) {
 
         val item = player.currentMediaItem
         currentMediaId = item?.mediaId
+        currentPlaybackUriPath = item?.localConfiguration?.uri?.path
         val extras = item?.mediaMetadata?.extras
         currentAudioPath = extras?.getString(EXTRA_AUDIO_PATH)
             ?: item?.mediaId?.takeIf { it.isNotBlank() }
@@ -532,6 +610,44 @@ class MusicPlaybackController(private val context: Context) {
         } else {
             persistSnapshotState()
         }
+    }
+
+    private fun restoreTemporaryCompanionIfNeeded(player: Player) {
+        val sourcePath = temporaryCompanionSourcePath ?: return
+        val index = temporaryCompanionMediaIndex
+        if (index !in 0 until player.mediaItemCount) {
+            temporaryCompanionMediaIndex = -1
+            temporaryCompanionSourcePath = null
+            return
+        }
+        if (player.currentMediaItemIndex == index) {
+            return
+        }
+
+        val item = player.getMediaItemAt(index)
+        if (item.resolveSourcePath() != sourcePath) {
+            temporaryCompanionMediaIndex = -1
+            temporaryCompanionSourcePath = null
+            return
+        }
+
+        val originalPlaybackPath = resolvePlayablePathForPlayback(context, sourcePath)
+        val originalFile = File(originalPlaybackPath)
+        if (!originalFile.exists() || !originalFile.isFile) {
+            temporaryCompanionMediaIndex = -1
+            temporaryCompanionSourcePath = null
+            return
+        }
+
+        val currentUriPath = item.localConfiguration?.uri?.path
+        if (currentUriPath != originalFile.absolutePath) {
+            val restoredItem = item.buildUpon()
+                .setUri(Uri.fromFile(originalFile))
+                .build()
+            player.replaceMediaItem(index, restoredItem)
+        }
+        temporaryCompanionMediaIndex = -1
+        temporaryCompanionSourcePath = null
     }
 
     private fun persistCurrentQueue(player: Player) {
@@ -726,6 +842,29 @@ class MusicPlaybackController(private val context: Context) {
                 player.repeatMode = Player.REPEAT_MODE_ONE
             }
         }
+    }
+
+    private suspend fun animatePlayerVolume(
+        player: Player,
+        from: Float,
+        to: Float,
+        durationMs: Long
+    ) {
+        val clampedFrom = from.coerceIn(0f, 1f)
+        val clampedTo = to.coerceIn(0f, 1f)
+        if (durationMs <= 0L) {
+            player.volume = clampedTo
+            return
+        }
+
+        val steps = 12
+        val stepDelay = (durationMs / steps).coerceAtLeast(12L)
+        for (step in 0..steps) {
+            val fraction = step / steps.toFloat()
+            player.volume = clampedFrom + (clampedTo - clampedFrom) * fraction
+            delay(stepDelay)
+        }
+        player.volume = clampedTo
     }
 }
 
