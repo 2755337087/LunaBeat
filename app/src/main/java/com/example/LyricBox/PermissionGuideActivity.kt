@@ -159,7 +159,7 @@ class PermissionGuideActivity : ComponentActivity() {
         }
         
         if (shouldNavigate) {
-            navigateToMainActivity()
+            navigateToMusicLibrary()
         }
     }
     
@@ -191,8 +191,8 @@ class PermissionGuideActivity : ComponentActivity() {
         }
     }
     
-    private fun navigateToMainActivity() {
-        val intent = Intent(this, MainActivity::class.java)
+    private fun navigateToMusicLibrary() {
+        val intent = Intent(this, MusicLibraryActivity::class.java)
         startActivity(intent)
         finish()
     }

@@ -177,6 +177,10 @@ import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
 import com.example.LyricBox.utils.LyricExportFormat
 import com.example.LyricBox.utils.LyricSaveEmbedUtils
+import com.example.LyricBox.utils.SecureStorage
+import com.example.LyricBox.utils.UpdateChecker
+import com.example.LyricBox.utils.UpdateInfo
+import com.example.LyricBox.utils.UpdateResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -193,6 +197,8 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 data class AudioFile(
@@ -283,6 +289,8 @@ private const val ALBUM_SEARCH_PREFIX_ASCII = "#专辑:"
 private const val SEARCH_HISTORY_PREFS_KEY = "music_library_recent_search_history"
 private const val SEARCH_HISTORY_LIMIT = 5
 private const val EXTERNAL_AUDIO_LOG_TAG = "MusicLibraryExternal"
+private const val STARTUP_APP_SETTINGS_PREFS_NAME = "AppSettings"
+private const val STARTUP_NOTICE_SNOOZE_DATE_KEY = "noticeSnoozeDate"
 
 private fun loadRecentSearchHistory(prefs: SharedPreferences): List<String> {
     return prefs.getString(SEARCH_HISTORY_PREFS_KEY, null)
@@ -795,6 +803,12 @@ data class ScanSummary(
     val updatedCount: Int = 0
 )
 
+private data class StartupUpdateNoticeState(
+    val updateInfo: UpdateInfo? = null,
+    val noticeText: String? = null,
+    val showNotice: Boolean = false
+)
+
 class MusicLibraryActivity : ComponentActivity() {
     
     private var piracyCheckResult by mutableStateOf<PiracyCheckResult?>(null)
@@ -863,6 +877,7 @@ class MusicLibraryActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SecureStorage.initializeIfNeeded(this)
         if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
@@ -903,6 +918,34 @@ class MusicLibraryActivity : ComponentActivity() {
         
         setContent {
             歌词转换Theme {
+                val context = LocalContext.current
+                var startupUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+                var startupNoticeText by remember { mutableStateOf<String?>(null) }
+                var showStartupNoticeDialog by remember { mutableStateOf(false) }
+
+                LaunchedEffect(Unit) {
+                    delay(800)
+                    val startupState = fetchStartupUpdateNoticeState(context)
+                    startupUpdateInfo = startupState.updateInfo
+
+                    val canShowNotice = startupState.showNotice &&
+                        !startupState.noticeText.isNullOrBlank() &&
+                        !isNoticeSnoozedToday(context)
+                    if (canShowNotice) {
+                        startupNoticeText = startupState.noticeText
+                        showStartupNoticeDialog = true
+                    }
+                }
+
+                LaunchedEffect(startupUpdateInfo) {
+                    val info = startupUpdateInfo ?: return@LaunchedEffect
+                    val intent = Intent(context, UpdateActivity::class.java).apply {
+                        putExtra("updateInfo", info)
+                    }
+                    context.startActivity(intent)
+                    startupUpdateInfo = null
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     contentWindowInsets = WindowInsets(0)
@@ -953,6 +996,37 @@ class MusicLibraryActivity : ComponentActivity() {
                             modifier = Modifier.padding(paddingValues)
                         )
                     }
+                }
+
+                if (showStartupNoticeDialog && !startupNoticeText.isNullOrBlank()) {
+                    AlertDialog(
+                        onDismissRequest = { showStartupNoticeDialog = false },
+                        title = {
+                            Text(text = "公告")
+                        },
+                        text = {
+                            Text(text = startupNoticeText!!)
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    markNoticeSnoozedToday(context)
+                                    showStartupNoticeDialog = false
+                                }
+                            ) {
+                                Text("今日不再提示")
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showStartupNoticeDialog = false
+                                }
+                            ) {
+                                Text("收到")
+                            }
+                        }
+                    )
                 }
                 
                 if (showPiracyWarning && piracyCheckResult != null) {
@@ -1456,6 +1530,90 @@ class MusicLibraryActivity : ComponentActivity() {
         _refreshMetadataPath = null
         return path
     }
+}
+
+private suspend fun fetchStartupUpdateNoticeState(context: Context): StartupUpdateNoticeState {
+    return withContext(Dispatchers.IO) {
+        val result = UpdateChecker.checkForUpdate(context)
+        val updateInfo = (result as? UpdateResult.UpdateAvailable)?.updateInfo
+
+        val infoForNotice = when (result) {
+            is UpdateResult.UpdateAvailable -> result.updateInfo
+            is UpdateResult.NoUpdate -> fetchRemoteUpdateInfo()
+            else -> null
+        }
+
+        if (infoForNotice != null) {
+            updateAppSettingsFromUpdateInfo(context, infoForNotice)
+        }
+
+        StartupUpdateNoticeState(
+            updateInfo = updateInfo,
+            noticeText = infoForNotice?.notice,
+            showNotice = infoForNotice?.showNotice == true
+        )
+    }
+}
+
+private fun fetchRemoteUpdateInfo(): UpdateInfo? {
+    return try {
+        val url = java.net.URL(UpdateChecker.UPDATE_URL)
+        val connection = url.openConnection() as java.net.HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 3000
+        connection.readTimeout = 3000
+        val response = connection.inputStream.bufferedReader().use { it.readText() }
+        connection.disconnect()
+        val json = JSONObject(response)
+        UpdateInfo(
+            versionCode = json.optInt("versionCode", 0),
+            versionName = json.optString("versionName", ""),
+            changelog = json.optString("changelog", ""),
+            updateTime = json.optString("updateTime", ""),
+            downloadName1 = json.optString("downloadName1", null).takeIf { it.isNotEmpty() },
+            downloadName2 = json.optString("downloadName2", null).takeIf { it.isNotEmpty() },
+            downloadUrl1 = json.optString("downloadUrl1", null).takeIf { it.isNotEmpty() },
+            downloadUrl2 = json.optString("downloadUrl2", null).takeIf { it.isNotEmpty() },
+            notice = json.optString("notice", null).takeIf { it.isNotEmpty() },
+            showNotice = json.optBoolean("showNotice", false),
+            amUrl = json.optString("AMURL", null).takeIf { it.isNotEmpty() },
+            amUrlName = json.optString("AMURLname", null).takeIf { it.isNotEmpty() },
+            amUrlCountry = json.optString("AMURLcountry", null).takeIf { it.isNotEmpty() },
+            amUrlNameContributor = json.optString("AMURLname_contributor", null).takeIf { it.isNotEmpty() },
+            amUrlCountryContributor = json.optString("AMURLcountry_contributor", null).takeIf { it.isNotEmpty() },
+            noticeContributor = json.optString("Notice_contributor", null).takeIf { it.isNotEmpty() }
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun updateAppSettingsFromUpdateInfo(context: Context, info: UpdateInfo) {
+    val prefs = context.getSharedPreferences(STARTUP_APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit().apply {
+        info.amUrl?.let { putString("amUrl", it) }
+        info.amUrlName?.let { putString("amUrlName", it) }
+        info.amUrlCountry?.let { putString("amUrlCountry", it) }
+        info.amUrlNameContributor?.let { putString("amUrlNameContributor", it) }
+        info.amUrlCountryContributor?.let { putString("amUrlCountryContributor", it) }
+        info.noticeContributor?.let { putString("noticeContributor", it) }
+        apply()
+    }
+}
+
+private fun isNoticeSnoozedToday(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(STARTUP_APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getString(STARTUP_NOTICE_SNOOZE_DATE_KEY, null) == currentDateToken()
+}
+
+private fun markNoticeSnoozedToday(context: Context) {
+    val prefs = context.getSharedPreferences(STARTUP_APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit().putString(STARTUP_NOTICE_SNOOZE_DATE_KEY, currentDateToken()).apply()
+}
+
+private fun currentDateToken(): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    return formatter.format(Date())
 }
 
 @OptIn(ExperimentalLayoutApi::class)
