@@ -2210,7 +2210,7 @@ fun MusicLibraryScreen(
             val headbarTitle = when {
                 isMultiSelectMode -> "已选 ${selectedPaths.size}"
                 showDoubleTapHint -> "双击返回顶部"
-                else -> "音乐库"
+                else -> "LunaBeat"
             }
             
             CommonHeadBar(
