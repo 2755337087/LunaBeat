@@ -1504,7 +1504,23 @@ fun LyricPreviewScreen(
     val settingsDarkMode = com.example.LyricBox.ui.theme.getDarkModeFromSettings(context)
     val isDarkTheme = settingsDarkMode ?: systemDarkTheme
     val screenConfig = LocalConfiguration.current
-    val isWatchLikeSmallScreen = screenConfig.screenWidthDp <= 240 || screenConfig.screenHeightDp <= 240
+    val screenMetrics = context.resources.displayMetrics
+    val screenShortEdgePx = min(screenMetrics.widthPixels, screenMetrics.heightPixels)
+    val screenLongEdgePx = max(screenMetrics.widthPixels, screenMetrics.heightPixels)
+    val screenMinDp = min(screenConfig.screenWidthDp, screenConfig.screenHeightDp)
+    val isWatchFeatureDevice = context.packageManager.hasSystemFeature("android.hardware.type.watch")
+    val isWatchUiMode = (
+        context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_TYPE_MASK
+        ) == android.content.res.Configuration.UI_MODE_TYPE_WATCH
+    val isRoundScreen = context.resources.configuration.isScreenRound
+    val isWatchLikeSmallScreen = (
+        isWatchFeatureDevice ||
+            isWatchUiMode ||
+            isRoundScreen ||
+            screenMinDp <= 260 ||
+            (screenShortEdgePx <= 420 && screenLongEdgePx <= 520)
+        )
     val isLandscape = screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val useSidePanelLayout = showChrome && isLandscape && !isWatchLikeSmallScreen
     val useMiniHeader = showChrome && isWatchLikeSmallScreen
