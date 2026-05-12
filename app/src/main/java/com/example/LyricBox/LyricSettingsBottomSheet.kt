@@ -50,6 +50,7 @@ import kotlin.math.roundToInt
 
 private enum class LyricSettingsPage {
     MAIN,
+    LYRIC_DISPLAY_MODE,
     LYRIC_DISPLAY_POSITION,
     FONT_SIZE,
     FONT_WEIGHT,
@@ -67,6 +68,7 @@ fun LyricSettingsBottomSheet(
     lyricBlurEnabled: Boolean,
     lyriconStatusBarEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
+    lyricDisplayMode: Int,
     lyricDisplayPosition: Int,
     fontSize: Float,
     fontWeight: Int,
@@ -78,6 +80,7 @@ fun LyricSettingsBottomSheet(
     onLyricBlurEnabledChange: (Boolean) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
+    onLyricDisplayModeChange: (Int) -> Unit,
     onLyricDisplayPositionChange: (Int) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onFontWeightChange: (Int) -> Unit,
@@ -93,6 +96,7 @@ fun LyricSettingsBottomSheet(
     val scrollState = rememberScrollState()
     var page by remember { mutableStateOf(LyricSettingsPage.MAIN) }
     var tempLyricDisplayPosition by remember(lyricDisplayPosition) { mutableFloatStateOf(lyricDisplayPosition.toFloat()) }
+    var tempLyricDisplayMode by remember(lyricDisplayMode) { mutableIntStateOf(lyricDisplayMode) }
     var tempFontSize by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
     var tempAnimationType by remember(animationType) { mutableIntStateOf(animationType) }
@@ -158,6 +162,14 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     LyricSettingsActionRow(
+                        title = "歌词显示模式",
+                        contentColor = contentColor,
+                        onClick = {
+                            tempLyricDisplayMode = lyricDisplayMode
+                            page = LyricSettingsPage.LYRIC_DISPLAY_MODE
+                        }
+                    )
+                    LyricSettingsActionRow(
                         title = "歌词显示位置",
                         contentColor = contentColor,
                         onClick = {
@@ -193,6 +205,44 @@ fun LyricSettingsBottomSheet(
                         title = "自定义字体",
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.CUSTOM_FONT }
+                    )
+                }
+
+                LyricSettingsPage.LYRIC_DISPLAY_MODE -> {
+                    LyricSettingsSubPageTitle(
+                        title = "歌词显示模式",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "默认",
+                        selected = tempLyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            tempLyricDisplayMode = LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT
+                            onLyricDisplayModeChange(LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT)
+                        }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "强制逐字",
+                        selected = tempLyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            tempLyricDisplayMode = LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD
+                            onLyricDisplayModeChange(LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD)
+                        }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "强制逐行",
+                        selected = tempLyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            tempLyricDisplayMode = LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE
+                            onLyricDisplayModeChange(LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE)
+                        }
                     )
                 }
 

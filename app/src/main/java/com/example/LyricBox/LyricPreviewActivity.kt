@@ -367,6 +367,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
         const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
+        const val KEY_LYRIC_DISPLAY_MODE = "lyric_display_mode"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_FONT_WEIGHT = 400 // Normal
@@ -374,6 +375,10 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_SCREEN_KEEP_ON = true
+        const val LYRIC_DISPLAY_MODE_DEFAULT = 0
+        const val LYRIC_DISPLAY_MODE_FORCE_WORD = 1
+        const val LYRIC_DISPLAY_MODE_FORCE_LINE = 2
+        const val DEFAULT_LYRIC_DISPLAY_MODE = LYRIC_DISPLAY_MODE_DEFAULT
         const val LYRIC_DISPLAY_POSITION_MIN = -4
         const val LYRIC_DISPLAY_POSITION_DEFAULT = -4
         const val LYRIC_DISPLAY_POSITION_MAX = 15
@@ -1505,6 +1510,21 @@ fun LyricPreviewScreen(
             }
         )
     }
+    var lyricDisplayMode by remember {
+        mutableIntStateOf(
+            prefs.getInt(
+                LyricPreviewActivity.KEY_LYRIC_DISPLAY_MODE,
+                LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_MODE
+            ).let { raw ->
+                when (raw) {
+                    LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
+                    LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD,
+                    LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE -> raw
+                    else -> LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_MODE
+                }
+            }
+        )
+    }
     var menuExpanded by remember { mutableStateOf(false) }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
@@ -2046,6 +2066,19 @@ fun LyricPreviewScreen(
             )
         }
     }
+
+    fun saveLyricDisplayMode(mode: Int) {
+        val normalized = when (mode) {
+            LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
+            LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD,
+            LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE -> mode
+            else -> LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_MODE
+        }
+        applyLyricSettingWithReload {
+            lyricDisplayMode = normalized
+            prefs.edit().putInt(LyricPreviewActivity.KEY_LYRIC_DISPLAY_MODE, normalized).apply()
+        }
+    }
     
     // 更新当前时间
     val playbackTickerDelayMs = if (showChrome) 16L else 48L
@@ -2545,10 +2578,12 @@ fun LyricPreviewScreen(
                                     showTranslation = showTranslation,
                                     isDarkTheme = isDarkTheme,
                                     fontSize = fontSize.sp,
+                                    songDuration = dynamicDuration,
                                     fontWeight = fontWeight, // 新增
                                     showTransliteration = showTransliteration, // 新增
                                     fontFamily = lyricFontFamily,
                                     customTypeface = lyricTypeface,
+                                    lyricDisplayMode = lyricDisplayMode,
                                     lookaheadScope = this@LookaheadScope,
                                     itemKey = "${line.begin}-${line.end}-$index",
                                     isManualScrolling = isUserScrolling,
@@ -2652,10 +2687,12 @@ fun LyricPreviewScreen(
                                             showTranslation = false,
                                             isDarkTheme = isDarkTheme,
                                             fontSize = creatorFontSize,
+                                            songDuration = dynamicDuration,
                                             fontWeight = fontWeight,
                                             showTransliteration = false,
                                             fontFamily = lyricFontFamily,
                                             customTypeface = lyricTypeface,
+                                            lyricDisplayMode = LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
                                             lookaheadScope = this@LookaheadScope,
                                             itemKey = "creator-info-line",
                                             isManualScrolling = isUserScrolling,
@@ -2999,6 +3036,7 @@ fun LyricPreviewScreen(
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
+                lyricDisplayMode = lyricDisplayMode,
                 lyricDisplayPosition = lyricDisplayPosition,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
@@ -3010,6 +3048,7 @@ fun LyricPreviewScreen(
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
+                onLyricDisplayModeChange = { saveLyricDisplayMode(it) },
                 onLyricDisplayPositionChange = { saveLyricDisplayPosition(it) },
                 onFontSizeChange = { saveFontSize(it) },
                 onFontWeightChange = { saveFontWeight(it) },
@@ -3592,10 +3631,12 @@ fun LyricLineView(
     showTranslation: Boolean,
     isDarkTheme: Boolean,
     fontSize: TextUnit = 32.sp,
+    songDuration: Long = 0L,
     fontWeight: Int = 400, // 新增：字体粗细
     showTransliteration: Boolean = true, // 新增：是否显示注音
     fontFamily: FontFamily? = null,
     customTypeface: Typeface? = null,
+    lyricDisplayMode: Int = LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
     lookaheadScope: androidx.compose.ui.layout.LookaheadScope,
     itemKey: Any,
     isManualScrolling: Boolean,
@@ -3725,8 +3766,47 @@ fun LyricLineView(
         minContrast = 3.4f
     )
     
-    val isLineByLine = line.isLineByLineLyric()
-    val effectiveEnd = if (isLineByLine) getEffectiveEndTime(line, nextLine) else line.end
+    val isLineByLine = when (lyricDisplayMode) {
+        LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD -> false
+        LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE -> true
+        else -> line.isLineByLineLyric()
+    }
+    val normalizedWords = remember(line.words, nextLine?.begin, songDuration, lyricDisplayMode) {
+        if (lyricDisplayMode != LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD) {
+            line.words
+        } else {
+            val fallbackEnd = when {
+                nextLine != null && nextLine.begin > 0L -> nextLine.begin
+                songDuration > 0L -> songDuration
+                else -> line.end
+            }.coerceAtLeast(0L)
+            line.words.map { word ->
+                val normalizedBegin = if (word.begin > 0L) word.begin else line.begin.coerceAtLeast(0L)
+                val normalizedEnd = if (word.end > 0L) {
+                    word.end
+                } else {
+                    fallbackEnd.coerceAtLeast(normalizedBegin)
+                }
+                word.copy(
+                    begin = normalizedBegin,
+                    end = normalizedEnd,
+                    duration = (normalizedEnd - normalizedBegin).coerceAtLeast(1L)
+                )
+            }
+        }
+    }
+    val effectiveEnd = if (isLineByLine) {
+        getEffectiveEndTime(line, nextLine)
+    } else if (lyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD) {
+        when {
+            line.end > 0L -> line.end
+            nextLine != null && nextLine.begin > 0L -> nextLine.begin
+            songDuration > 0L -> songDuration
+            else -> line.begin + 1L
+        }
+    } else {
+        line.end
+    }
     val isLineActive = currentTime >= line.begin && currentTime < effectiveEnd
     val isLinePassed = currentTime >= effectiveEnd
     
@@ -3764,7 +3844,7 @@ fun LyricLineView(
     } else {
         Modifier.fillMaxWidth()
     }
-    
+
     // 把 springPlacement 放在外面，确保占位始终存在
     Box(
         modifier = Modifier
@@ -3837,7 +3917,7 @@ fun LyricLineView(
                         } else {
                             // 逐字歌词渲染 - 支持自动换行
                             LyricWordsCanvasWithWrap(
-                                words = line.words,
+                                words = normalizedWords,
                                 currentTime = currentTime,
                                 activeColor = activeColor,
                                 inactiveColor = inactiveColor,
@@ -3904,7 +3984,7 @@ fun LyricLineView(
                     } else {
                         // 逐字歌词渲染 - 支持自动换行
                         LyricWordsCanvasWithWrap(
-                            words = line.words,
+                            words = normalizedWords,
                             currentTime = currentTime,
                             activeColor = activeColor,
                             inactiveColor = inactiveColor,
@@ -3991,7 +4071,6 @@ fun LyricLineByLineView(
             fontFamily = fontFamily
         )
     }
-    
     // 检查是否有注音
     val hasTransliteration = showTransliteration && line.words.any { 
         it.transliteration.isNotEmpty() || it.charTransliterations.isNotEmpty() 

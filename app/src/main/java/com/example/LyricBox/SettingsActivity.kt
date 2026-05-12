@@ -347,6 +347,21 @@ fun SettingsScreen(
             }
         )
     }
+    var lyricDisplayMode by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getInt(
+                LyricPreviewActivity.KEY_LYRIC_DISPLAY_MODE,
+                LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_MODE
+            ).let { raw ->
+                when (raw) {
+                    LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
+                    LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD,
+                    LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE -> raw
+                    else -> LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_MODE
+                }
+            }
+        )
+    }
     var lyricFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
     var lyricSelectedFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
     val scope = rememberCoroutineScope()
@@ -849,6 +864,7 @@ fun SettingsScreen(
             lyricBlurEnabled = lyricBlurEnabled,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
+            lyricDisplayMode = lyricDisplayMode,
             lyricDisplayPosition = lyricDisplayPosition,
             fontSize = lyricFontSize,
             fontWeight = lyricFontWeight,
@@ -883,6 +899,12 @@ fun SettingsScreen(
                 lyricKeepScreenOnEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_SCREEN_KEEP_ON, it)
+                    .apply()
+            },
+            onLyricDisplayModeChange = {
+                lyricDisplayMode = it
+                lyricPreviewPrefs.edit()
+                    .putInt(LyricPreviewActivity.KEY_LYRIC_DISPLAY_MODE, it)
                     .apply()
             },
             onLyricDisplayPositionChange = {
