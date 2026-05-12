@@ -1647,7 +1647,7 @@ fun LyricPreviewScreen(
     }
     var appWentBackground by remember { mutableStateOf(false) }
     var resumeRebuildRequest by remember { mutableIntStateOf(0) }
-    var lyricSettingsReloadRequest by remember { mutableIntStateOf(0) }
+    var lyricSettingsReloadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val maxCloseNextConsecutiveSkips = 2
     val autoScrollMinIntervalMs = 700L
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1920,18 +1920,31 @@ fun LyricPreviewScreen(
         }
     }
 
+    fun applyLyricSettingWithReload(applyChange: () -> Unit) {
+        lyricSettingsReloadJob?.cancel()
+        lyricSettingsReloadJob = coroutineScope.launch {
+            lyricsContentReady = false
+            withFrameNanos { }
+            applyChange()
+            val anchorPosition = getCurrentPosition().coerceAtLeast(0L)
+            rebuildLyricPresentation(anchorPositionRaw = anchorPosition, allowSeek = false)
+        }
+    }
+
     // 保存字体大小设置
     fun saveFontSize(size: Float) {
-        fontSize = size
-        prefs.edit().putFloat(LyricPreviewActivity.KEY_FONT_SIZE, size).apply()
-        lyricSettingsReloadRequest += 1
+        applyLyricSettingWithReload {
+            fontSize = size
+            prefs.edit().putFloat(LyricPreviewActivity.KEY_FONT_SIZE, size).apply()
+        }
     }
     
     // 保存翻译显示设置
     fun saveShowTranslation(show: Boolean) {
-        showTranslation = show
-        prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLATION, show).apply()
-        lyricSettingsReloadRequest += 1
+        applyLyricSettingWithReload {
+            showTranslation = show
+            prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLATION, show).apply()
+        }
     }
     
     // 保存字体粗细设置
@@ -1942,9 +1955,10 @@ fun LyricPreviewScreen(
     
     // 保存注音显示设置
     fun saveShowTransliteration(show: Boolean) {
-        showTransliteration = show
-        prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, show).apply()
-        lyricSettingsReloadRequest += 1
+        applyLyricSettingWithReload {
+            showTransliteration = show
+            prefs.edit().putBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, show).apply()
+        }
     }
 
     fun saveLyricBlurEnabled(enabled: Boolean) {
@@ -1994,12 +2008,6 @@ fun LyricPreviewScreen(
             dynamicDuration = getAudioDuration().coerceAtLeast(0L)
             delay(playbackTickerDelayMs)
         }
-    }
-
-    LaunchedEffect(lyricSettingsReloadRequest) {
-        if (lyricSettingsReloadRequest <= 0) return@LaunchedEffect
-        val anchorPosition = getCurrentPosition().coerceAtLeast(0L)
-        rebuildLyricPresentation(anchorPositionRaw = anchorPosition, allowSeek = false)
     }
 
     val autoScrollLeadMs = 400L
