@@ -1823,8 +1823,12 @@ fun LyricPreviewScreen(
         initialBuildTargetIndex = targetIndex
         if (targetIndex >= 0) {
             lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = lyricTargetScrollOffset)
-            lastAutoScrolledIndex = targetIndex
         }
+        // 重建阶段只负责把列表定位到锚点，不应把“已自动滚动索引”锁定到锚点，
+        // 否则后续早于该锚点的行会被误判为回退目标而被忽略。
+        lastAutoScrolledIndex = -1
+        lastSkippedScrollIndex = -1
+        closeNextSkipStreak = 0
 
         withFrameNanos { }
         withFrameNanos { }
@@ -2096,6 +2100,16 @@ fun LyricPreviewScreen(
         return Long.MAX_VALUE
     }
 
+    fun getMainLineOriginalBegin(line: NewPreviewLyricLine): Long {
+        return line.words.firstOrNull()?.begin ?: line.begin
+    }
+
+    fun getMainLineOriginalEnd(line: NewPreviewLyricLine, fallbackNext: NewPreviewLyricLine?): Long {
+        val lastWordEnd = line.words.lastOrNull()?.end ?: 0L
+        if (lastWordEnd > 0L) return lastWordEnd
+        return getEffectiveEndTime(line, fallbackNext)
+    }
+
     // 自动滚动到当前播放行（屏幕1/4位置）
     LaunchedEffect(
         currentTime,
@@ -2186,6 +2200,7 @@ fun LyricPreviewScreen(
                 }
                 
                 // 情况二：上一句主句歌词结束时间减去当前行开始时间差大于1.55秒 → 不触发
+                // 注意：若主句存在背景歌词，仍按主句原始时间（words）判断，不按背景延长后的时间判断
                 var hasLargeTimeDiff = false
                 if (shouldScroll && currentLineIndex > 0) {
                     // 找到上一句主句歌词（跳过背景歌词）
@@ -2197,8 +2212,8 @@ fun LyricPreviewScreen(
                     if (prevMainLineIndex >= 0) {
                         val previousLine = processedLyricLines[prevMainLineIndex]
                         val prevNextLine = if (prevMainLineIndex < processedLyricLines.size - 1) processedLyricLines[prevMainLineIndex + 1] else null
-                        val prevEndTime = getEffectiveEndTime(previousLine, prevNextLine)
-                        val currentStartTime = targetLine.begin
+                        val prevEndTime = getMainLineOriginalEnd(previousLine, prevNextLine)
+                        val currentStartTime = getMainLineOriginalBegin(targetLine)
                         val timeDiff = prevEndTime - currentStartTime
                         if (timeDiff > 1550L) { // 1.55秒 = 1550毫秒
                             shouldScroll = false
