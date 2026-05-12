@@ -171,6 +171,144 @@ fun getEffectiveEndTime(line: NewPreviewLyricLine, nextLine: NewPreviewLyricLine
     }
 }
 
+private fun resolveForceWordLineEnd(
+    line: NewPreviewLyricLine,
+    nextLine: NewPreviewLyricLine?,
+    songDuration: Long
+): Long {
+    val fallback = when {
+        line.end > 0L -> line.end
+        nextLine != null && nextLine.begin > 0L -> nextLine.begin
+        songDuration > 0L -> songDuration
+        else -> line.begin + 1L
+    }
+    return fallback.coerceAtLeast(line.begin + 1L).coerceAtLeast(1L)
+}
+
+private fun isAsciiWordChar(c: Char): Boolean {
+    return (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9')
+}
+
+private fun isHanChar(c: Char): Boolean {
+    return Character.UnicodeScript.of(c.code) == Character.UnicodeScript.HAN
+}
+
+private fun tokenizeForceWordText(text: String): List<String> {
+    if (text.isEmpty()) return emptyList()
+    val tokens = mutableListOf<String>()
+    val latinBuffer = StringBuilder()
+    fun flushLatin() {
+        if (latinBuffer.isNotEmpty()) {
+            tokens.add(latinBuffer.toString())
+            latinBuffer.clear()
+        }
+    }
+
+    text.forEach { rawChar ->
+        val ch = when (rawChar) {
+            '\u00A0', '\u2009' -> ' '
+            else -> rawChar
+        }
+        when {
+            ch.isWhitespace() -> {
+                flushLatin()
+                if (tokens.lastOrNull() != " ") {
+                    tokens.add(" ")
+                }
+            }
+            isAsciiWordChar(ch) -> {
+                latinBuffer.append(ch)
+            }
+            (ch == '\'' || ch == '’' || ch == '-') && latinBuffer.isNotEmpty() -> {
+                latinBuffer.append(ch)
+            }
+            isHanChar(ch) -> {
+                flushLatin()
+                tokens.add(ch.toString())
+            }
+            else -> {
+                flushLatin()
+                if (tokens.isNotEmpty() && tokens.last() != " ") {
+                    tokens[tokens.lastIndex] = tokens.last() + ch
+                } else {
+                    tokens.add(ch.toString())
+                }
+            }
+        }
+    }
+    flushLatin()
+    return tokens
+}
+
+private fun buildForceWordWords(
+    line: NewPreviewLyricLine,
+    nextLine: NewPreviewLyricLine?,
+    songDuration: Long
+): List<NewPreviewLyricWord> {
+    if (line.words.isEmpty()) return emptyList()
+
+    val forceLineEnd = resolveForceWordLineEnd(line, nextLine, songDuration)
+    val normalizedLineBegin = line.begin.coerceAtLeast(0L)
+    val normalizedWords = line.words.map { word ->
+        val normalizedBegin = if (word.begin > 0L) word.begin else normalizedLineBegin
+        val normalizedEnd = if (word.end > 0L) {
+            word.end
+        } else {
+            forceLineEnd.coerceAtLeast(normalizedBegin + 1L)
+        }
+        word.copy(
+            begin = normalizedBegin,
+            end = normalizedEnd,
+            duration = (normalizedEnd - normalizedBegin).coerceAtLeast(1L)
+        )
+    }
+
+    if (!line.isLineByLineLyric()) {
+        return normalizedWords
+    }
+
+    val fullText = normalizedWords.joinToString(separator = "") { it.text }
+    val tokens = tokenizeForceWordText(fullText)
+    if (tokens.isEmpty()) {
+        return normalizedWords
+    }
+
+    val visibleTokenIndices = tokens.indices.filter { tokens[it].isNotBlank() }
+    if (visibleTokenIndices.isEmpty()) {
+        return normalizedWords
+    }
+
+    val lineStart = normalizedWords.firstOrNull()?.begin?.coerceAtLeast(0L) ?: normalizedLineBegin
+    val lineEnd = maxOf(forceLineEnd, lineStart + visibleTokenIndices.size.toLong())
+    val visibleCount = visibleTokenIndices.size
+    val boundsByTokenIndex = mutableMapOf<Int, Pair<Long, Long>>()
+    visibleTokenIndices.forEachIndexed { order, tokenIndex ->
+        var begin = lineStart + ((lineEnd - lineStart) * order) / visibleCount
+        var end = lineStart + ((lineEnd - lineStart) * (order + 1)) / visibleCount
+        if (end <= begin) end = begin + 1L
+        boundsByTokenIndex[tokenIndex] = begin to end
+    }
+
+    var cursor = lineStart
+    return tokens.mapIndexed { idx, token ->
+        val visibleBounds = boundsByTokenIndex[idx]
+        val (begin, end) = if (visibleBounds != null) {
+            cursor = visibleBounds.second
+            visibleBounds
+        } else {
+            val safeBegin = cursor.coerceAtMost(lineEnd - 1L)
+            val safeEnd = (safeBegin + 1L).coerceAtMost(lineEnd)
+            safeBegin to if (safeEnd <= safeBegin) safeBegin + 1L else safeEnd
+        }
+        NewPreviewLyricWord(
+            text = token,
+            begin = begin,
+            end = end,
+            duration = (end - begin).coerceAtLeast(1L)
+        )
+    }
+}
+
 // ==================== 时间导航器（TimingNavigator）====================
 
 class TimingNavigator(private val lyricLines: List<NewPreviewLyricLine>) {
@@ -3775,35 +3913,13 @@ fun LyricLineView(
         if (lyricDisplayMode != LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD) {
             line.words
         } else {
-            val fallbackEnd = when {
-                nextLine != null && nextLine.begin > 0L -> nextLine.begin
-                songDuration > 0L -> songDuration
-                else -> line.end
-            }.coerceAtLeast(0L)
-            line.words.map { word ->
-                val normalizedBegin = if (word.begin > 0L) word.begin else line.begin.coerceAtLeast(0L)
-                val normalizedEnd = if (word.end > 0L) {
-                    word.end
-                } else {
-                    fallbackEnd.coerceAtLeast(normalizedBegin)
-                }
-                word.copy(
-                    begin = normalizedBegin,
-                    end = normalizedEnd,
-                    duration = (normalizedEnd - normalizedBegin).coerceAtLeast(1L)
-                )
-            }
+            buildForceWordWords(line, nextLine, songDuration)
         }
     }
     val effectiveEnd = if (isLineByLine) {
         getEffectiveEndTime(line, nextLine)
     } else if (lyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD) {
-        when {
-            line.end > 0L -> line.end
-            nextLine != null && nextLine.begin > 0L -> nextLine.begin
-            songDuration > 0L -> songDuration
-            else -> line.begin + 1L
-        }
+        resolveForceWordLineEnd(line, nextLine, songDuration)
     } else {
         line.end
     }
