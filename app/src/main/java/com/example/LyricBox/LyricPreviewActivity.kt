@@ -2429,6 +2429,9 @@ fun LyricPreviewScreen(
                     } else {
                         0.dp
                     }
+                    val hasAnyDuetLine = remember(processedLyricLines) {
+                        processedLyricLines.any { !it.isInterlude && it.isDuet }
+                    }
                     
                     // 使用较小的 keepAlive 区域来确保弹簧动画工作，同时不会占用过多空间
                     val keepAlivePadding = 100.dp
@@ -2557,6 +2560,7 @@ fun LyricPreviewScreen(
                                     themeAccentColor = accentColor,
                                     effectiveIsDuet = effectiveIsDuet,
                                     nextLineIsDuet = getNextLineIsDuet(processedLyricLines, index), // 新增
+                                    limitWidthForDuetLayout = hasAnyDuetLine,
                                     isPlaying = isPlaying, // 新增
                                     animationType = animationType, // 新增
                                     blurRadius = lyricLineBlurRadius,
@@ -2663,6 +2667,7 @@ fun LyricPreviewScreen(
                                             themeAccentColor = accentColor,
                                             effectiveIsDuet = false,
                                             nextLineIsDuet = false,
+                                            limitWidthForDuetLayout = false,
                                             isPlaying = isPlaying,
                                             animationType = animationType,
                                             blurRadius = 0f,
@@ -3602,6 +3607,7 @@ fun LyricLineView(
     themeAccentColor: Color? = null,
     effectiveIsDuet: Boolean = false,
     nextLineIsDuet: Boolean = false, // 新增：下一句是否是对唱歌词（用于间奏行）
+    limitWidthForDuetLayout: Boolean = false,
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     blurRadius: Float = 0f,
@@ -3752,6 +3758,12 @@ fun LyricLineView(
         label = "translationColor"
     )
     val lineBlurModifier = rememberLyricLineBlurModifier(blurRadius)
+    val rowContentAlignment = if (effectiveIsDuet) Alignment.CenterEnd else Alignment.CenterStart
+    val lineWidthModifier = if (limitWidthForDuetLayout) {
+        Modifier.fillMaxWidth(0.85f)
+    } else {
+        Modifier.fillMaxWidth()
+    }
     
     // 把 springPlacement 放在外面，确保占位始终存在
     Box(
@@ -3790,10 +3802,80 @@ fun LyricLineView(
                     )
                 }
             ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = rowContentAlignment
+                ) {
+                    Column(
+                        modifier = lineWidthModifier
+                            .alpha(lineAlpha * 0.8f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Transparent)
+                            .then(lineBlurModifier)
+                            .clickable(enabled = clickableEnabled, onClick = onClick)
+                            .padding(horizontal = 12.dp, vertical = verticalPadding),
+                        horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
+                    ) {
+                        if (isLineByLine) {
+                            // 逐行歌词渲染
+                            LyricLineByLineView(
+                                line = line,
+                                nextLine = nextLine,
+                                currentTime = currentTime,
+                                activeColor = activeColor,
+                                playedColor = playedColor,
+                                inactiveColor = inactiveColor,
+                                transliterationActiveColor = transliterationActiveColor,
+                                transliterationPlayedColor = transliterationPlayedColor,
+                                transliterationInactiveColor = transliterationInactiveColor,
+                                fontSize = lineFontSize,
+                                isDuet = effectiveIsDuet,
+                                fontWeight = fontWeight, // 新增
+                                showTransliteration = showTransliteration, // 新增
+                                fontFamily = fontFamily
+                            )
+                        } else {
+                            // 逐字歌词渲染 - 支持自动换行
+                            LyricWordsCanvasWithWrap(
+                                words = line.words,
+                                currentTime = currentTime,
+                                activeColor = activeColor,
+                                inactiveColor = inactiveColor,
+                                fontSize = lineFontSize,
+                                isDuet = effectiveIsDuet,
+                                fontWeight = fontWeight, // 新增
+                                showTransliteration = showTransliteration, // 新增
+                                fontFamily = fontFamily,
+                                customTypeface = customTypeface
+                            )
+                        }
+
+                        // 翻译
+                        if (showTranslation && line.translation.isNotEmpty()) {
+                            Text(
+                                text = line.translation,
+                                color = translationColor,
+                                fontSize = (lineFontSize.value * 0.6).sp,
+                                fontWeight = fontWeightValue,
+                                fontFamily = fontFamily,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            // 普通歌词（非背景）直接显示
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = rowContentAlignment
+            ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .alpha(lineAlpha * 0.8f)
+                    modifier = lineWidthModifier
+                        .alpha(lineAlpha)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.Transparent)
                         .then(lineBlurModifier)
@@ -3843,70 +3925,12 @@ fun LyricLineView(
                             fontSize = (lineFontSize.value * 0.6).sp,
                             fontWeight = fontWeightValue,
                             fontFamily = fontFamily,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
                             textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
                         )
                     }
-                }
-            }
-        } else {
-            // 普通歌词（非背景）直接显示
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .alpha(lineAlpha)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Transparent)
-                    .then(lineBlurModifier)
-                    .clickable(enabled = clickableEnabled, onClick = onClick)
-                    .padding(horizontal = 12.dp, vertical = verticalPadding),
-                horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
-            ) {
-                if (isLineByLine) {
-                    // 逐行歌词渲染
-                    LyricLineByLineView(
-                        line = line,
-                        nextLine = nextLine,
-                        currentTime = currentTime,
-                        activeColor = activeColor,
-                        playedColor = playedColor,
-                        inactiveColor = inactiveColor,
-                        transliterationActiveColor = transliterationActiveColor,
-                        transliterationPlayedColor = transliterationPlayedColor,
-                        transliterationInactiveColor = transliterationInactiveColor,
-                        fontSize = lineFontSize,
-                        isDuet = effectiveIsDuet,
-                        fontWeight = fontWeight, // 新增
-                        showTransliteration = showTransliteration, // 新增
-                        fontFamily = fontFamily
-                    )
-                } else {
-                    // 逐字歌词渲染 - 支持自动换行
-                    LyricWordsCanvasWithWrap(
-                        words = line.words,
-                        currentTime = currentTime,
-                        activeColor = activeColor,
-                        inactiveColor = inactiveColor,
-                        fontSize = lineFontSize,
-                        isDuet = effectiveIsDuet,
-                        fontWeight = fontWeight, // 新增
-                        showTransliteration = showTransliteration, // 新增
-                        fontFamily = fontFamily,
-                        customTypeface = customTypeface
-                    )
-                }
-                
-                // 翻译
-                if (showTranslation && line.translation.isNotEmpty()) {
-                    Text(
-                        text = line.translation,
-                        color = translationColor,
-                        fontSize = (lineFontSize.value * 0.6).sp,
-                        fontWeight = fontWeightValue,
-                        fontFamily = fontFamily,
-                        modifier = Modifier.padding(top = 4.dp),
-                        textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
-                    )
                 }
             }
         }
@@ -3959,60 +3983,84 @@ fun LyricLineByLineView(
     )
     
     val fontWeightValue = mapComposeFontWeight(fontWeight)
+    val textMeasurer = rememberTextMeasurer()
+    val mainTextStyle = remember(fontSize, fontWeightValue, fontFamily) {
+        TextStyle(
+            fontSize = fontSize,
+            fontWeight = fontWeightValue,
+            fontFamily = fontFamily
+        )
+    }
     
     // 检查是否有注音
     val hasTransliteration = showTransliteration && line.words.any { 
         it.transliteration.isNotEmpty() || it.charTransliterations.isNotEmpty() 
     }
     
-    if (hasTransliteration) {
-        Column(
-            horizontalAlignment = if (isDuet) Alignment.End else Alignment.Start
-        ) {
-            // 第一行：显示注音，仅在注音本身为非CJK字符（如拉丁拼音）时才在后面加空格
-            val transliterationText = line.words.joinToString("") { word ->
-                word.text.mapIndexed { idx, char ->
-                    val trans = if (word.charTransliterations.isNotEmpty()) {
-                        word.charTransliterations[idx] ?: ""
-                    } else {
-                        if (char == ' ') "" else word.transliteration
-                    }
-                    // 检查注音文本是否需要加空格（看注音本身的字符，不是歌词字符）
-                    if (trans.isNotEmpty() && isTransliterationNeedsSpace(trans)) {
-                        trans + " "
-                    } else {
-                        trans
-                    }
-                }.joinToString("")
-            }
-            Text(
-                text = transliterationText,
-                color = transliterationColor,
-                fontSize = fontSize * 0.6f,
-                fontWeight = fontWeightValue,
-                fontFamily = fontFamily,
-                textAlign = if (isDuet) TextAlign.End else TextAlign.Start
-            )
-            // 第二行：显示歌词
-            Text(
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val maxWidthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        val wrappedMainText = remember(fullText, maxWidthPx, mainTextStyle) {
+            formatLineByLineTextWithSpaceWrapRules(
                 text = fullText,
+                textMeasurer = textMeasurer,
+                style = mainTextStyle,
+                maxWidthPx = maxWidthPx
+            )
+        }
+        if (hasTransliteration) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = if (isDuet) Alignment.End else Alignment.Start
+            ) {
+                // 第一行：显示注音，仅在注音本身为非CJK字符（如拉丁拼音）时才在后面加空格
+                val transliterationText = line.words.joinToString("") { word ->
+                    word.text.mapIndexed { idx, char ->
+                        val trans = if (word.charTransliterations.isNotEmpty()) {
+                            word.charTransliterations[idx] ?: ""
+                        } else {
+                            if (char == ' ') "" else word.transliteration
+                        }
+                        // 检查注音文本是否需要加空格（看注音本身的字符，不是歌词字符）
+                        if (trans.isNotEmpty() && isTransliterationNeedsSpace(trans)) {
+                            trans + " "
+                        } else {
+                            trans
+                        }
+                    }.joinToString("")
+                }
+                Text(
+                    text = transliterationText,
+                    color = transliterationColor,
+                    fontSize = fontSize * 0.6f,
+                    fontWeight = fontWeightValue,
+                    fontFamily = fontFamily,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = if (isDuet) TextAlign.End else TextAlign.Start
+                )
+                // 第二行：显示歌词
+                Text(
+                    text = wrappedMainText,
+                    color = displayColor,
+                    fontSize = fontSize,
+                    fontWeight = fontWeightValue,
+                    fontFamily = fontFamily,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = if (isDuet) TextAlign.End else TextAlign.Start
+                )
+            }
+        } else {
+            // 没有注音，只显示歌词
+            Text(
+                text = wrappedMainText,
                 color = displayColor,
                 fontSize = fontSize,
                 fontWeight = fontWeightValue,
                 fontFamily = fontFamily,
+                modifier = Modifier.fillMaxWidth(),
                 textAlign = if (isDuet) TextAlign.End else TextAlign.Start
             )
         }
-    } else {
-        // 没有注音，只显示歌词
-        Text(
-            text = fullText,
-            color = displayColor,
-            fontSize = fontSize,
-            fontWeight = fontWeightValue,
-            fontFamily = fontFamily,
-            textAlign = if (isDuet) TextAlign.End else TextAlign.Start
-        )
     }
 }
 
@@ -4314,19 +4362,14 @@ fun LyricWordsCanvasWithWrap(
         val spaceIndices = mutableListOf<Int>()
         words.forEachIndexed { index, word ->
             if (word.text == " ") {
-                // 检查前一个和后一个字符是否都是英文字母或英文引号
-                fun isEnglishLikeChar(c: Char): Boolean {
-                    return c in 'a'..'z' || c in 'A'..'Z' || c == '\'' || c == '"'
-                }
-                
                 val prevIsEnglish = if (index > 0) {
                     val prevWord = words[index - 1]
-                    prevWord.text.length == 1 && isEnglishLikeChar(prevWord.text[0])
+                    prevWord.text.length == 1 && isEnglishLikeCharForSpaceWrap(prevWord.text[0])
                 } else false
                 
                 val nextIsEnglish = if (index < words.size - 1) {
                     val nextWord = words[index + 1]
-                    nextWord.text.length == 1 && isEnglishLikeChar(nextWord.text[0])
+                    nextWord.text.length == 1 && isEnglishLikeCharForSpaceWrap(nextWord.text[0])
                 } else false
                 
                 // 如果不是位于英文字母之间的空格，才加入可换行的空格列表
@@ -5023,6 +5066,101 @@ fun formatPreviewTime(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
+}
+
+private fun isEnglishLikeCharForSpaceWrap(c: Char): Boolean {
+    return (c in 'a'..'z') || (c in 'A'..'Z') || c == '\'' || c == '"'
+}
+
+private fun formatLineByLineTextWithSpaceWrapRules(
+    text: String,
+    textMeasurer: TextMeasurer,
+    style: TextStyle,
+    maxWidthPx: Int
+): String {
+    if (text.isEmpty()) return text
+    if (maxWidthPx <= 1) return text
+    val chars = text.toCharArray()
+    val candidateIndices = mutableListOf<Int>()
+    for (i in chars.indices) {
+        if (chars[i] != ' ') continue
+        val prev = chars.getOrNull(i - 1)
+        val next = chars.getOrNull(i + 1)
+        val prevIsEnglishLike = prev?.let(::isEnglishLikeCharForSpaceWrap) == true
+        val nextIsEnglishLike = next?.let(::isEnglishLikeCharForSpaceWrap) == true
+        if (!(prevIsEnglishLike && nextIsEnglishLike)) {
+            candidateIndices.add(i)
+        }
+    }
+    if (candidateIndices.isEmpty()) return text
+
+    fun measureLayout(value: String) = textMeasurer.measure(
+        text = value,
+        style = style,
+        constraints = androidx.compose.ui.unit.Constraints(maxWidth = maxWidthPx)
+    )
+
+    fun lineCountOf(value: String): Int {
+        return measureLayout(value).lineCount
+    }
+
+    val originalLineCount = lineCountOf(text)
+    var bestText = text
+    var bestBalance = Double.MAX_VALUE
+
+    fun evaluateCandidate(candidate: String) {
+        val layout = measureLayout(candidate)
+        if (layout.lineCount > originalLineCount) return
+        val widths = (0 until layout.lineCount).map { lineIndex ->
+            (layout.getLineRight(lineIndex) - layout.getLineLeft(lineIndex)).toDouble()
+        }
+        if (widths.isEmpty()) return
+        val avg = widths.average()
+        val balance = widths.sumOf { (it - avg) * (it - avg) }
+        if (balance < bestBalance) {
+            bestBalance = balance
+            bestText = candidate
+        }
+    }
+
+    fun applySubsetBreaks(subset: Set<Int>): String {
+        if (subset.isEmpty()) return text
+        val copied = chars.copyOf()
+        subset.forEach { idx ->
+            if (idx in copied.indices && copied[idx] == ' ') {
+                // 对逐行歌词采用显式换行，避免系统在CJK字符中间断行导致断点偏移。
+                copied[idx] = '\n'
+            }
+        }
+        return String(copied)
+    }
+
+    evaluateCandidate(text)
+
+    if (candidateIndices.size <= 5) {
+        val totalMask = 1 shl candidateIndices.size
+        for (mask in 1 until totalMask) {
+            val subset = mutableSetOf<Int>()
+            for (bit in candidateIndices.indices) {
+                if ((mask and (1 shl bit)) != 0) {
+                    subset.add(candidateIndices[bit])
+                }
+            }
+            evaluateCandidate(applySubsetBreaks(subset))
+        }
+    } else {
+        evaluateCandidate(applySubsetBreaks(setOf(candidateIndices.first())))
+        evaluateCandidate(applySubsetBreaks(setOf(candidateIndices.last())))
+        evaluateCandidate(applySubsetBreaks(candidateIndices.takeLast(2).toSet()))
+        evaluateCandidate(applySubsetBreaks(setOf(candidateIndices[candidateIndices.size / 2])))
+        val everyOther = mutableSetOf<Int>()
+        for (i in candidateIndices.indices step 2) {
+            everyOther.add(candidateIndices[i])
+        }
+        evaluateCandidate(applySubsetBreaks(everyOther))
+    }
+
+    return bestText
 }
 
 private fun isPreviewCJKCharacter(char: Char): Boolean {
