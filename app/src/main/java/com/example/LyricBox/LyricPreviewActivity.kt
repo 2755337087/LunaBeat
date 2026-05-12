@@ -1518,17 +1518,18 @@ fun LyricPreviewScreen(
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     val scope = rememberCoroutineScope()
 
-    DisposableEffect(keepScreenOnEnabled) {
+    DisposableEffect(keepScreenOnEnabled, isPlaying) {
         val activity = context as? ComponentActivity
+        val shouldKeepScreenOn = keepScreenOnEnabled && isPlaying
         if (activity != null) {
-            if (keepScreenOnEnabled) {
+            if (shouldKeepScreenOn) {
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else {
                 activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
         onDispose {
-            if (activity != null && keepScreenOnEnabled) {
+            if (activity != null && shouldKeepScreenOn) {
                 activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
