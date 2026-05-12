@@ -301,6 +301,14 @@ fun SettingsScreen(
             )
         )
     }
+    var lyricKeepScreenOnEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_SCREEN_KEEP_ON,
+                LyricPreviewActivity.DEFAULT_SCREEN_KEEP_ON
+            )
+        )
+    }
     var lyricFontSize by remember {
         mutableFloatStateOf(
             lyricPreviewPrefs.getFloat(
@@ -840,6 +848,7 @@ fun SettingsScreen(
             supportsLyricBlur = supportsLyricBlur,
             lyricBlurEnabled = lyricBlurEnabled,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+            keepScreenOnEnabled = lyricKeepScreenOnEnabled,
             lyricDisplayPosition = lyricDisplayPosition,
             fontSize = lyricFontSize,
             fontWeight = lyricFontWeight,
@@ -868,6 +877,12 @@ fun SettingsScreen(
                 lyriconStatusBarEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, it)
+                    .apply()
+            },
+            onKeepScreenOnEnabledChange = {
+                lyricKeepScreenOnEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_SCREEN_KEEP_ON, it)
                     .apply()
             },
             onLyricDisplayPositionChange = {

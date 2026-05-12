@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import com.lonx.audiotag.rw.AudioTagReader
 import androidx.activity.ComponentActivity
@@ -364,6 +365,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
+        const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
         const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
@@ -371,13 +373,15 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRICON_STATUS_BAR = false
-        const val LYRIC_DISPLAY_POSITION_MIN = -12
-        const val LYRIC_DISPLAY_POSITION_DEFAULT = -5
-        const val LYRIC_DISPLAY_POSITION_MAX = 16
+        const val DEFAULT_SCREEN_KEEP_ON = true
+        const val LYRIC_DISPLAY_POSITION_MIN = -4
+        const val LYRIC_DISPLAY_POSITION_DEFAULT = -4
+        const val LYRIC_DISPLAY_POSITION_MAX = 15
         const val LYRIC_DISPLAY_STEP_DP = 10
         const val DEFAULT_LYRIC_DISPLAY_POSITION = LYRIC_DISPLAY_POSITION_DEFAULT
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
+        const val ANIMATION_TYPE_DOGE = 2 // doge
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
         private const val STATE_IS_PLAYING = "state_is_playing"
         private const val DEFAULT_COMPANION_FOLDER_NAME = "sing"
@@ -1176,6 +1180,13 @@ data class EnhancedInterludeLine(
     val nextLineIsDuet: Boolean // 记录下一句是否是对唱歌词
 )
 
+private fun isInterludeLineVisibleAtTime(line: NewPreviewLyricLine, timeMs: Long): Boolean {
+    if (!line.isInterlude) return false
+    val effectiveBegin = line.begin + 200L
+    val effectiveEnd = line.end - 500L
+    return timeMs >= effectiveBegin && timeMs < effectiveEnd
+}
+
 fun detectAndInsertInterludeLines(lyricLines: List<NewPreviewLyricLine>): List<NewPreviewLyricLine> {
     val result = mutableListOf<NewPreviewLyricLine>()
     
@@ -1472,6 +1483,14 @@ fun LyricPreviewScreen(
             )
         )
     }
+    var keepScreenOnEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_SCREEN_KEEP_ON,
+                LyricPreviewActivity.DEFAULT_SCREEN_KEEP_ON
+            )
+        )
+    }
     var lyricDisplayPosition by remember {
         mutableIntStateOf(
             prefs.getInt(
@@ -1498,6 +1517,22 @@ fun LyricPreviewScreen(
     var metadata by remember { mutableStateOf(PreviewAudioMetadata(title, "未知艺术家", null)) }
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     val scope = rememberCoroutineScope()
+
+    DisposableEffect(keepScreenOnEnabled) {
+        val activity = context as? ComponentActivity
+        if (activity != null) {
+            if (keepScreenOnEnabled) {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+        onDispose {
+            if (activity != null && keepScreenOnEnabled) {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
     
     // 获取深浅模式设置
     val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
@@ -1637,6 +1672,7 @@ fun LyricPreviewScreen(
     var manualTapNextLineBeginMs by remember { mutableLongStateOf(Long.MAX_VALUE) }
     var manualTapSeekSettled by remember { mutableStateOf(false) }
     var manualTapSuppressUntilMs by remember { mutableLongStateOf(0L) }
+    var hideInterludeAnimationDuringManualScroll by remember { mutableStateOf(false) }
     var previousObservedTime by remember { mutableLongStateOf(initialPosition) }
     var hidePlayedLinesDuringInitialBuild by remember(processedLyricLines, initialPosition) {
         mutableStateOf(initialPosition > 0L && processedLyricLines.isNotEmpty())
@@ -1681,19 +1717,6 @@ fun LyricPreviewScreen(
 
     val landscapeLeadingPlaceholderCount = if (useSidePanelLayout) 1 else 0
     fun toLyricListIndex(lyricLineIndex: Int): Int = lyricLineIndex + landscapeLeadingPlaceholderCount
-
-    fun isInterludeVisibleAt(line: NewPreviewLyricLine, timeMs: Long): Boolean {
-        if (!line.isInterlude) return false
-        val effectiveBegin = line.begin + 200L
-        val effectiveEnd = line.end - 500L
-        return timeMs >= effectiveBegin && timeMs < effectiveEnd
-    }
-
-    fun shouldDelayManualTapScrollForInterlude(fromTimeMs: Long, toTimeMs: Long): Boolean {
-        return processedLyricLines.any { line ->
-            isInterludeVisibleAt(line, fromTimeMs) && !isInterludeVisibleAt(line, toTimeMs)
-        }
-    }
 
     fun requestAutoScroll(targetIndex: Int, forceAnimate: Boolean = false) {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
@@ -1759,6 +1782,8 @@ fun LyricPreviewScreen(
             } catch (e: CancellationException) {
                 logAutoScroll("cancelled running=$autoScrollRunningTarget pending=$pendingAutoScrollIndex")
                 throw e
+            } finally {
+                hideInterludeAnimationDuringManualScroll = false
             }
         }
     }
@@ -1983,6 +2008,11 @@ fun LyricPreviewScreen(
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
         lyriconStatusBarEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, enabled).apply()
+    }
+
+    fun saveKeepScreenOnEnabled(enabled: Boolean) {
+        keepScreenOnEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_SCREEN_KEEP_ON, enabled).apply()
     }
 
     fun saveLyricDisplayPosition(position: Int) {
@@ -2514,8 +2544,8 @@ fun LyricPreviewScreen(
                                     isPlaying = isPlaying, // 新增
                                     animationType = animationType, // 新增
                                     blurRadius = lyricLineBlurRadius,
+                                    hideInterludeAnimation = hideInterludeAnimationDuringManualScroll,
                                     onClick = {
-                                        val tapSourceTime = currentTime
                                         val tapTargetTime = line.begin
                                         if (!isPlaying) {
                                             isPlaying = true
@@ -2535,19 +2565,18 @@ fun LyricPreviewScreen(
                                         }
                                         isUserScrolling = false
                                         scrollJob?.cancel()
-                                        // 先跳转播放位置，让间奏显隐状态先稳定，再执行滚动，避免目标行偏高
+                                        // 先seek稳定间奏占位可见性，再滚动，避免目标定位偏高
                                         onSeekTo(tapTargetTime)
                                         currentTime = tapTargetTime
+                                        hideInterludeAnimationDuringManualScroll = processedLyricLines.any { interlude ->
+                                            isInterludeLineVisibleAtTime(interlude, currentTime)
+                                        }
                                         // 点击歌词后触发自动滚动，并将当前行滚动到目标位置
                                         lastAutoScrolledIndex = index
                                         lastSkippedScrollIndex = -1
                                         closeNextSkipStreak = 0
                                         coroutineScope.launch {
                                             withFrameNanos { }
-                                            if (shouldDelayManualTapScrollForInterlude(tapSourceTime, tapTargetTime)) {
-                                                // 间奏行将从可见切到隐藏时，先让淡出完成，再滚动，避免“瞬移上移”
-                                                delay(360L)
-                                            }
                                             requestAutoScroll(index, forceAnimate = true)
                                         }
                                     }
@@ -2948,6 +2977,7 @@ fun LyricPreviewScreen(
                 supportsLyricBlur = supportsLyricBlur,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+                keepScreenOnEnabled = keepScreenOnEnabled,
                 lyricDisplayPosition = lyricDisplayPosition,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
@@ -2958,6 +2988,7 @@ fun LyricPreviewScreen(
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
+                onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
                 onLyricDisplayPositionChange = { saveLyricDisplayPosition(it) },
                 onFontSizeChange = { saveFontSize(it) },
                 onFontWeightChange = { saveFontWeight(it) },
@@ -3213,37 +3244,21 @@ fun shouldShowBackgroundLine(
 fun InterludeLineView(
     interludeLine: NewPreviewLyricLine,
     currentTime: Long,
-    lookaheadScope: androidx.compose.ui.layout.LookaheadScope,
-    itemKey: Any,
-    isManualScrolling: Boolean,
-    stiffness: Float,
-    forceReset: Long,
     nextLineIsDuet: Boolean = false, // 新增：下一句是否是对唱歌词
     isDarkTheme: Boolean = false, // 新增：是否是深色模式
     fontSize: TextUnit = 32.sp, // 新增：字号大小
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     lyricColor: Color = if (isDarkTheme) Color.White else Color.Black,
-    onClick: () -> Unit = {}
+    forceHidden: Boolean = false
 ) {
-    // 判断是否是开头间奏行（begin == 0）
-    val isOpeningInterlude = interludeLine.begin == 0L
-    
-    // 显示逻辑：所有间奏行都在第500毫秒后开始显示
-    val effectiveBeginTime = interludeLine.begin + 200L
-    // 提前500毫秒隐藏
-    val isVisible = currentTime >= effectiveBeginTime && currentTime < interludeLine.end - 500
+    val isVisible = !forceHidden && isInterludeLineVisibleAtTime(interludeLine, currentTime)
     
     val alignment = remember(nextLineIsDuet) {
         if (nextLineIsDuet) Alignment.CenterEnd else Alignment.CenterStart
     }
     val useLightAnimation = lyricColor.luminance() >= 0.5f
     
-    // 计算高度为字号的5倍
-    val fontSizeDp = with(LocalDensity.current) { fontSize.toDp() }
-    val interludeHeight = fontSizeDp * 2
-    
-    // 显示/隐藏动画 - 优化版本
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(animationSpec = tween(350)),
@@ -3251,9 +3266,7 @@ fun InterludeLineView(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(interludeHeight) 
-                .springPlacement(lookaheadScope, itemKey, isManualScrolling, stiffness, forceReset)
+                .fillMaxSize()
         ) {
             if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR) {
                 // 恐龙动画
@@ -3264,6 +3277,20 @@ fun InterludeLineView(
                     contentAlignment = alignment
                 ) {
                     DinosaurAnimation(
+                        isPlaying = isVisible && isPlaying,
+                        useLightAnimation = useLightAnimation,
+                        alignment = alignment
+                    )
+                }
+            } else if (animationType == LyricPreviewActivity.ANIMATION_TYPE_DOGE) {
+                // 小狗动画
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = alignment
+                ) {
+                    DogeAnimation(
                         isPlaying = isVisible && isPlaying,
                         useLightAnimation = useLightAnimation,
                         alignment = alignment
@@ -3482,6 +3509,56 @@ fun DinosaurAnimation(
     )
 }
 
+@Composable
+fun DogeAnimation(
+    isPlaying: Boolean,
+    useLightAnimation: Boolean,
+    alignment: Alignment
+) {
+    val animationRes = if (useLightAnimation) R.raw.anim_doge_white else R.raw.anim_doge_black
+    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(animationRes))
+
+    var wasPlaying by remember { mutableStateOf(isPlaying) }
+    var previousProgress by remember { mutableStateOf(0f) }
+    var shouldContinueUntilCycleComplete by remember { mutableStateOf(false) }
+    var effectiveIsPlaying by remember { mutableStateOf(isPlaying) }
+
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying && wasPlaying) {
+            shouldContinueUntilCycleComplete = true
+            effectiveIsPlaying = true
+        } else if (isPlaying) {
+            shouldContinueUntilCycleComplete = false
+            effectiveIsPlaying = true
+        }
+        wasPlaying = isPlaying
+    }
+
+    val progress by animateLottieCompositionAsState(
+        composition,
+        isPlaying = effectiveIsPlaying,
+        iterations = LottieConstants.IterateForever,
+        speed = 1f
+    )
+
+    LaunchedEffect(progress) {
+        if (shouldContinueUntilCycleComplete && previousProgress > 0.9f && progress < 0.1f) {
+            shouldContinueUntilCycleComplete = false
+            effectiveIsPlaying = false
+        }
+        previousProgress = progress
+    }
+
+    LottieAnimation(
+        composition = composition,
+        progress = { progress },
+        modifier = Modifier
+            .fillMaxHeight()
+            .aspectRatio(1f),
+        contentScale = ContentScale.Fit
+    )
+}
+
 // ==================== 歌词行视图 ====================
 
 @Composable
@@ -3512,32 +3589,49 @@ fun LyricLineView(
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     blurRadius: Float = 0f,
+    hideInterludeAnimation: Boolean = false,
     clickableEnabled: Boolean = true,
     overrideInactiveColor: Color? = null,
     onClick: () -> Unit = {}
 ) {
-    val interludeLyricColor = backgroundColor?.let { bg ->
-        getHighContrastBlackOrWhite(bg)
-    } ?: if (isDarkTheme) Color.White else Color.Black
-
-    // 如果是间奏行，使用特殊视图
+    // 间奏内容单独在滚动层底部渲染；列表中仅保留不可点击空白占位行
     if (line.isInterlude) {
-        InterludeLineView(
-            interludeLine = line,
-            currentTime = currentTime,
-            lookaheadScope = lookaheadScope,
-            itemKey = itemKey,
-            isManualScrolling = isManualScrolling,
-            stiffness = stiffness,
-            forceReset = forceReset,
-            nextLineIsDuet = nextLineIsDuet,
-            isDarkTheme = isDarkTheme,
-            fontSize = fontSize,
-            isPlaying = isPlaying,
-            animationType = animationType,
-            lyricColor = interludeLyricColor,
-            onClick = onClick
-        )
+        val fontSizeDp = with(LocalDensity.current) { fontSize.toDp() }
+        val interludeHeight = fontSizeDp * 2
+        val interludeLyricColor = backgroundColor?.let { bg ->
+            getHighContrastBlackOrWhite(bg)
+        } ?: if (isDarkTheme) Color.White else Color.Black
+        val shouldShowPlaceholder = if (line.begin <= 0L) {
+            // 首行间奏：从开头到下一句开始前显示占位
+            currentTime >= 0L && currentTime < line.end
+        } else {
+            // 普通间奏：上一句结束后显示，下一句开始后隐藏
+            currentTime >= line.begin && currentTime < line.end
+        }
+        AnimatedVisibility(
+            visible = shouldShowPlaceholder,
+            enter = fadeIn(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(180))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(interludeHeight)
+                    .springPlacement(lookaheadScope, itemKey, isManualScrolling, stiffness, forceReset)
+            ) {
+                InterludeLineView(
+                    interludeLine = line,
+                    currentTime = currentTime,
+                    nextLineIsDuet = nextLineIsDuet,
+                    isDarkTheme = isDarkTheme,
+                    fontSize = fontSize,
+                    isPlaying = isPlaying,
+                    animationType = animationType,
+                    lyricColor = interludeLyricColor,
+                    forceHidden = hideInterludeAnimation
+                )
+            }
+        }
         return
     }
     
@@ -4681,9 +4775,8 @@ fun PlaybackControls(
     vibrantColor: Color? = null,
     backgroundColor: Color? = null
 ) {
-    val minSeekStartMs = 240L
     val safeDuration = duration.coerceAtLeast(0L)
-    val seekStart = if (safeDuration > minSeekStartMs) minSeekStartMs else 0L
+    val seekStart = 0L
     val seekSpan = (safeDuration - seekStart).coerceAtLeast(0L)
     val clampedCurrentTime = currentTime.coerceIn(0L, safeDuration)
     val sliderProgress = if (seekSpan > 0L) {

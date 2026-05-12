@@ -66,6 +66,7 @@ fun LyricSettingsBottomSheet(
     supportsLyricBlur: Boolean,
     lyricBlurEnabled: Boolean,
     lyriconStatusBarEnabled: Boolean,
+    keepScreenOnEnabled: Boolean,
     lyricDisplayPosition: Int,
     fontSize: Float,
     fontWeight: Int,
@@ -76,6 +77,7 @@ fun LyricSettingsBottomSheet(
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
+    onKeepScreenOnEnabledChange: (Boolean) -> Unit,
     onLyricDisplayPositionChange: (Int) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onFontWeightChange: (Int) -> Unit,
@@ -145,6 +147,13 @@ fun LyricSettingsBottomSheet(
                         title = "状态栏歌词（Lyricon）",
                         checked = lyriconStatusBarEnabled,
                         onCheckedChange = onLyriconStatusBarEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "屏幕常亮",
+                        checked = keepScreenOnEnabled,
+                        onCheckedChange = onKeepScreenOnEnabledChange,
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
@@ -355,6 +364,16 @@ fun LyricSettingsBottomSheet(
                             onAnimationTypeChange(LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR)
                         }
                     )
+                    LyricSettingsRadioRow(
+                        title = "小狗",
+                        selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DOGE,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            tempAnimationType = LyricPreviewActivity.ANIMATION_TYPE_DOGE
+                            onAnimationTypeChange(LyricPreviewActivity.ANIMATION_TYPE_DOGE)
+                        }
+                    )
                 }
 
                 LyricSettingsPage.CUSTOM_FONT -> {
@@ -390,7 +409,7 @@ fun LyricSettingsBottomSheet(
 
 private fun getLyricDisplayPositionLabel(position: Int): String {
     return when (position) {
-        LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT -> "默认 上移5档"
+        LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT -> "默认 上移4档"
         in Int.MIN_VALUE..-1 -> "上移${-position}档"
         0 -> "0档"
         else -> "下移${position}档"
