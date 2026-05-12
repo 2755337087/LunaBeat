@@ -1682,6 +1682,19 @@ fun LyricPreviewScreen(
     val landscapeLeadingPlaceholderCount = if (useSidePanelLayout) 1 else 0
     fun toLyricListIndex(lyricLineIndex: Int): Int = lyricLineIndex + landscapeLeadingPlaceholderCount
 
+    fun isInterludeVisibleAt(line: NewPreviewLyricLine, timeMs: Long): Boolean {
+        if (!line.isInterlude) return false
+        val effectiveBegin = line.begin + 200L
+        val effectiveEnd = line.end - 500L
+        return timeMs >= effectiveBegin && timeMs < effectiveEnd
+    }
+
+    fun shouldDelayManualTapScrollForInterlude(fromTimeMs: Long, toTimeMs: Long): Boolean {
+        return processedLyricLines.any { line ->
+            isInterludeVisibleAt(line, fromTimeMs) && !isInterludeVisibleAt(line, toTimeMs)
+        }
+    }
+
     fun requestAutoScroll(targetIndex: Int, forceAnimate: Boolean = false) {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
         if (lyricBlurPreferenceEnabled && !isLyricBlurEnabled) {
@@ -2502,6 +2515,8 @@ fun LyricPreviewScreen(
                                     animationType = animationType, // 新增
                                     blurRadius = lyricLineBlurRadius,
                                     onClick = {
+                                        val tapSourceTime = currentTime
+                                        val tapTargetTime = line.begin
                                         if (!isPlaying) {
                                             isPlaying = true
                                             onPlayPause(true)
@@ -2520,13 +2535,21 @@ fun LyricPreviewScreen(
                                         }
                                         isUserScrolling = false
                                         scrollJob?.cancel()
-                                        // 点击歌词后立即触发自动滚动，并将当前行滚动到目标位置
+                                        // 先跳转播放位置，让间奏显隐状态先稳定，再执行滚动，避免目标行偏高
+                                        onSeekTo(tapTargetTime)
+                                        currentTime = tapTargetTime
+                                        // 点击歌词后触发自动滚动，并将当前行滚动到目标位置
                                         lastAutoScrolledIndex = index
                                         lastSkippedScrollIndex = -1
                                         closeNextSkipStreak = 0
-                                        requestAutoScroll(index, forceAnimate = true)
-                                        onSeekTo(line.begin)
-                                        currentTime = line.begin
+                                        coroutineScope.launch {
+                                            withFrameNanos { }
+                                            if (shouldDelayManualTapScrollForInterlude(tapSourceTime, tapTargetTime)) {
+                                                // 间奏行将从可见切到隐藏时，先让淡出完成，再滚动，避免“瞬移上移”
+                                                delay(360L)
+                                            }
+                                            requestAutoScroll(index, forceAnimate = true)
+                                        }
                                     }
                                 )
                             }
