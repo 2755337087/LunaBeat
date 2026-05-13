@@ -117,7 +117,8 @@ private const val REQUEST_CODE_SEARCH_METADATA = 1001
 private const val REQUEST_CODE_LYRIC_TIMING = 1002
 private const val REQUEST_CODE_UCROP = 1004
 private val GENRE_SPLIT_REGEX = Regex("""[;；:：、&]+""")
-private const val ACCOMPANIMENT_DIR_PATH = "/storage/emulated/0/Music/.sing"
+private const val ACCOMPANIMENT_PRIMARY_DIR_PATH = "/storage/emulated/0/Music/.sing"
+private const val ACCOMPANIMENT_FALLBACK_DIR_PATH = "/storage/emulated/0/Documents/LunaBeat/.sing"
 
 data class BatchEditFieldValues(
     val titles: Set<String> = emptySet(),
@@ -2737,7 +2738,7 @@ fun SongMetadataEditScreen(
                 Text(
                     buildString {
                         append("伴奏已经复制到：")
-                        append(copiedAccompanimentPath ?: ACCOMPANIMENT_DIR_PATH)
+                        append(copiedAccompanimentPath ?: ACCOMPANIMENT_FALLBACK_DIR_PATH)
                         append("\n是否删除原文件？")
                     }
                 )
@@ -3919,13 +3920,21 @@ fun findAccompanimentFileForAudio(audioPath: String?): File? {
     if (audioPath.isNullOrBlank()) return null
     val sourceAudio = File(audioPath)
     if (!sourceAudio.exists()) return null
-    val dir = File(ACCOMPANIMENT_DIR_PATH)
-    if (!dir.exists() || !dir.isDirectory) return null
     val baseName = sourceAudio.nameWithoutExtension
-    return dir.listFiles()
-        ?.filter { it.isFile }
-        ?.sortedBy { it.name }
-        ?.firstOrNull { it.nameWithoutExtension.equals(baseName, ignoreCase = true) }
+    val candidateDirs = listOf(
+        File(ACCOMPANIMENT_PRIMARY_DIR_PATH),
+        File(ACCOMPANIMENT_FALLBACK_DIR_PATH)
+    )
+    return candidateDirs.firstNotNullOfOrNull { dir ->
+        if (!dir.exists() || !dir.isDirectory) {
+            null
+        } else {
+            dir.listFiles()
+                ?.filter { it.isFile }
+                ?.sortedBy { it.name }
+                ?.firstOrNull { it.nameWithoutExtension.equals(baseName, ignoreCase = true) }
+        }
+    }
 }
 
 fun getAccompanimentPathForAudio(audioPath: String?): String? {
@@ -3950,30 +3959,59 @@ suspend fun copyAccompanimentToDefaultPath(
             return@withContext AccompanimentOperationResult(success = false, errorMessage = "当前歌曲文件不存在")
         }
 
-        val targetDir = File(ACCOMPANIMENT_DIR_PATH)
-        if (!targetDir.exists() && !targetDir.mkdirs()) {
-            return@withContext AccompanimentOperationResult(success = false, errorMessage = "无法创建伴奏目录")
-        }
-
         val baseName = sourceAudio.nameWithoutExtension
         val extension = resolveUriExtension(context, sourceUri)
         val targetName = if (extension.isNotBlank()) "$baseName.$extension" else baseName
-        val targetFile = File(targetDir, targetName)
+        val candidateDirs = listOf(
+            File(ACCOMPANIMENT_PRIMARY_DIR_PATH),
+            File(ACCOMPANIMENT_FALLBACK_DIR_PATH)
+        )
+        val dirErrors = mutableListOf<String>()
 
-        targetDir.listFiles()
-            ?.filter { it.isFile && it.nameWithoutExtension.equals(baseName, ignoreCase = true) && it.absolutePath != targetFile.absolutePath }
-            ?.forEach { oldFile ->
-                runCatching { oldFile.delete() }
+        candidateDirs.forEach { targetDir ->
+            try {
+                if (!targetDir.exists() && !targetDir.mkdirs()) {
+                    dirErrors += "${targetDir.absolutePath}: 无法创建目录"
+                    return@forEach
+                }
+                if (!targetDir.isDirectory) {
+                    dirErrors += "${targetDir.absolutePath}: 不是目录"
+                    return@forEach
+                }
+
+                val targetFile = File(targetDir, targetName)
+
+                targetDir.listFiles()
+                    ?.filter { it.isFile && it.nameWithoutExtension.equals(baseName, ignoreCase = true) && it.absolutePath != targetFile.absolutePath }
+                    ?.forEach { oldFile ->
+                        runCatching { oldFile.delete() }
+                    }
+
+                context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                    targetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                } ?: run {
+                    dirErrors += "${targetDir.absolutePath}: 读取伴奏文件失败"
+                    return@forEach
+                }
+
+                return@withContext AccompanimentOperationResult(success = true, path = targetFile.absolutePath)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save accompaniment to ${targetDir.absolutePath}", e)
+                dirErrors += "${targetDir.absolutePath}: ${e.message ?: "写入失败"}"
             }
+        }
 
-        context.contentResolver.openInputStream(sourceUri)?.use { input ->
-            targetFile.outputStream().use { output ->
-                input.copyTo(output)
-                output.flush()
+        AccompanimentOperationResult(
+            success = false,
+            errorMessage = if (dirErrors.isNotEmpty()) {
+                "无法创建伴奏目录或写入失败：${dirErrors.joinToString("；")}"
+            } else {
+                "无法创建伴奏目录"
             }
-        } ?: return@withContext AccompanimentOperationResult(success = false, errorMessage = "读取伴奏文件失败")
-
-        AccompanimentOperationResult(success = true, path = targetFile.absolutePath)
+        )
     } catch (e: Exception) {
         Log.e(TAG, "Error copying accompaniment file", e)
         AccompanimentOperationResult(success = false, errorMessage = e.message ?: "添加伴奏失败")
