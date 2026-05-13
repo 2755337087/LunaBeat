@@ -538,9 +538,11 @@ fun SongMetadataEditScreen(
     
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
+    var isCopyingAccompaniment by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
     var showAccompanimentCopiedDialog by remember { mutableStateOf(false) }
     var showAccompanimentDirectoryAuthDialog by remember { mutableStateOf(false) }
+    var showAccompanimentDirectoryAuthResultDialog by remember { mutableStateOf(false) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -624,6 +626,7 @@ fun SongMetadataEditScreen(
     var accompanimentPath by remember(audioPath) { mutableStateOf<String?>(null) }
     var copiedAccompanimentPath by remember { mutableStateOf<String?>(null) }
     var accompanimentSourceUri by remember { mutableStateOf<Uri?>(null) }
+    var accompanimentDirectoryAuthResultMessage by remember { mutableStateOf("") }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
@@ -1717,22 +1720,27 @@ fun SongMetadataEditScreen(
     ) { uri: Uri? ->
         uri?.let {
             scope.launch {
-                val cachedTreeUri = getAccompanimentTreeUri(context)
-                val result = copyAccompanimentToDefaultPath(context, audioPath, it, cachedTreeUri)
-                when {
-                    result.success -> {
-                        accompanimentPath = result.path
-                        copiedAccompanimentPath = result.path
-                        accompanimentSourceUri = it
-                        showAccompanimentCopiedDialog = true
+                isCopyingAccompaniment = true
+                try {
+                    val cachedTreeUri = getAccompanimentTreeUri(context)
+                    val result = copyAccompanimentToDefaultPath(context, audioPath, it, cachedTreeUri)
+                    when {
+                        result.success -> {
+                            accompanimentPath = result.path
+                            copiedAccompanimentPath = result.path
+                            accompanimentSourceUri = it
+                            showAccompanimentCopiedDialog = true
+                        }
+                        result.needPermission -> {
+                            showPermissionDialog = true
+                        }
+                        else -> {
+                            errorMessage = result.errorMessage ?: "添加伴奏失败"
+                            showErrorDialog = true
+                        }
                     }
-                    result.needPermission -> {
-                        showPermissionDialog = true
-                    }
-                    else -> {
-                        errorMessage = result.errorMessage ?: "添加伴奏失败"
-                        showErrorDialog = true
-                    }
+                } finally {
+                    isCopyingAccompaniment = false
                 }
             }
         }
@@ -1742,13 +1750,13 @@ fun SongMetadataEditScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { treeUri ->
         if (treeUri == null) {
-            errorMessage = "未授予 /Music/ 目录权限，无法添加伴奏"
-            showErrorDialog = true
+            accompanimentDirectoryAuthResultMessage = "授权失败：未授予 /Music/ 目录权限。"
+            showAccompanimentDirectoryAuthResultDialog = true
             return@rememberLauncherForActivityResult
         }
         if (!isMusicDirectoryTreeUri(context, treeUri)) {
-            errorMessage = "请选择 /Music/ 目录进行授权"
-            showErrorDialog = true
+            accompanimentDirectoryAuthResultMessage = "授权失败：请选择 /Music/ 目录。"
+            showAccompanimentDirectoryAuthResultDialog = true
             return@rememberLauncherForActivityResult
         }
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -1756,12 +1764,13 @@ fun SongMetadataEditScreen(
             context.contentResolver.takePersistableUriPermission(treeUri, flags)
         }.isSuccess
         if (!persisted) {
-            errorMessage = "保存 /Music/ 目录权限失败"
-            showErrorDialog = true
+            accompanimentDirectoryAuthResultMessage = "授权失败：保存 /Music/ 目录权限失败。"
+            showAccompanimentDirectoryAuthResultDialog = true
             return@rememberLauncherForActivityResult
         }
         saveAccompanimentTreeUri(context, treeUri)
-        pickAccompanimentLauncher.launch("audio/*")
+        accompanimentDirectoryAuthResultMessage = "授权成功，请重新点击“添加伴奏”。"
+        showAccompanimentDirectoryAuthResultDialog = true
     }
 
     val requestAccompanimentDirectoryPermissionAndPickAudio: () -> Unit = {
@@ -3013,7 +3022,7 @@ fun SongMetadataEditScreen(
         AlertDialog(
             onDismissRequest = { showAccompanimentDirectoryAuthDialog = false },
             title = { Text("授权提示") },
-            text = { Text("请授权 /Music/ 目录访问权限。授权成功后将自动进入伴奏文件选择。") },
+            text = { Text("请授权 /Music/ 目录访问权限。授权完成后请重新点击“添加伴奏”。") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -3030,6 +3039,46 @@ fun SongMetadataEditScreen(
                 }
             }
         )
+    }
+
+    if (showAccompanimentDirectoryAuthResultDialog) {
+        AlertDialog(
+            onDismissRequest = { showAccompanimentDirectoryAuthResultDialog = false },
+            title = { Text("授权结果") },
+            text = { Text(accompanimentDirectoryAuthResultMessage) },
+            confirmButton = {
+                Button(onClick = { showAccompanimentDirectoryAuthResultDialog = false }) {
+                    Text("确定")
+                }
+            }
+        )
+    }
+
+    if (isCopyingAccompaniment) {
+        Dialog(
+            onDismissRequest = { },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            )
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Text("复制中")
+                }
+            }
+        }
     }
     
     if (showPermissionDialog) {
@@ -4021,6 +4070,13 @@ private fun findOrCreateChildDirectory(parent: DocumentFile, name: String): Docu
     return parent.findFile(name)?.takeIf { it.isDirectory } ?: parent.createDirectory(name)
 }
 
+private fun resolveMusicDirectoryFromTreeRoot(treeRoot: DocumentFile): DocumentFile? {
+    val rootName = treeRoot.name?.trim()?.lowercase().orEmpty()
+    if (rootName == "music") return treeRoot
+    return treeRoot.findFile("Music")?.takeIf { it.isDirectory }
+        ?: treeRoot.findFile("music")?.takeIf { it.isDirectory }
+}
+
 private fun isMusicDirectoryTreeUri(context: Context, treeUri: Uri): Boolean {
     val treeDocId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
     val treeDocIdNormalized = treeDocId?.lowercase().orEmpty()
@@ -4096,7 +4152,7 @@ suspend fun copyAccompanimentToDefaultPath(
                 needPermissionForTree = true,
                 errorMessage = "伴奏目录权限已失效，请重新授权"
             )
-        val musicDir = findOrCreateChildDirectory(treeRoot, "Music")
+        val musicDir = resolveMusicDirectoryFromTreeRoot(treeRoot)
             ?: return@withContext AccompanimentOperationResult(
                 success = false,
                 needPermissionForTree = true,
