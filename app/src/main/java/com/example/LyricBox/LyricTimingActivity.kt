@@ -5,6 +5,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
+import android.app.RecoverableSecurityException
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -158,6 +159,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.pow
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -8112,7 +8114,7 @@ fun LyricTimingScreen(
             IntentSenderRequest.Builder(sender).build()
         )
     }
-    
+
     // 处理歌词导入
     val handleLyricsImported = { importedLyrics: List<String> ->
         lyrics = importedLyrics.map { line ->
@@ -8169,6 +8171,36 @@ fun LyricTimingScreen(
     var translationInput by remember { mutableStateOf("") }
     var showSaveSuccessDialog by remember { mutableStateOf(false) }
     var showSaveFailDialog by remember { mutableStateOf(false) }
+    var ttmlSaveErrorMessage by remember { mutableStateOf("歌词文件保存失败，请检查存储权限或重试") }
+    var pendingTtmlRecoverableIntentSender by remember { mutableStateOf<IntentSender?>(null) }
+    var pendingTtmlContentForRetry by remember { mutableStateOf<String?>(null) }
+
+    val recoverableTtmlSavePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val retryContent = pendingTtmlContentForRetry
+            pendingTtmlRecoverableIntentSender = null
+            pendingTtmlContentForRetry = null
+            if (!retryContent.isNullOrBlank() && sourceAudioPath.isNotBlank()) {
+                val retryResult = saveTtmlToFileResult(
+                    audioPath = sourceAudioPath,
+                    ttmlContent = retryContent,
+                    context = context,
+                    sourceMediaStoreId = sourceMediaStoreId
+                )
+                if (retryResult.success) {
+                    showSaveSuccessDialog = true
+                } else {
+                    ttmlSaveErrorMessage = retryResult.errorMessage.ifBlank { "歌词文件保存失败，请检查存储权限或重试" }
+                    needStoragePermission = retryResult.needPermission
+                    pendingTtmlRecoverableIntentSender = retryResult.recoverableIntentSender
+                    pendingTtmlContentForRetry = retryContent
+                    showSaveFailDialog = true
+                }
+            }
+        }
+    }
     var showCopiedDialog by remember { mutableStateOf(false) }
     var showDeleteEmptyLinesSuccessDialog by remember { mutableStateOf(false) }
     var deletedEmptyLinesCount by remember { mutableIntStateOf(0) }
@@ -9296,11 +9328,20 @@ fun LyricTimingScreen(
                     ) {
                         Button(
                             onClick = {
-                                val success = LyricSaveEmbedUtils.saveTtmlFile(sourceAudioPath, ttmlContent)
+                                val result = saveTtmlToFileResult(
+                                    audioPath = sourceAudioPath,
+                                    ttmlContent = ttmlContent,
+                                    context = context,
+                                    sourceMediaStoreId = sourceMediaStoreId
+                                )
                                 showSaveTtmlFileDialog = false
-                                if (success) {
+                                if (result.success) {
                                     showSaveSuccessDialog = true
                                 } else {
+                                    ttmlSaveErrorMessage = result.errorMessage.ifBlank { "歌词文件保存失败，请检查存储权限或重试" }
+                                    needStoragePermission = result.needPermission
+                                    pendingTtmlRecoverableIntentSender = result.recoverableIntentSender
+                                    pendingTtmlContentForRetry = ttmlContent
                                     showSaveFailDialog = true
                                 }
                             }
@@ -10277,10 +10318,53 @@ fun LyricTimingScreen(
         
         SimpleAlertDialog(
             showDialog = showSaveFailDialog,
-            onDismiss = { showSaveFailDialog = false },
+            onDismiss = {
+                showSaveFailDialog = false
+                pendingTtmlRecoverableIntentSender = null
+                pendingTtmlContentForRetry = null
+            },
             title = "保存失败",
-            text = "歌词文件保存失败，请检查存储权限或重试"
+            text = ttmlSaveErrorMessage
         )
+
+        if (showSaveFailDialog && (pendingTtmlRecoverableIntentSender != null || needStoragePermission)) {
+            val actionLabel = if (pendingTtmlRecoverableIntentSender != null) "授予写入权限" else "设置权限"
+            AlertDialog(
+                onDismissRequest = {
+                    showSaveFailDialog = false
+                    pendingTtmlRecoverableIntentSender = null
+                    pendingTtmlContentForRetry = null
+                },
+                title = { Text("保存失败") },
+                text = { Text(ttmlSaveErrorMessage) },
+                confirmButton = {
+                    Button(onClick = {
+                        if (pendingTtmlRecoverableIntentSender != null) {
+                            val sender = pendingTtmlRecoverableIntentSender
+                            if (sender != null) {
+                                recoverableTtmlSavePermissionLauncher.launch(
+                                    IntentSenderRequest.Builder(sender).build()
+                                )
+                            }
+                        } else if (needStoragePermission) {
+                            showSaveFailDialog = false
+                            com.example.LyricBox.utils.AudioMetadataReader.requestStoragePermission(context)
+                        }
+                    }) {
+                        Text(actionLabel)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showSaveFailDialog = false
+                        pendingTtmlRecoverableIntentSender = null
+                        pendingTtmlContentForRetry = null
+                    }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
         
         SimpleAlertDialog(
             showDialog = showCopiedDialog,
@@ -13014,27 +13098,98 @@ fun buildTtmlContent(lyricLines: List<LyricLine>, creators: List<String> = empty
 }
 
 fun saveTtmlToFile(audioPath: String, ttmlContent: String): Boolean {
+    return saveTtmlToFileResult(audioPath, ttmlContent).success
+}
+
+data class TtmlSaveResult(
+    val success: Boolean,
+    val needPermission: Boolean = false,
+    val recoverableIntentSender: IntentSender? = null,
+    val errorMessage: String = ""
+)
+
+fun saveTtmlToFileResult(
+    audioPath: String,
+    ttmlContent: String,
+    context: Context? = null,
+    sourceMediaStoreId: Long = -1L
+): TtmlSaveResult {
     return try {
         if (audioPath.isEmpty()) {
             Log.e("LyricTiming", "Audio path is empty")
-            return false
+            return TtmlSaveResult(success = false, errorMessage = "音频路径为空")
         }
-        
-        val audioFile = java.io.File(audioPath)
+
+        val audioFile = File(audioPath)
         val parentDir = audioFile.parentFile
-        
+
         if (parentDir == null || !parentDir.exists()) {
             Log.e("LyricTiming", "Parent directory does not exist: ${audioFile.parent}")
-            return false
+            return TtmlSaveResult(success = false, errorMessage = "目标目录不存在")
         }
-        
-        val ttmlFile = java.io.File(parentDir, audioFile.nameWithoutExtension + ".ttml")
+
+        val ttmlFile = File(parentDir, audioFile.nameWithoutExtension + ".ttml")
         Log.d("LyricTiming", "Saving TTML to: ${ttmlFile.absolutePath}")
+
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && context != null) {
+            val contentUri = resolveMediaStoreFileUriForTtml(
+                context = context,
+                ttmlAbsolutePath = ttmlFile.absolutePath
+            )
+            if (contentUri != null) {
+                context.contentResolver.openFileDescriptor(contentUri, "rw")?.use { pfd ->
+                    FileOutputStream(pfd.fileDescriptor).use { fos ->
+                        fos.write(ttmlContent.toByteArray(Charsets.UTF_8))
+                        fos.flush()
+                    }
+                } ?: return TtmlSaveResult(success = false, errorMessage = "无法打开TTML文件")
+                return TtmlSaveResult(success = true)
+            }
+        }
+
         ttmlFile.writeText(ttmlContent)
-        true
+        TtmlSaveResult(success = true)
+    } catch (e: RecoverableSecurityException) {
+        TtmlSaveResult(
+            success = false,
+            recoverableIntentSender = e.userAction.actionIntent.intentSender,
+            errorMessage = "需要授权写入此文件"
+        )
+    } catch (e: SecurityException) {
+        val needAllFilesPermission = context != null &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            !com.example.LyricBox.utils.AudioMetadataReader.hasStoragePermission(context)
+        TtmlSaveResult(
+            success = false,
+            needPermission = needAllFilesPermission,
+            errorMessage = if (needAllFilesPermission) {
+                "需要存储权限才能保存TTML"
+            } else {
+                e.message.orEmpty()
+            }
+        )
     } catch (e: Exception) {
         Log.e("LyricTiming", "Failed to save TTML file", e)
-        false
+        TtmlSaveResult(success = false, errorMessage = e.message.orEmpty())
+    }
+}
+
+private fun resolveMediaStoreFileUriForTtml(
+    context: Context,
+    ttmlAbsolutePath: String
+): Uri? {
+    return try {
+        val baseUri = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val args = arrayOf(ttmlAbsolutePath)
+        context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+            ContentUris.withAppendedId(baseUri, id)
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 
