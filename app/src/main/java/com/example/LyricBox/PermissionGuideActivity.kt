@@ -126,7 +126,7 @@ class PermissionGuideActivity : ComponentActivity() {
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             ContextCompat.checkSelfPermission(
                 this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
+                Manifest.permission.READ_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         } else {
             true
@@ -175,7 +175,12 @@ class PermissionGuideActivity : ComponentActivity() {
                 allFilesPermissionLauncher.launch(intent)
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            storagePermissionLauncher.launch(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE))
+            storagePermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                )
+            )
         }
     }
     

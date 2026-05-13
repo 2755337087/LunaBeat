@@ -364,6 +364,7 @@ private fun Int.toLyricFormatLabel(): String {
 
 private fun handleMusicLibraryItemLyricsAction(
     scope: CoroutineScope,
+    context: Context,
     audio: AudioFile,
     autoDetectEmbeddedLyricsType: Boolean,
     onShowOptions: (AudioFile) -> Unit,
@@ -383,7 +384,11 @@ private fun handleMusicLibraryItemLyricsAction(
             return@launch
         }
 
-        val lyricsLoadResult = loadAudioLyricsLoadResult(audio.path)
+        val lyricsLoadResult = loadAudioLyricsLoadResult(
+            context = context,
+            audioPath = audio.path,
+            mediaStoreId = audio.mediaStoreId
+        )
         if (lyricsLoadResult.isEmbeddedOnly && lyricsLoadResult.embeddedLyrics != null) {
             onStartLyricTimingEditor(
                 audio,
@@ -584,7 +589,11 @@ private fun convertToPreviewLyricLines(lines: List<LyricLine>): List<NewPreviewL
     }
 }
 
-private fun buildPreviewLyricPayload(audioPath: String): PreviewLyricPayload? {
+private fun buildPreviewLyricPayload(
+    context: Context,
+    audioPath: String,
+    mediaStoreId: Long = -1L
+): PreviewLyricPayload? {
     val audioFile = File(audioPath)
     val sameNameTtml = audioFile.parentFile?.let { parent ->
         File(parent, "${audioFile.nameWithoutExtension}.ttml")
@@ -601,7 +610,7 @@ private fun buildPreviewLyricPayload(audioPath: String): PreviewLyricPayload? {
         } else {
             null
         }
-        externalTtmlLyrics ?: extractEmbeddedLyrics(audioPath)?.takeIf { it.isNotBlank() }
+        externalTtmlLyrics ?: extractEmbeddedLyrics(context, audioPath, mediaStoreId)?.takeIf { it.isNotBlank() }
     } ?: return null
 
     val detectedFormat = detectLyricsFormat(preferredLyrics)
@@ -1696,6 +1705,8 @@ fun MusicLibraryScreen(
     var isSearching by remember { mutableStateOf(false) }
     val favoritePaths = remember { mutableStateSetOf<String>() }
     val albumTrackSortCache = remember { mutableMapOf<String, Int>() }
+    var trackSortWarmupJob by remember { mutableStateOf<Job?>(null) }
+    var trackSortWarmupKey by remember { mutableStateOf("") }
     
     var isMultiSelectMode by remember { mutableStateOf(false) }
     val selectedPaths = remember { mutableStateSetOf<String>() }
@@ -1755,17 +1766,67 @@ fun MusicLibraryScreen(
     fun resolveTrackSortValue(audio: AudioFile): Int {
         val cached = albumTrackSortCache[audio.path]
         if (cached != null) return cached
-        val trackValue = runCatching {
-            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
-                context,
-                audio.path,
-                audio.mediaStoreId,
-                includeCover = false
-            )
-            parseTrackNumberValue(metadata.trackNumber)
-        }.getOrDefault(Int.MAX_VALUE)
-        albumTrackSortCache[audio.path] = trackValue
-        return trackValue
+        return Int.MAX_VALUE
+    }
+
+    fun warmupTrackSortCacheFor(querySnapshot: String, list: List<AudioFile>) {
+        val trimmedQuery = querySnapshot.trim()
+        val isAlbumQuery = trimmedQuery.startsWith(ALBUM_SEARCH_PREFIX_FULL) || trimmedQuery.startsWith(ALBUM_SEARCH_PREFIX_ASCII)
+        if (!isAlbumQuery) return
+        val missing = list.filter { albumTrackSortCache[it.path] == null }
+        if (missing.isEmpty()) return
+
+        val newKey = buildString {
+            append(querySnapshot.trim())
+            append('#')
+            append(missing.size)
+            append('#')
+            append(missing.firstOrNull()?.path.orEmpty())
+        }
+        if (trackSortWarmupJob?.isActive == true && newKey == trackSortWarmupKey) return
+
+        trackSortWarmupJob?.cancel()
+        trackSortWarmupKey = newKey
+        trackSortWarmupJob = scope.launch(Dispatchers.IO) {
+            val updates = mutableMapOf<String, Int>()
+            missing.forEachIndexed { index, audio ->
+                val trackValue = runCatching {
+                    val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                        context = context,
+                        filePath = audio.path,
+                        mediaStoreId = audio.mediaStoreId,
+                        includeCover = false
+                    )
+                    parseTrackNumberValue(metadata.trackNumber)
+                }.getOrDefault(Int.MAX_VALUE)
+                updates[audio.path] = trackValue
+                if ((index + 1) % 20 == 0) {
+                    kotlinx.coroutines.yield()
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                var changed = false
+                updates.forEach { (path, value) ->
+                    if (albumTrackSortCache[path] != value) {
+                        albumTrackSortCache[path] = value
+                        changed = true
+                    }
+                }
+                val currentQuery = searchQuery.trim()
+                val stillAlbumQuery = currentQuery.startsWith(ALBUM_SEARCH_PREFIX_FULL) || currentQuery.startsWith(ALBUM_SEARCH_PREFIX_ASCII)
+                if (changed && stillAlbumQuery && displayAudioFiles.isNotEmpty()) {
+                    val resorted = displayAudioFiles
+                        .toList()
+                        .sortedWith(
+                            compareBy<AudioFile> { resolveTrackSortValue(it) }
+                                .thenBy { it.displayTitle.lowercase() }
+                        )
+                    displayAudioFiles.clear()
+                    displayAudioFiles.addAll(resorted)
+                }
+            }
+        }
     }
 
     fun isAlbumSearchQuery(query: String): Boolean {
@@ -1897,6 +1958,10 @@ fun MusicLibraryScreen(
                 if (start < filtered.size) {
                     kotlinx.coroutines.yield()
                 }
+            }
+
+            if (isAlbumSearchQuery(querySnapshot)) {
+                warmupTrackSortCacheFor(querySnapshot, filtered)
             }
         }
     }
@@ -2068,6 +2133,7 @@ fun MusicLibraryScreen(
             else -> {
                 handleMusicLibraryItemLyricsAction(
                     scope = scope,
+                    context = context,
                     audio = audio,
                     autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
                     onShowOptions = {
@@ -4047,6 +4113,7 @@ fun AudioOptionsDialog(
     showEditMetadataButton: Boolean = onEditMetadata != null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var embeddedLyrics by remember { mutableStateOf<String?>(null) }
     var externalLyrics by remember { mutableStateOf<String?>(null) }
     var externalLyricsPath by remember { mutableStateOf<String?>(null) }
@@ -4095,7 +4162,11 @@ fun AudioOptionsDialog(
         kotlinx.coroutines.yield()
 
         val coverDeferred = async { loadAudioOptionsCoverBitmap(audio.coverCachePath) }
-        val lyricsLoadResult = loadAudioLyricsLoadResult(audio.path)
+        val lyricsLoadResult = loadAudioLyricsLoadResult(
+            context = context,
+            audioPath = audio.path,
+            mediaStoreId = audio.mediaStoreId
+        )
 
         coverBitmap = coverDeferred.await()
         embeddedLyrics = lyricsLoadResult.embeddedLyrics
@@ -5104,8 +5175,8 @@ private fun scanDirectory(dir: File, extensions: Set<String>, fileList: MutableL
     }
 }
 
-private fun extractEmbeddedLyrics(path: String): String? {
-    return com.example.LyricBox.utils.AudioMetadataReader.readLyrics(path)
+private fun extractEmbeddedLyrics(context: Context, path: String, mediaStoreId: Long = -1L): String? {
+    return com.example.LyricBox.utils.AudioMetadataReader.readLyrics(context, path, mediaStoreId)
 }
 
 private fun resolveExternalTtmlFile(audioPath: String): File? {
@@ -5114,9 +5185,13 @@ private fun resolveExternalTtmlFile(audioPath: String): File? {
     return File(parentDir, "${audioFile.nameWithoutExtension}.ttml")
 }
 
-private suspend fun loadAudioLyricsLoadResult(audioPath: String): AudioLyricsLoadResult =
+private suspend fun loadAudioLyricsLoadResult(
+    context: Context,
+    audioPath: String,
+    mediaStoreId: Long = -1L
+): AudioLyricsLoadResult =
     withContext(Dispatchers.IO) {
-        val embeddedLyrics = extractEmbeddedLyrics(audioPath)?.takeIf { it.isNotBlank() }
+        val embeddedLyrics = extractEmbeddedLyrics(context, audioPath, mediaStoreId)?.takeIf { it.isNotBlank() }
         val ttmlFile = resolveExternalTtmlFile(audioPath)
         val externalLyrics = if (ttmlFile?.exists() == true) {
             try {
@@ -5360,6 +5435,7 @@ fun ExternalAudioScreen(
         } else {
             handleMusicLibraryItemLyricsAction(
                 scope = scope,
+                context = context,
                 audio = audio,
                 autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
                 onShowOptions = { showAudioOptionsDialog = true },
@@ -8777,7 +8853,12 @@ private suspend fun refreshAudioFileMetadata(context: Context, path: String, aud
             val file = java.io.File(path)
             if (!file.exists()) return@withContext null
             
-            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(context, file.absolutePath)
+            val existing = audioFiles.firstOrNull { it.path == path }
+            val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                context = context,
+                filePath = file.absolutePath,
+                mediaStoreId = existing?.mediaStoreId ?: -1L
+            )
             
             var refreshedCoverCachePath: String? = null
             if (metadata.cover != null) {
@@ -10118,7 +10199,11 @@ private suspend fun performBatchLyricsMatch(
                     if (isCancelled()) return@async
                     item.matchStatus = MatchStatus.MATCHING
                     
-                    item.originalLyrics = extractEmbeddedLyrics(item.audioFile.path)
+                    item.originalLyrics = extractEmbeddedLyrics(
+                        context,
+                        item.audioFile.path,
+                        item.audioFile.mediaStoreId
+                    )
                     
                     val fileName = java.io.File(item.audioFile.path).nameWithoutExtension
                     var title: String
@@ -10373,10 +10458,12 @@ private fun convertLyricsContentToBatchTargetFormat(
 }
 
 private suspend fun resolveLyricsForExternalExport(
+    context: Context,
     audioPath: String,
+    mediaStoreId: Long = -1L,
     preferSameNameTtml: Boolean
 ): String? = withContext(Dispatchers.IO) {
-    val embeddedLyrics = extractEmbeddedLyrics(audioPath)?.takeIf { it.isNotBlank() }
+    val embeddedLyrics = extractEmbeddedLyrics(context, audioPath, mediaStoreId)?.takeIf { it.isNotBlank() }
     if (!preferSameNameTtml) {
         return@withContext embeddedLyrics
     }
@@ -10423,7 +10510,7 @@ private suspend fun performBatchLyricsFormatConversion(
 
     audioFiles.forEachIndexed { index, audio ->
         try {
-            val embeddedLyrics = extractEmbeddedLyrics(audio.path)?.takeIf { it.isNotBlank() }
+            val embeddedLyrics = extractEmbeddedLyrics(context, audio.path, audio.mediaStoreId)?.takeIf { it.isNotBlank() }
             if (embeddedLyrics.isNullOrBlank()) {
                 failedMessages.add("${audio.displayTitle}: 未读取到嵌入歌词")
             } else {
@@ -10473,7 +10560,12 @@ private suspend fun performBatchLyricsExternalExport(
 
     audioFiles.forEachIndexed { index, audio ->
         try {
-            val sourceLyrics = resolveLyricsForExternalExport(audio.path, config.preferSameNameTtml)
+            val sourceLyrics = resolveLyricsForExternalExport(
+                context = context,
+                audioPath = audio.path,
+                mediaStoreId = audio.mediaStoreId,
+                preferSameNameTtml = config.preferSameNameTtml
+            )
             if (sourceLyrics.isNullOrBlank()) {
                 failedMessages.add("${audio.displayTitle}: 未读取到可导出的歌词")
                 return@forEachIndexed

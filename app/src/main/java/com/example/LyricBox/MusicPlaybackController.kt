@@ -128,10 +128,10 @@ class MusicPlaybackController(private val context: Context) {
             runCatching { future.get() }.onSuccess { readyController ->
                 controller = readyController
                 readyController.addListener(listener)
-                restoreQueueIfNeeded(readyController)
                 applyPlaybackModeToPlayer(readyController, playbackMode)
                 syncFromPlayer(readyController)
                 isReady = true
+                restoreQueueIfNeededAsync(readyController)
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -730,41 +730,49 @@ class MusicPlaybackController(private val context: Context) {
         LocalPlaylistStore.savePlaybackQueue(context, entries)
     }
 
-    private fun restoreQueueIfNeeded(player: MediaController) {
+    private fun restoreQueueIfNeededAsync(player: MediaController) {
         if (player.mediaItemCount > 0) return
-        val savedPaths = LocalPlaylistStore.loadPlaybackQueuePaths(context)
-        val uniqueSavedPaths = savedPaths.distinct()
-        if (uniqueSavedPaths.isEmpty()) return
         val targetPath = playbackStatePrefs.getString(KEY_LAST_AUDIO_PATH, null)
-        val targetIndex = uniqueSavedPaths.indexOfFirst { it == targetPath }.let { if (it >= 0) it else 0 }
-        val restoredItems = uniqueSavedPaths.mapNotNull { path ->
-            val file = File(path)
-            if (!file.exists()) return@mapNotNull null
-            val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
-            val inferredCoverCachePath = resolveExistingCoverCachePath(path)
-            val audio = AudioFile(
-                path = path,
-                title = metadata?.title.orEmpty(),
-                artist = metadata?.artist.orEmpty(),
-                album = metadata?.album.orEmpty(),
-                duration = metadata?.duration ?: 0L,
-                fileSize = file.length(),
-                lastModified = file.lastModified(),
-                addedTime = file.lastModified(),
-                coverCachePath = inferredCoverCachePath,
-                year = metadata?.year.orEmpty(),
-                mediaStoreId = -1L
-            )
-            val shouldPreferOriginalCover = path == uniqueSavedPaths.getOrNull(targetIndex)
-            audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
-        }
-        if (restoredItems.isEmpty()) return
-        val safeTargetIndex = targetIndex.coerceIn(0, restoredItems.lastIndex)
-        try {
-            player.setMediaItems(restoredItems, safeTargetIndex, 0L)
-            player.prepare()
-        } catch (e: Exception) {
-            Log.e("MusicPlaybackController", "Failed to restore queue", e)
+        transcodeQueueExecutor.execute {
+            val savedPaths = LocalPlaylistStore.loadPlaybackQueuePaths(context)
+            val uniqueSavedPaths = savedPaths.distinct()
+            if (uniqueSavedPaths.isEmpty()) return@execute
+            val targetIndex = uniqueSavedPaths.indexOfFirst { it == targetPath }.let { if (it >= 0) it else 0 }
+            val restoredItems = uniqueSavedPaths.mapNotNull { path ->
+                val file = File(path)
+                if (!file.exists()) return@mapNotNull null
+                val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
+                val inferredCoverCachePath = resolveExistingCoverCachePath(path)
+                val audio = AudioFile(
+                    path = path,
+                    title = metadata?.title.orEmpty(),
+                    artist = metadata?.artist.orEmpty(),
+                    album = metadata?.album.orEmpty(),
+                    duration = metadata?.duration ?: 0L,
+                    fileSize = file.length(),
+                    lastModified = file.lastModified(),
+                    addedTime = file.lastModified(),
+                    coverCachePath = inferredCoverCachePath,
+                    year = metadata?.year.orEmpty(),
+                    mediaStoreId = -1L
+                )
+                val shouldPreferOriginalCover = path == uniqueSavedPaths.getOrNull(targetIndex)
+                audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
+            }
+            if (restoredItems.isEmpty()) return@execute
+            val safeTargetIndex = targetIndex.coerceIn(0, restoredItems.lastIndex)
+
+            ContextCompat.getMainExecutor(context).execute {
+                val latestPlayer = controller ?: return@execute
+                if (latestPlayer != player) return@execute
+                if (latestPlayer.mediaItemCount > 0) return@execute
+                try {
+                    latestPlayer.setMediaItems(restoredItems, safeTargetIndex, 0L)
+                    latestPlayer.prepare()
+                } catch (e: Exception) {
+                    Log.e("MusicPlaybackController", "Failed to restore queue", e)
+                }
+            }
         }
     }
 

@@ -54,6 +54,8 @@ class MusicPlaybackService : MediaSessionService() {
     private var cachedDirectAlacDecodeSupport: Boolean? = null
     private var lastArtworkUpdatedSourcePath: String? = null
     private val lyricExecutor = Executors.newSingleThreadExecutor()
+    private val alacWorkExecutor = Executors.newSingleThreadExecutor()
+    private val alacCleanupExecutor = Executors.newSingleThreadExecutor()
     private val lyricPreviewPrefs by lazy {
         getSharedPreferences(LyricPreviewActivity.PREFS_NAME, MODE_PRIVATE)
     }
@@ -227,13 +229,17 @@ class MusicPlaybackService : MediaSessionService() {
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
         lyriconBridge.release()
         lyricExecutor.shutdownNow()
+        alacWorkExecutor.shutdownNow()
+        alacCleanupExecutor.shutdownNow()
         transcodeExecutor.shutdownNow()
         artworkExecutor.shutdownNow()
         mediaSession?.run {
             player.release()
             release()
         }
-        PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
+        alacCleanupExecutor.execute {
+            PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
+        }
         player = null
         mediaSession = null
         super.onDestroy()
@@ -602,12 +608,16 @@ class MusicPlaybackService : MediaSessionService() {
 
         val currentItem = player.currentMediaItem ?: return
         val sourcePath = currentItem.resolveOriginalAudioPath() ?: return
-        maybeHandleAlacPlaybackForPath(
-            player = player,
-            sourcePath = sourcePath,
-            resumeIndexHint = index,
-            reason = reason
-        )
+        alacWorkExecutor.execute {
+            mainHandler.post {
+                maybeHandleAlacPlaybackForPath(
+                    player = player,
+                    sourcePath = sourcePath,
+                    resumeIndexHint = index,
+                    reason = reason
+                )
+            }
+        }
     }
 
     private fun maybeHandleAlacPlaybackForPath(
@@ -642,7 +652,9 @@ class MusicPlaybackService : MediaSessionService() {
         if (!shouldTranscode) {
             lastFailedAlacPath = null
             pendingPlayAfterTranscode = false
-            PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
+            alacCleanupExecutor.execute {
+                PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
+            }
             return
         }
 
@@ -652,7 +664,9 @@ class MusicPlaybackService : MediaSessionService() {
                 // 缓存路径已失效，需要重新触发转码而不是直接返回。
                 Log.d("MusicPlaybackService", "Playback cache path missing, retranscode source=$sourcePath")
             } else {
-                PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = currentUriPath)
+                alacCleanupExecutor.execute {
+                    PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = currentUriPath)
+                }
                 return
             }
         }
@@ -727,7 +741,9 @@ class MusicPlaybackService : MediaSessionService() {
                 }
                 pendingPlayAfterTranscode = false
                 maybeEnsureCurrentArtworkMetadata(player, force = true)
-                PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = transcodedPath)
+                alacCleanupExecutor.execute {
+                    PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = transcodedPath)
+                }
             }
         }
     }

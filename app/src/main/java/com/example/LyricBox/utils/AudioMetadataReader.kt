@@ -146,6 +146,12 @@ object AudioMetadataReader {
         mediaStoreId: Long = -1L,
         includeCover: Boolean = true
     ): AudioMetadata {
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.Q..Build.VERSION_CODES.Q) {
+            val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId)
+            if (mediaUri != null) {
+                return readMetadataFromUri(context, mediaUri, includeCover = includeCover)
+            }
+        }
         val fromFile = readMetadata(filePath, includeCover = includeCover)
         if (!shouldFallbackToUri(fromFile, includeCover = includeCover)) {
             return fromFile
@@ -369,6 +375,40 @@ object AudioMetadataReader {
     }
 
     fun readLyrics(context: Context, filePath: String, mediaStoreId: Long = -1L): String? {
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.Q..Build.VERSION_CODES.Q) {
+            return try {
+                val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId) ?: return null
+                val pfd = context.contentResolver.openFileDescriptor(mediaUri, "r") ?: return null
+                val nativeFd = pfd.dup().detachFd()
+                val metadata = TagLib.getMetadata(nativeFd, false)
+                pfd.close()
+                val props = metadata?.propertyMap ?: return null
+
+                fun firstOf(vararg keys: String): String? {
+                    for (key in keys) {
+                        val arr = props[key]
+                        if (!arr.isNullOrEmpty()) {
+                            val value = arr[0].trim()
+                            if (value.isNotEmpty()) return value
+                        }
+                    }
+                    return null
+                }
+
+                firstOf(
+                    "LYRICS",
+                    "UNSYNCED LYRICS",
+                    "UNSYNCEDLYRICS",
+                    "USLT",
+                    "LYRIC",
+                    "LYRICSENG"
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reading lyrics from uri (android10), path=$filePath", e)
+                null
+            }
+        }
+
         val fromFile = readLyrics(filePath)
         if (!fromFile.isNullOrBlank()) return fromFile
 
