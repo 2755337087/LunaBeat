@@ -311,9 +311,14 @@ class MusicPlaybackController(private val context: Context) {
         val targetPlaybackPath = resolvePlayablePathForPlayback(context, targetFile.absolutePath)
         val resolvedTargetFile = File(targetPlaybackPath)
         if (!resolvedTargetFile.exists() || !resolvedTargetFile.isFile) return false
+        val targetPlayableUri = resolvePlayableAudioUri(
+            context = context,
+            sourcePath = targetAudioPath,
+            playbackPath = resolvedTargetFile.absolutePath
+        )
 
         val currentUriPath = currentItem.localConfiguration?.uri?.path
-        if (currentUriPath == resolvedTargetFile.absolutePath) return true
+        if (currentItem.localConfiguration?.uri == targetPlayableUri || currentUriPath == resolvedTargetFile.absolutePath) return true
 
         val wasPlaying = player.isPlaying || player.playWhenReady
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
@@ -323,7 +328,7 @@ class MusicPlaybackController(private val context: Context) {
         animatePlayerVolume(player, baselineVolume, 0f, halfDuration)
 
         val updatedItem = currentItem.buildUpon()
-            .setUri(Uri.fromFile(resolvedTargetFile))
+            .setUri(targetPlayableUri)
             .build()
         player.replaceMediaItem(currentIndex, updatedItem)
         if (player.playbackState == Player.STATE_IDLE) {
@@ -382,10 +387,15 @@ class MusicPlaybackController(private val context: Context) {
                 if (latestItem.resolveSourcePath() != sourcePath) return@execute
 
                 if (playbackPath.isNotBlank() && File(playbackPath).exists()) {
+                    val updatedUri = resolvePlayableAudioUri(
+                        context = context,
+                        sourcePath = sourcePath,
+                        playbackPath = playbackPath
+                    )
                     val currentUriPath = latestItem.localConfiguration?.uri?.path
-                    if (currentUriPath != playbackPath) {
+                    if (latestItem.localConfiguration?.uri != updatedUri && currentUriPath != playbackPath) {
                         val updatedItem = latestItem.buildUpon()
-                            .setUri(Uri.fromFile(File(playbackPath)))
+                            .setUri(updatedUri)
                             .build()
                         latestPlayer.replaceMediaItem(index, updatedItem)
                     }
@@ -705,11 +715,16 @@ class MusicPlaybackController(private val context: Context) {
             temporaryCompanionSourcePath = null
             return
         }
+        val originalPlayableUri = resolvePlayableAudioUri(
+            context = context,
+            sourcePath = sourcePath,
+            playbackPath = originalPlaybackPath
+        )
 
         val currentUriPath = item.localConfiguration?.uri?.path
-        if (currentUriPath != originalFile.absolutePath) {
+        if (item.localConfiguration?.uri != originalPlayableUri && currentUriPath != originalFile.absolutePath) {
             val restoredItem = item.buildUpon()
-                .setUri(Uri.fromFile(originalFile))
+                .setUri(originalPlayableUri)
                 .build()
             player.replaceMediaItem(index, restoredItem)
         }
@@ -999,15 +1014,14 @@ private fun resolvePlayableAudioUri(
     playbackPath: String,
     mediaStoreId: Long = -1L
 ): Uri {
+    if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+        val mediaUri = resolveMediaStoreAudioUri(context, sourcePath, mediaStoreId)
+        if (mediaUri != null) return mediaUri
+    }
     val playbackFile = File(playbackPath)
     if (playbackFile.exists()) {
         return Uri.fromFile(playbackFile)
     }
-    if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) {
-        return Uri.fromFile(File(sourcePath))
-    }
-    val mediaUri = resolveMediaStoreAudioUri(context, sourcePath, mediaStoreId)
-    if (mediaUri != null) return mediaUri
     return Uri.fromFile(File(sourcePath))
 }
 
