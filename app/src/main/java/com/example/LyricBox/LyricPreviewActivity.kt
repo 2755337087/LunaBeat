@@ -1,6 +1,7 @@
 package com.example.LyricBox
 
 import android.content.Context
+import android.content.ContentUris
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -9,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
@@ -94,6 +96,7 @@ import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.modifier.springPlacement
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.example.LyricBox.utils.AudioMetadataReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -485,6 +488,7 @@ class LyricPreviewActivity : ComponentActivity() {
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
         const val EXTRA_SOURCE_AUDIO_PATH = "source_audio_path"
+        const val EXTRA_MEDIA_STORE_ID = "media_store_id"
         const val EXTRA_LYRIC_LINES = "lyric_lines"
         const val EXTRA_TITLE = "title"
         const val EXTRA_INITIAL_POSITION = "initial_position"
@@ -539,12 +543,14 @@ class LyricPreviewActivity : ComponentActivity() {
             initialPosition: Long = 0L,
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
+            mediaStoreId: Long = -1L,
             useSharedPlayback: Boolean = false,
             previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ): Intent {
             return Intent(context, LyricPreviewActivity::class.java).apply {
                 putExtra(EXTRA_AUDIO_PATH, audioPath)
                 putExtra(EXTRA_SOURCE_AUDIO_PATH, sourceAudioPath)
+                putExtra(EXTRA_MEDIA_STORE_ID, mediaStoreId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_INITIAL_POSITION, initialPosition)
                 putExtra(EXTRA_CREATORS, creators.toTypedArray())
@@ -588,6 +594,7 @@ class LyricPreviewActivity : ComponentActivity() {
             initialPosition: Long = 0L,
             creators: List<String> = emptyList(),
             sourceAudioPath: String = "",
+            mediaStoreId: Long = -1L,
             useSharedPlayback: Boolean = false,
             previewEntrySource: Int = PREVIEW_ENTRY_SOURCE_DEFAULT
         ) {
@@ -599,6 +606,7 @@ class LyricPreviewActivity : ComponentActivity() {
                 initialPosition = initialPosition,
                 creators = creators,
                 sourceAudioPath = sourceAudioPath,
+                mediaStoreId = mediaStoreId,
                 useSharedPlayback = useSharedPlayback,
                 previewEntrySource = previewEntrySource
             )
@@ -617,6 +625,7 @@ class LyricPreviewActivity : ComponentActivity() {
         
         val audioPath = intent.getStringExtra(EXTRA_AUDIO_PATH) ?: ""
         val sourceAudioPath = intent.getStringExtra(EXTRA_SOURCE_AUDIO_PATH) ?: audioPath
+        val sourceMediaStoreId = intent.getLongExtra(EXTRA_MEDIA_STORE_ID, -1L)
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "歌词预览"
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
         useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, false)
@@ -707,18 +716,28 @@ class LyricPreviewActivity : ComponentActivity() {
         val reorganizedLines = reorganizeLyricsWithBackground(lines)
         val previewAudioPathState = mutableStateOf(audioPath)
         val previewSourceAudioPathState = mutableStateOf(sourceAudioPath)
+        val previewMediaStoreIdState = mutableLongStateOf(sourceMediaStoreId)
         val previewTitleState = mutableStateOf(title)
         val previewCreatorsState = mutableStateOf(creators)
         val previewLyricLinesState = mutableStateOf(reorganizedLines)
         val previewLyricsLoadingState = mutableStateOf(useSharedPlayback && reorganizedLines.isEmpty())
-        val companionAudioPathState = mutableStateOf(
-            resolveCompanionAudioPath(previewSourceAudioPathState.value)
-        )
+        val companionAudioPathState = mutableStateOf<String?>(null)
         Log.d(
             COMPANION_AUDIO_LOG_TAG,
             "onCreate source=${previewSourceAudioPathState.value} companion=${companionAudioPathState.value ?: "null"}"
         )
         val companionSwitchingState = mutableStateOf(false)
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val resolvedCompanion = resolveCompanionAudioPath(previewSourceAudioPathState.value)
+            withContext(Dispatchers.Main) {
+                companionAudioPathState.value = resolvedCompanion
+                Log.d(
+                    COMPANION_AUDIO_LOG_TAG,
+                    "initial companion resolved=${resolvedCompanion ?: "null"} source=${previewSourceAudioPathState.value}"
+                )
+            }
+        }
         
         if (!useSharedPlayback && audioPath.isNotEmpty()) {
             loadAudio(audioPath, restoredPosition, shouldAutoPlayOnLoad)
@@ -739,14 +758,20 @@ class LyricPreviewActivity : ComponentActivity() {
                         val shouldRebuildLyrics = !nowPath.isNullOrBlank() && nowPath != lastResolvedPath
                         if (shouldRebuildLyrics) {
                             val resolvedNowPath = nowPath ?: ""
+                            val resolvedNowMediaStoreId = controller.currentMediaStoreId
                             previewLyricsLoadingState.value = true
                             previewLyricLinesState.value = emptyList()
                             val payload = withContext(Dispatchers.IO) {
-                                buildPlayerLyricPreviewPayload(resolvedNowPath)
+                                buildPlayerLyricPreviewPayload(
+                                    context = this@LyricPreviewActivity,
+                                    audioPath = resolvedNowPath,
+                                    mediaStoreId = resolvedNowMediaStoreId
+                                )
                             }
                             val rebuiltLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
                             previewAudioPathState.value = resolvedNowPath
                             previewSourceAudioPathState.value = resolvedNowPath
+                            previewMediaStoreIdState.longValue = resolvedNowMediaStoreId
                             previewTitleState.value = controller.currentTitle.ifBlank {
                                 File(resolvedNowPath).nameWithoutExtension
                             }
@@ -754,7 +779,10 @@ class LyricPreviewActivity : ComponentActivity() {
                             previewLyricLinesState.value = rebuiltLines
                             previewLyricsLoadingState.value = false
                             companionModeEnabled = false
-                            companionAudioPathState.value = resolveCompanionAudioPath(resolvedNowPath)
+                            val resolvedCompanion = withContext(Dispatchers.IO) {
+                                resolveCompanionAudioPath(resolvedNowPath)
+                            }
+                            companionAudioPathState.value = resolvedCompanion
                             Log.d(
                                 COMPANION_AUDIO_LOG_TAG,
                                 "sharedTrackChanged source=$resolvedNowPath companion=${companionAudioPathState.value ?: "null"}"
@@ -781,6 +809,7 @@ class LyricPreviewActivity : ComponentActivity() {
                     title = previewTitleState.value,
                     audioPath = previewAudioPathState.value,
                     sourceAudioPath = previewSourceAudioPathState.value,
+                    sourceMediaStoreId = previewMediaStoreIdState.longValue,
                     lyricLines = previewLyricLinesState.value,
                     isLyricLoading = previewLyricsLoadingState.value,
                     applyInitialSeek = !useSharedPlayback,
@@ -1561,6 +1590,7 @@ fun LyricPreviewScreen(
     title: String,
     audioPath: String,
     sourceAudioPath: String,
+    sourceMediaStoreId: Long = -1L,
     lyricLines: List<NewPreviewLyricLine>,
     isLyricLoading: Boolean = false,
     applyInitialSeek: Boolean = true,
@@ -1762,9 +1792,14 @@ fun LyricPreviewScreen(
     }
     
     // 加载音频元数据
-    LaunchedEffect(sourceAudioPath, title) {
+    LaunchedEffect(sourceAudioPath, title, sourceMediaStoreId) {
         scope.launch {
-            metadata = loadAudioMetadata(context, sourceAudioPath, title)
+            metadata = loadAudioMetadata(
+                context = context,
+                audioPath = sourceAudioPath,
+                fallbackTitle = title,
+                mediaStoreId = sourceMediaStoreId
+            )
         }
     }
     
@@ -5836,30 +5871,84 @@ data class PreviewAudioMetadata(
     val coverBitmap: Bitmap?
 )
 
-suspend fun loadAudioMetadata(context: Context, audioPath: String, fallbackTitle: String): PreviewAudioMetadata {
+private fun resolveMediaStoreAudioUri(
+    context: Context,
+    filePath: String,
+    mediaStoreId: Long = -1L
+): android.net.Uri? {
+    return try {
+        if (mediaStoreId > 0L) {
+            return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaStoreId)
+        }
+        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        val selection = "${MediaStore.Audio.Media.DATA} = ?"
+        val args = arrayOf(filePath)
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+            ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun readExternalTtmlWithFallback(
+    context: Context,
+    audioPath: String
+): String? {
+    val ttmlFile = runCatching {
+        val audioFile = File(audioPath)
+        val parent = audioFile.parentFile ?: return@runCatching null
+        File(parent, "${audioFile.nameWithoutExtension}.ttml")
+    }.getOrNull() ?: return null
+
+    val directRead = runCatching {
+        ttmlFile.readText().takeIf { it.isNotBlank() }
+    }.getOrNull()
+    if (!directRead.isNullOrBlank()) return directRead
+
+    return runCatching {
+        val baseUri = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val args = arrayOf(ttmlFile.absolutePath)
+        context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@runCatching null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+            val contentUri = ContentUris.withAppendedId(baseUri, id)
+            context.contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                reader.readText().takeIf { it.isNotBlank() }
+            }
+        }
+    }.getOrNull()
+}
+
+suspend fun loadAudioMetadata(
+    context: Context,
+    audioPath: String,
+    fallbackTitle: String,
+    mediaStoreId: Long = -1L
+): PreviewAudioMetadata {
     return withContext(Dispatchers.IO) {
         try {
             Log.d("LyricPreview", "Loading metadata from: $audioPath")
-            val file = java.io.File(audioPath)
-            if (!file.exists()) {
-                Log.d("LyricPreview", "File not found")
-                return@withContext PreviewAudioMetadata(fallbackTitle, "未知艺术家", null)
-            }
-
-            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val tagData = AudioTagReader.read(pfd, true)
-            pfd.close()
-
-            val title = tagData.title?.takeIf { it.isNotEmpty() } ?: fallbackTitle
-            val artist = tagData.artist?.takeIf { it.isNotEmpty() } ?: "未知艺术家"
-            Log.d("LyricPreview", "Title: $title, Artist: $artist")
-            Log.d("LyricPreview", "Number of pictures: ${tagData.pictures.size}")
-            val coverData = tagData.pictures.firstOrNull()?.data
-            Log.d("LyricPreview", "Cover data size: ${coverData?.size ?: 0}")
-            val coverBitmap = coverData?.let {
-                val bitmap = BitmapFactory.decodeByteArray(it, 0, it.size)
-                Log.d("LyricPreview", "Decoded bitmap: $bitmap")
-                bitmap
+            val metadata = AudioMetadataReader.readMetadata(
+                context = context,
+                filePath = audioPath,
+                mediaStoreId = mediaStoreId,
+                includeCover = true
+            )
+            val title = metadata.title.takeIf { it.isNotBlank() } ?: fallbackTitle
+            val artist = metadata.artist.takeIf { it.isNotBlank() } ?: "未知艺术家"
+            val coverBitmap = metadata.cover?.let { bytes ->
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             }
 
             PreviewAudioMetadata(title, artist, coverBitmap)

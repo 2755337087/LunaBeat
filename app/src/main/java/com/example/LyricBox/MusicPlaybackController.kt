@@ -33,6 +33,7 @@ import java.util.concurrent.Executors
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
+private const val EXTRA_MEDIA_STORE_ID = "media_store_id"
 private const val PLAYBACK_STATE_PREFS = "music_playback_state"
 private const val KEY_LAST_AUDIO_PATH = "last_audio_path"
 private const val KEY_LAST_TITLE = "last_title"
@@ -78,6 +79,8 @@ class MusicPlaybackController(private val context: Context) {
     var currentMediaId by mutableStateOf<String?>(null)
         private set
     var currentAudioPath by mutableStateOf<String?>(null)
+        private set
+    var currentMediaStoreId by mutableStateOf(-1L)
         private set
     var currentPlaybackUriPath by mutableStateOf<String?>(null)
         private set
@@ -649,6 +652,11 @@ class MusicPlaybackController(private val context: Context) {
         val extras = item?.mediaMetadata?.extras
         currentAudioPath = extras?.getString(EXTRA_AUDIO_PATH)
             ?: item?.mediaId?.takeIf { it.isNotBlank() }
+        currentMediaStoreId = if (extras?.containsKey(EXTRA_MEDIA_STORE_ID) == true) {
+            extras.getLong(EXTRA_MEDIA_STORE_ID, -1L)
+        } else {
+            -1L
+        }
         currentCoverCachePath = extras?.getString(EXTRA_COVER_CACHE_PATH)
         currentArtworkData = item?.mediaMetadata?.artworkData
         currentTitle = item?.mediaMetadata?.title?.toString()
@@ -1008,6 +1016,7 @@ private fun AudioFile.toPlayableMediaItem(
         .setExtras(Bundle().apply {
             putString(EXTRA_AUDIO_PATH, path)
             putString(EXTRA_COVER_CACHE_PATH, coverCachePath)
+            putLong(EXTRA_MEDIA_STORE_ID, mediaStoreId)
             putString(EXTRA_MANUAL_NEXT_TOKEN, manualNextToken)
         })
 

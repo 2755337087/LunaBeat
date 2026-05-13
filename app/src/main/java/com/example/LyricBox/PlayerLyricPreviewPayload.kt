@@ -1,5 +1,8 @@
 package com.example.LyricBox
 
+import android.content.ContentUris
+import android.content.Context
+import android.provider.MediaStore
 import com.example.LyricBox.utils.AudioMetadataReader
 import java.io.File
 
@@ -8,8 +11,12 @@ data class PlayerLyricPreviewPayload(
     val creators: List<String>
 )
 
-fun buildPlayerLyricPreviewPayload(audioPath: String): PlayerLyricPreviewPayload? {
-    val lyricsContent = resolveLyricsContentForPlayer(audioPath) ?: return null
+fun buildPlayerLyricPreviewPayload(
+    context: Context,
+    audioPath: String,
+    mediaStoreId: Long = -1L
+): PlayerLyricPreviewPayload? {
+    val lyricsContent = resolveLyricsContentForPlayer(context, audioPath, mediaStoreId) ?: return null
     val format = detectLyricsFormat(lyricsContent)
     val lyricLines = parseLyricsLinesForPlayer(lyricsContent, format)
     if (lyricLines.isEmpty()) return null
@@ -30,18 +37,45 @@ fun buildPlayerLyricPreviewPayload(audioPath: String): PlayerLyricPreviewPayload
     )
 }
 
-private fun resolveLyricsContentForPlayer(audioPath: String): String? {
-    val embedded = AudioMetadataReader.readLyrics(audioPath)?.takeIf { it.isNotBlank() }
+private fun resolveLyricsContentForPlayer(
+    context: Context,
+    audioPath: String,
+    mediaStoreId: Long = -1L
+): String? {
+    val embedded = AudioMetadataReader.readLyrics(context, audioPath, mediaStoreId)?.takeIf { it.isNotBlank() }
     val ttmlFile = resolveSameNameTtmlFile(audioPath)
-    val externalTtml = ttmlFile?.takeIf { it.exists() }?.readText()?.takeIf { it.isNotBlank() }
+    val externalTtml = ttmlFile?.let { file ->
+        readExternalTtmlWithFallback(context, file)
+    }
     return externalTtml ?: embedded
+}
+
+private fun readExternalTtmlWithFallback(context: Context, ttmlFile: File): String? {
+    val directRead = runCatching {
+        ttmlFile.readText().takeIf { it.isNotBlank() }
+    }.getOrNull()
+    if (!directRead.isNullOrBlank()) return directRead
+
+    return runCatching {
+        val baseUri = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val args = arrayOf(ttmlFile.absolutePath)
+        context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@runCatching null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+            val contentUri = ContentUris.withAppendedId(baseUri, id)
+            context.contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                reader.readText().takeIf { it.isNotBlank() }
+            }
+        }
+    }.getOrNull()
 }
 
 private fun resolveSameNameTtmlFile(audioPath: String): File? {
     val audioFile = File(audioPath)
     val parent = audioFile.parentFile ?: return null
-    val target = File(parent, "${audioFile.nameWithoutExtension}.ttml")
-    return if (target.exists()) target else null
+    return File(parent, "${audioFile.nameWithoutExtension}.ttml")
 }
 
 private fun parseLyricsLinesForPlayer(lyricsContent: String, format: Int): List<LyricLine> {

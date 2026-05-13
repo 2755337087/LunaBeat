@@ -165,6 +165,7 @@ private fun MusicPlayerScreen(
 
     val currentAudio = remember(
         controller.currentAudioPath,
+        controller.currentMediaStoreId,
         controller.currentTitle,
         controller.currentArtist,
         controller.currentAlbum,
@@ -174,6 +175,7 @@ private fun MusicPlayerScreen(
         controller.currentAudioPath?.let { path ->
             buildAudioFileForPlayer(
                 path = path,
+                mediaStoreId = controller.currentMediaStoreId,
                 titleHint = controller.currentTitle,
                 artistHint = controller.currentArtist,
                 albumHint = controller.currentAlbum,
@@ -186,6 +188,7 @@ private fun MusicPlayerScreen(
 
     val playbackQueueAudios = remember(
         controller.queueAudioPaths,
+        controller.currentMediaStoreId,
         cachedEntryByPath,
         controller.currentAudioPath,
         controller.currentTitle,
@@ -202,6 +205,7 @@ private fun MusicPlayerScreen(
                     path = path,
                     titleHint = cachedEntry?.title.orEmpty(),
                     artistHint = cachedEntry?.artist.orEmpty(),
+                    mediaStoreId = -1L,
                     coverCachePath = resolveCoverCachePathForAudio(context, path)
                 )
             }
@@ -292,6 +296,7 @@ private fun MusicPlayerScreen(
                 initialPosition = position,
                 creators = emptyList(),
                 sourceAudioPath = currentPath,
+                mediaStoreId = controller.currentMediaStoreId,
                 useSharedPlayback = true
             )
             lyricPreviewLauncher.launch(previewIntent)
@@ -1082,6 +1087,7 @@ private fun extractAllArtistsForPlayer(title: String, artist: String): List<Stri
 
 private fun buildAudioFileForPlayer(
     path: String,
+    mediaStoreId: Long = -1L,
     titleHint: String = "",
     artistHint: String = "",
     albumHint: String = "",
@@ -1101,7 +1107,7 @@ private fun buildAudioFileForPlayer(
         addedTime = if (file.exists()) file.lastModified() else System.currentTimeMillis(),
         coverCachePath = coverCachePath,
         year = "",
-        mediaStoreId = -1L
+        mediaStoreId = mediaStoreId
     )
 }
 
