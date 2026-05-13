@@ -1,13 +1,17 @@
 package com.example.LyricBox
 
 import android.app.PendingIntent
+import android.content.ContentUris
+import android.content.Context
 import android.content.SharedPreferences
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.util.Log
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.AudioAttributes
@@ -418,8 +422,13 @@ class MusicPlaybackService : MediaSessionService() {
                 if (playbackPath.isNotBlank() && File(playbackPath).exists()) {
                     val currentUriPath = latestItem.localConfiguration?.uri?.path
                     if (currentUriPath != playbackPath) {
+                        val resolvedUri = resolvePlayableAudioUriForService(
+                            context = applicationContext,
+                            sourcePath = sourcePath,
+                            playbackPath = playbackPath
+                        )
                         val updatedItem = latestItem.buildUpon()
-                            .setUri(Uri.fromFile(File(playbackPath)))
+                            .setUri(resolvedUri)
                             .build()
                         player.replaceMediaItem(index, updatedItem)
                     }
@@ -724,8 +733,13 @@ class MusicPlaybackService : MediaSessionService() {
                     return@post
                 }
                 val latestItem = player.getMediaItemAt(latestSourceIndex)
+                val resolvedUri = resolvePlayableAudioUriForService(
+                    context = applicationContext,
+                    sourcePath = sourcePath,
+                    playbackPath = transcodedPath
+                )
                 val updatedItem = latestItem.buildUpon()
-                    .setUri(Uri.fromFile(File(transcodedPath)))
+                    .setUri(resolvedUri)
                     .build()
 
                 player.replaceMediaItem(latestSourceIndex, updatedItem)
@@ -824,10 +838,14 @@ class MusicPlaybackService : MediaSessionService() {
 private fun MediaItem.ensurePlayable(): MediaItem {
     if (localConfiguration != null) return this
 
-    val resolvedUri = mediaId.takeIf { it.isNotBlank() }?.let { path ->
-            runCatching { Uri.fromFile(File(path)) }.getOrNull()
-        }
+    val sourcePath = resolveOriginalAudioPath()
+        ?: mediaId.takeIf { it.isNotBlank() }
         ?: return this
+    val resolvedUri = resolvePlayableAudioUriForService(
+        context = null,
+        sourcePath = sourcePath,
+        playbackPath = sourcePath
+    )
 
     return buildUpon().setUri(resolvedUri).build()
 }
@@ -839,6 +857,46 @@ private fun MediaItem.resolveOriginalAudioPath(): String? {
     val pathFromExtras = mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
     if (!pathFromExtras.isNullOrBlank()) return pathFromExtras
     return mediaId.takeIf { it.isNotBlank() }
+}
+
+private fun resolvePlayableAudioUriForService(
+    context: Context?,
+    sourcePath: String,
+    playbackPath: String
+): Uri {
+    if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && context != null) {
+        val mediaUri = resolveMediaStoreAudioUriForService(context, sourcePath)
+        if (mediaUri != null) return mediaUri
+    }
+    val playbackFile = File(playbackPath)
+    if (playbackFile.exists()) {
+        return Uri.fromFile(playbackFile)
+    }
+    return Uri.fromFile(File(sourcePath))
+}
+
+private fun resolveMediaStoreAudioUriForService(
+    context: Context,
+    sourcePath: String
+): Uri? {
+    return try {
+        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        val selection = "${MediaStore.Audio.Media.DATA} = ?"
+        val args = arrayOf(sourcePath)
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+            ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun isHighResolutionCover(bytes: ByteArray): Boolean {
