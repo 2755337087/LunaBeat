@@ -17,6 +17,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.provider.DocumentsContract
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.MimeTypeMap
@@ -539,6 +540,7 @@ fun SongMetadataEditScreen(
     var isSaving by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
     var showAccompanimentCopiedDialog by remember { mutableStateOf(false) }
+    var showAccompanimentDirectoryAuthDialog by remember { mutableStateOf(false) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -622,7 +624,6 @@ fun SongMetadataEditScreen(
     var accompanimentPath by remember(audioPath) { mutableStateOf<String?>(null) }
     var copiedAccompanimentPath by remember { mutableStateOf<String?>(null) }
     var accompanimentSourceUri by remember { mutableStateOf<Uri?>(null) }
-    var pendingAccompanimentSourceUri by remember { mutableStateOf<Uri?>(null) }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
@@ -683,53 +684,6 @@ fun SongMetadataEditScreen(
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             retrySaveActionRef.value?.invoke()
-        }
-    }
-
-    val accompanimentDirectoryPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { treeUri ->
-        if (treeUri == null) {
-            if (pendingAccompanimentSourceUri != null) {
-                errorMessage = "未授予伴奏目录权限，无法添加伴奏"
-                showErrorDialog = true
-                pendingAccompanimentSourceUri = null
-            }
-            return@rememberLauncherForActivityResult
-        }
-
-        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        val persisted = runCatching {
-            context.contentResolver.takePersistableUriPermission(treeUri, flags)
-        }.isSuccess
-        if (!persisted) {
-            errorMessage = "保存伴奏目录权限失败"
-            showErrorDialog = true
-            pendingAccompanimentSourceUri = null
-            return@rememberLauncherForActivityResult
-        }
-
-        saveAccompanimentTreeUri(context, treeUri)
-        val sourceUri = pendingAccompanimentSourceUri
-        if (sourceUri == null) return@rememberLauncherForActivityResult
-        pendingAccompanimentSourceUri = null
-        scope.launch {
-            val result = copyAccompanimentToDefaultPath(context, audioPath, sourceUri)
-            when {
-                result.success -> {
-                    accompanimentPath = result.path
-                    copiedAccompanimentPath = result.path
-                    accompanimentSourceUri = sourceUri
-                    showAccompanimentCopiedDialog = true
-                }
-                result.needPermission -> {
-                    showPermissionDialog = true
-                }
-                else -> {
-                    errorMessage = result.errorMessage ?: "添加伴奏失败"
-                    showErrorDialog = true
-                }
-            }
         }
     }
 
@@ -1765,11 +1719,6 @@ fun SongMetadataEditScreen(
             scope.launch {
                 val cachedTreeUri = getAccompanimentTreeUri(context)
                 val result = copyAccompanimentToDefaultPath(context, audioPath, it, cachedTreeUri)
-                if (!result.success && result.needPermissionForTree) {
-                    pendingAccompanimentSourceUri = it
-                    accompanimentDirectoryPickerLauncher.launch(null)
-                    return@launch
-                }
                 when {
                     result.success -> {
                         accompanimentPath = result.path
@@ -1786,6 +1735,44 @@ fun SongMetadataEditScreen(
                     }
                 }
             }
+        }
+    }
+
+    val accompanimentDirectoryPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri == null) {
+            errorMessage = "未授予 /Music/ 目录权限，无法添加伴奏"
+            showErrorDialog = true
+            return@rememberLauncherForActivityResult
+        }
+        if (!isMusicDirectoryTreeUri(context, treeUri)) {
+            errorMessage = "请选择 /Music/ 目录进行授权"
+            showErrorDialog = true
+            return@rememberLauncherForActivityResult
+        }
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val persisted = runCatching {
+            context.contentResolver.takePersistableUriPermission(treeUri, flags)
+        }.isSuccess
+        if (!persisted) {
+            errorMessage = "保存 /Music/ 目录权限失败"
+            showErrorDialog = true
+            return@rememberLauncherForActivityResult
+        }
+        saveAccompanimentTreeUri(context, treeUri)
+        pickAccompanimentLauncher.launch("audio/*")
+    }
+
+    val requestAccompanimentDirectoryPermissionAndPickAudio: () -> Unit = {
+        val cachedTreeUri = getAccompanimentTreeUri(context)
+        val isAuthorized = cachedTreeUri != null &&
+            hasPersistedTreeReadWritePermission(context, cachedTreeUri) &&
+            isMusicDirectoryTreeUri(context, cachedTreeUri)
+        if (isAuthorized) {
+            pickAccompanimentLauncher.launch("audio/*")
+        } else {
+            showAccompanimentDirectoryAuthDialog = true
         }
     }
     
@@ -2510,7 +2497,7 @@ fun SongMetadataEditScreen(
 
                         "accompaniment" -> AccompanimentMetadataField(
                             path = accompanimentPath,
-                            onAddClick = { pickAccompanimentLauncher.launch("audio/*") },
+                            onAddClick = { requestAccompanimentDirectoryPermissionAndPickAudio() },
                             onRemoveClick = { showRemoveAccompanimentConfirm = true }
                         )
 
@@ -3016,6 +3003,29 @@ fun SongMetadataEditScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveAccompanimentConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showAccompanimentDirectoryAuthDialog) {
+        AlertDialog(
+            onDismissRequest = { showAccompanimentDirectoryAuthDialog = false },
+            title = { Text("授权提示") },
+            text = { Text("请授权 /Music/ 目录访问权限。授权成功后将自动进入伴奏文件选择。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAccompanimentDirectoryAuthDialog = false
+                        accompanimentDirectoryPickerLauncher.launch(null)
+                    }
+                ) {
+                    Text("去授权")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAccompanimentDirectoryAuthDialog = false }) {
                     Text("取消")
                 }
             }
@@ -4001,8 +4011,30 @@ private fun saveAccompanimentTreeUri(context: Context, uri: Uri?) {
     prefs.edit().putString(ACCOMPANIMENT_TREE_URI_KEY, uri?.toString()).apply()
 }
 
+private fun hasPersistedTreeReadWritePermission(context: Context, treeUri: Uri): Boolean {
+    return context.contentResolver.persistedUriPermissions.any { permission ->
+        permission.uri == treeUri && permission.isReadPermission && permission.isWritePermission
+    }
+}
+
 private fun findOrCreateChildDirectory(parent: DocumentFile, name: String): DocumentFile? {
     return parent.findFile(name)?.takeIf { it.isDirectory } ?: parent.createDirectory(name)
+}
+
+private fun isMusicDirectoryTreeUri(context: Context, treeUri: Uri): Boolean {
+    val treeDocId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+    val treeDocIdNormalized = treeDocId?.lowercase().orEmpty()
+    if (treeDocIdNormalized == "primary:music" || treeDocIdNormalized.endsWith(":music")) {
+        return true
+    }
+
+    val treeRoot = DocumentFile.fromTreeUri(context, treeUri) ?: return false
+    val treeName = treeRoot.name?.trim()?.lowercase().orEmpty()
+    if (treeName == "music") return true
+
+    val musicChild = treeRoot.findFile("Music")?.takeIf { it.isDirectory }
+        ?: treeRoot.findFile("music")?.takeIf { it.isDirectory }
+    return musicChild != null
 }
 
 suspend fun copyAccompanimentToDefaultPath(
