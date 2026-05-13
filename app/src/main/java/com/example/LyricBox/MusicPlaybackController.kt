@@ -54,9 +54,14 @@ class MusicPlaybackController(private val context: Context) {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private val transcodeQueueExecutor = Executors.newSingleThreadExecutor()
+    private val queuePersistExecutor = Executors.newSingleThreadExecutor()
     private val playbackStatePrefs by lazy {
         context.getSharedPreferences(PLAYBACK_STATE_PREFS, Context.MODE_PRIVATE)
     }
+    @Volatile
+    private var pendingQueueEntries: List<LocalPlaylistEntry>? = null
+    @Volatile
+    private var queuePersistScheduled: Boolean = false
 
     var isReady by mutableStateOf(false)
         private set
@@ -145,6 +150,7 @@ class MusicPlaybackController(private val context: Context) {
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         transcodeQueueExecutor.shutdownNow()
+        queuePersistExecutor.shutdownNow()
         isReady = false
     }
 
@@ -189,8 +195,7 @@ class MusicPlaybackController(private val context: Context) {
                 latestPlayer.play()
             }
         }
-        LocalPlaylistStore.savePlaybackQueue(
-            context,
+        persistQueueEntriesAsync(
             queueSnapshot.map {
                 LocalPlaylistEntry(
                     path = it.path,
@@ -745,7 +750,7 @@ class MusicPlaybackController(private val context: Context) {
                 durationSeconds = -1L
             )
         }.distinctBy { it.path }
-        LocalPlaylistStore.savePlaybackQueue(context, entries)
+        persistQueueEntriesAsync(entries)
     }
 
     private fun restoreQueueIfNeededAsync(player: MediaController) {
@@ -873,7 +878,7 @@ class MusicPlaybackController(private val context: Context) {
                 durationSeconds = ((metadata?.duration ?: 0L) / 1000L).coerceAtLeast(-1L)
             )
         }
-        LocalPlaylistStore.savePlaybackQueue(context, entries)
+        persistQueueEntriesAsync(entries)
     }
 
     private fun removePathFromPersistedQueue(path: String) {
@@ -896,7 +901,30 @@ class MusicPlaybackController(private val context: Context) {
                 durationSeconds = ((metadata?.duration ?: 0L) / 1000L).coerceAtLeast(-1L)
             )
         }
-        LocalPlaylistStore.savePlaybackQueue(context, entries)
+        persistQueueEntriesAsync(entries)
+    }
+
+    private fun persistQueueEntriesAsync(entries: List<LocalPlaylistEntry>) {
+        pendingQueueEntries = entries
+        if (queuePersistScheduled) return
+        queuePersistScheduled = true
+        queuePersistExecutor.execute {
+            try {
+                while (true) {
+                    val snapshot = pendingQueueEntries ?: break
+                    pendingQueueEntries = null
+                    LocalPlaylistStore.savePlaybackQueue(context, snapshot)
+                    if (pendingQueueEntries == null) break
+                }
+            } catch (e: Exception) {
+                Log.e("MusicPlaybackController", "persistQueueEntriesAsync failed", e)
+            } finally {
+                queuePersistScheduled = false
+                if (pendingQueueEntries != null) {
+                    persistQueueEntriesAsync(pendingQueueEntries.orEmpty())
+                }
+            }
+        }
     }
 
     private fun clearSnapshotState() {
