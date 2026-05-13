@@ -535,6 +535,7 @@ fun SongMetadataEditScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
+    var showAccompanimentCopiedDialog by remember { mutableStateOf(false) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -616,6 +617,8 @@ fun SongMetadataEditScreen(
     var copyright by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
     var lyrics by rememberSaveable(audioPath, isBatchEdit) { mutableStateOf(if (isBatchEdit) KEEP else "") }
     var accompanimentPath by remember(audioPath) { mutableStateOf<String?>(null) }
+    var copiedAccompanimentPath by remember { mutableStateOf<String?>(null) }
+    var accompanimentSourceUri by remember { mutableStateOf<Uri?>(null) }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
@@ -1713,7 +1716,9 @@ fun SongMetadataEditScreen(
                 when {
                     result.success -> {
                         accompanimentPath = result.path
-                        showSuccessDialog = true
+                        copiedAccompanimentPath = result.path
+                        accompanimentSourceUri = it
+                        showAccompanimentCopiedDialog = true
                     }
                     result.needPermission -> {
                         showPermissionDialog = true
@@ -2719,6 +2724,59 @@ fun SongMetadataEditScreen(
                     onExit()
                 }) {
                     Text("退出")
+                }
+            }
+        )
+    }
+
+    if (showAccompanimentCopiedDialog) {
+        AlertDialog(
+            onDismissRequest = { showAccompanimentCopiedDialog = false },
+            title = { Text("伴奏添加成功") },
+            text = {
+                Text(
+                    buildString {
+                        append("伴奏已经复制到：")
+                        append(copiedAccompanimentPath ?: ACCOMPANIMENT_DIR_PATH)
+                        append("\n是否删除原文件？")
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAccompanimentCopiedDialog = false
+                        accompanimentSourceUri = null
+                    }
+                ) {
+                    Text("保留")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        val sourceUri = accompanimentSourceUri
+                        showAccompanimentCopiedDialog = false
+                        accompanimentSourceUri = null
+                        scope.launch {
+                            val result = deleteOriginalAccompanimentSource(context, sourceUri)
+                            when {
+                                result.success -> Unit
+                                result.needPermission -> {
+                                    showPermissionDialog = true
+                                }
+                                else -> {
+                                    errorMessage = result.errorMessage ?: "删除原文件失败"
+                                    showErrorDialog = true
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("删除")
                 }
             }
         )
@@ -3944,6 +4002,47 @@ suspend fun removeAccompanimentFile(
     } catch (e: Exception) {
         Log.e(TAG, "Error removing accompaniment file", e)
         AccompanimentOperationResult(success = false, errorMessage = e.message ?: "移除伴奏失败")
+    }
+}
+
+suspend fun deleteOriginalAccompanimentSource(
+    context: Context,
+    sourceUri: Uri?
+): AccompanimentOperationResult = withContext(Dispatchers.IO) {
+    try {
+        if (sourceUri == null) {
+            return@withContext AccompanimentOperationResult(success = true)
+        }
+
+        if (sourceUri.scheme.equals("content", ignoreCase = true)) {
+            val deletedCount = context.contentResolver.delete(sourceUri, null, null)
+            return@withContext if (deletedCount > 0) {
+                AccompanimentOperationResult(success = true)
+            } else {
+                AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
+            }
+        }
+
+        if (sourceUri.scheme.equals("file", ignoreCase = true) || sourceUri.scheme.isNullOrBlank()) {
+            val filePath = sourceUri.path
+            if (filePath.isNullOrBlank()) {
+                return@withContext AccompanimentOperationResult(success = false, errorMessage = "原文件路径无效")
+            }
+            val sourceFile = File(filePath)
+            return@withContext if (!sourceFile.exists() || sourceFile.delete()) {
+                AccompanimentOperationResult(success = true)
+            } else {
+                AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
+            }
+        }
+
+        AccompanimentOperationResult(success = false, errorMessage = "不支持删除该来源的文件")
+    } catch (e: SecurityException) {
+        Log.e(TAG, "No permission to delete original accompaniment source", e)
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "没有权限删除原文件")
+    } catch (e: Exception) {
+        Log.e(TAG, "Error deleting original accompaniment source", e)
+        AccompanimentOperationResult(success = false, errorMessage = e.message ?: "删除原文件失败")
     }
 }
 
