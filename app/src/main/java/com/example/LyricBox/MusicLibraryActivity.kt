@@ -10005,35 +10005,29 @@ private fun renameSingAccompanimentFile(oldAudioFile: File, newAudioFile: File) 
     val newBaseName = newAudioFile.nameWithoutExtension
     if (oldBaseName == newBaseName) return
 
-    val singDirs = listOf(
-        File("/storage/emulated/0/Music/.sing"),
-        File("/storage/emulated/0/Documents/LunaBeat/.sing")
-    )
+    val singDir = File("/storage/emulated/0/Music/.sing")
+    if (!singDir.exists() || !singDir.isDirectory) return
 
-    singDirs.forEach { singDir ->
-        if (!singDir.exists() || !singDir.isDirectory) return@forEach
-
-        singDir.listFiles().orEmpty()
-            .filter { it.isFile && it.nameWithoutExtension == oldBaseName }
-            .forEach { oldCompanion ->
-                val newName = if (oldCompanion.extension.isBlank()) {
-                    newBaseName
-                } else {
-                    "$newBaseName.${oldCompanion.extension}"
-                }
-                val newCompanion = File(singDir, newName)
-                if (oldCompanion.absolutePath == newCompanion.absolutePath || newCompanion.exists()) return@forEach
-
-                runCatching { oldCompanion.renameTo(newCompanion) }
-                    .onFailure { error ->
-                        Log.w(
-                            "BatchRename",
-                            "Failed to rename .sing accompaniment: ${oldCompanion.absolutePath} -> ${newCompanion.absolutePath}",
-                            error
-                        )
-                    }
+    singDir.listFiles().orEmpty()
+        .filter { it.isFile && it.nameWithoutExtension == oldBaseName }
+        .forEach { oldCompanion ->
+            val newName = if (oldCompanion.extension.isBlank()) {
+                newBaseName
+            } else {
+                "$newBaseName.${oldCompanion.extension}"
             }
-    }
+            val newCompanion = File(singDir, newName)
+            if (oldCompanion.absolutePath == newCompanion.absolutePath || newCompanion.exists()) return@forEach
+
+            runCatching { oldCompanion.renameTo(newCompanion) }
+                .onFailure { error ->
+                    Log.w(
+                        "BatchRename",
+                        "Failed to rename .sing accompaniment: ${oldCompanion.absolutePath} -> ${newCompanion.absolutePath}",
+                        error
+                    )
+                }
+        }
 }
 
 private suspend fun performBatchRename(

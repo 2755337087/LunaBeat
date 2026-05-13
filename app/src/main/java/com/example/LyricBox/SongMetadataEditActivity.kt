@@ -86,6 +86,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.MediaItem
@@ -117,8 +118,9 @@ private const val REQUEST_CODE_SEARCH_METADATA = 1001
 private const val REQUEST_CODE_LYRIC_TIMING = 1002
 private const val REQUEST_CODE_UCROP = 1004
 private val GENRE_SPLIT_REGEX = Regex("""[;；:：、&]+""")
-private const val ACCOMPANIMENT_PRIMARY_DIR_PATH = "/storage/emulated/0/Music/.sing"
-private const val ACCOMPANIMENT_FALLBACK_DIR_PATH = "/storage/emulated/0/Documents/LunaBeat/.sing"
+private const val ACCOMPANIMENT_DIR_PATH = "/storage/emulated/0/Music/.sing"
+private const val ACCOMPANIMENT_PREFS = "AccompanimentStoragePrefs"
+private const val ACCOMPANIMENT_TREE_URI_KEY = "music_sing_tree_uri"
 
 data class BatchEditFieldValues(
     val titles: Set<String> = emptySet(),
@@ -620,6 +622,7 @@ fun SongMetadataEditScreen(
     var accompanimentPath by remember(audioPath) { mutableStateOf<String?>(null) }
     var copiedAccompanimentPath by remember { mutableStateOf<String?>(null) }
     var accompanimentSourceUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingAccompanimentSourceUri by remember { mutableStateOf<Uri?>(null) }
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
@@ -680,6 +683,53 @@ fun SongMetadataEditScreen(
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             retrySaveActionRef.value?.invoke()
+        }
+    }
+
+    val accompanimentDirectoryPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri == null) {
+            if (pendingAccompanimentSourceUri != null) {
+                errorMessage = "未授予伴奏目录权限，无法添加伴奏"
+                showErrorDialog = true
+                pendingAccompanimentSourceUri = null
+            }
+            return@rememberLauncherForActivityResult
+        }
+
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val persisted = runCatching {
+            context.contentResolver.takePersistableUriPermission(treeUri, flags)
+        }.isSuccess
+        if (!persisted) {
+            errorMessage = "保存伴奏目录权限失败"
+            showErrorDialog = true
+            pendingAccompanimentSourceUri = null
+            return@rememberLauncherForActivityResult
+        }
+
+        saveAccompanimentTreeUri(context, treeUri)
+        val sourceUri = pendingAccompanimentSourceUri
+        if (sourceUri == null) return@rememberLauncherForActivityResult
+        pendingAccompanimentSourceUri = null
+        scope.launch {
+            val result = copyAccompanimentToDefaultPath(context, audioPath, sourceUri)
+            when {
+                result.success -> {
+                    accompanimentPath = result.path
+                    copiedAccompanimentPath = result.path
+                    accompanimentSourceUri = sourceUri
+                    showAccompanimentCopiedDialog = true
+                }
+                result.needPermission -> {
+                    showPermissionDialog = true
+                }
+                else -> {
+                    errorMessage = result.errorMessage ?: "添加伴奏失败"
+                    showErrorDialog = true
+                }
+            }
         }
     }
 
@@ -1713,7 +1763,13 @@ fun SongMetadataEditScreen(
     ) { uri: Uri? ->
         uri?.let {
             scope.launch {
-                val result = copyAccompanimentToDefaultPath(context, audioPath, it)
+                val cachedTreeUri = getAccompanimentTreeUri(context)
+                val result = copyAccompanimentToDefaultPath(context, audioPath, it, cachedTreeUri)
+                if (!result.success && result.needPermissionForTree) {
+                    pendingAccompanimentSourceUri = it
+                    accompanimentDirectoryPickerLauncher.launch(null)
+                    return@launch
+                }
                 when {
                     result.success -> {
                         accompanimentPath = result.path
@@ -2738,7 +2794,7 @@ fun SongMetadataEditScreen(
                 Text(
                     buildString {
                         append("伴奏已经复制到：")
-                        append(copiedAccompanimentPath ?: ACCOMPANIMENT_FALLBACK_DIR_PATH)
+                        append(copiedAccompanimentPath ?: ACCOMPANIMENT_DIR_PATH)
                         append("\n是否删除原文件？")
                     }
                 )
@@ -3885,6 +3941,7 @@ data class VideoSaveResult(
 data class AccompanimentOperationResult(
     val success: Boolean,
     val needPermission: Boolean = false,
+    val needPermissionForTree: Boolean = false,
     val path: String? = null,
     val errorMessage: String? = null
 )
@@ -3920,31 +3977,39 @@ fun findAccompanimentFileForAudio(audioPath: String?): File? {
     if (audioPath.isNullOrBlank()) return null
     val sourceAudio = File(audioPath)
     if (!sourceAudio.exists()) return null
+    val dir = File(ACCOMPANIMENT_DIR_PATH)
+    if (!dir.exists() || !dir.isDirectory) return null
     val baseName = sourceAudio.nameWithoutExtension
-    val candidateDirs = listOf(
-        File(ACCOMPANIMENT_PRIMARY_DIR_PATH),
-        File(ACCOMPANIMENT_FALLBACK_DIR_PATH)
-    )
-    return candidateDirs.firstNotNullOfOrNull { dir ->
-        if (!dir.exists() || !dir.isDirectory) {
-            null
-        } else {
-            dir.listFiles()
-                ?.filter { it.isFile }
-                ?.sortedBy { it.name }
-                ?.firstOrNull { it.nameWithoutExtension.equals(baseName, ignoreCase = true) }
-        }
-    }
+    return dir.listFiles()
+        ?.filter { it.isFile }
+        ?.sortedBy { it.name }
+        ?.firstOrNull { it.nameWithoutExtension.equals(baseName, ignoreCase = true) }
 }
 
 fun getAccompanimentPathForAudio(audioPath: String?): String? {
     return findAccompanimentFileForAudio(audioPath)?.absolutePath
 }
 
+private fun getAccompanimentTreeUri(context: Context): Uri? {
+    val prefs = context.getSharedPreferences(ACCOMPANIMENT_PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString(ACCOMPANIMENT_TREE_URI_KEY, null) ?: return null
+    return runCatching { Uri.parse(raw) }.getOrNull()
+}
+
+private fun saveAccompanimentTreeUri(context: Context, uri: Uri?) {
+    val prefs = context.getSharedPreferences(ACCOMPANIMENT_PREFS, Context.MODE_PRIVATE)
+    prefs.edit().putString(ACCOMPANIMENT_TREE_URI_KEY, uri?.toString()).apply()
+}
+
+private fun findOrCreateChildDirectory(parent: DocumentFile, name: String): DocumentFile? {
+    return parent.findFile(name)?.takeIf { it.isDirectory } ?: parent.createDirectory(name)
+}
+
 suspend fun copyAccompanimentToDefaultPath(
     context: Context,
     audioPath: String?,
-    sourceUri: Uri
+    sourceUri: Uri,
+    preferredTreeUri: Uri? = null
 ): AccompanimentOperationResult = withContext(Dispatchers.IO) {
     try {
         if (!hasStoragePermission(context)) {
@@ -3962,61 +4027,114 @@ suspend fun copyAccompanimentToDefaultPath(
         val baseName = sourceAudio.nameWithoutExtension
         val extension = resolveUriExtension(context, sourceUri)
         val targetName = if (extension.isNotBlank()) "$baseName.$extension" else baseName
-        val candidateDirs = listOf(
-            File(ACCOMPANIMENT_PRIMARY_DIR_PATH),
-            File(ACCOMPANIMENT_FALLBACK_DIR_PATH)
-        )
-        val dirErrors = mutableListOf<String>()
-
-        candidateDirs.forEach { targetDir ->
-            try {
-                if (!targetDir.exists() && !targetDir.mkdirs()) {
-                    dirErrors += "${targetDir.absolutePath}: 无法创建目录"
-                    return@forEach
-                }
-                if (!targetDir.isDirectory) {
-                    dirErrors += "${targetDir.absolutePath}: 不是目录"
-                    return@forEach
-                }
-
-                val targetFile = File(targetDir, targetName)
-
-                targetDir.listFiles()
-                    ?.filter { it.isFile && it.nameWithoutExtension.equals(baseName, ignoreCase = true) && it.absolutePath != targetFile.absolutePath }
-                    ?.forEach { oldFile ->
-                        runCatching { oldFile.delete() }
-                    }
-
-                context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    targetFile.outputStream().use { output ->
-                        input.copyTo(output)
-                        output.flush()
-                    }
-                } ?: run {
-                    dirErrors += "${targetDir.absolutePath}: 读取伴奏文件失败"
-                    return@forEach
-                }
-
-                return@withContext AccompanimentOperationResult(success = true, path = targetFile.absolutePath)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to save accompaniment to ${targetDir.absolutePath}", e)
-                dirErrors += "${targetDir.absolutePath}: ${e.message ?: "写入失败"}"
+        val targetDir = File(ACCOMPANIMENT_DIR_PATH)
+        val directWriteResult = runCatching {
+            if (!targetDir.exists() && !targetDir.mkdirs()) {
+                return@runCatching null
             }
+            if (!targetDir.isDirectory) return@runCatching null
+            val targetFile = File(targetDir, targetName)
+            targetDir.listFiles()
+                ?.filter { it.isFile && it.nameWithoutExtension.equals(baseName, ignoreCase = true) && it.absolutePath != targetFile.absolutePath }
+                ?.forEach { oldFile -> runCatching { oldFile.delete() } }
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
+            } ?: return@runCatching null
+            targetFile.absolutePath
+        }.getOrNull()
+        if (!directWriteResult.isNullOrBlank()) {
+            return@withContext AccompanimentOperationResult(success = true, path = directWriteResult)
         }
 
+        val treeUri = preferredTreeUri ?: getAccompanimentTreeUri(context)
+        if (treeUri == null) {
+            return@withContext AccompanimentOperationResult(
+                success = false,
+                needPermissionForTree = true,
+                errorMessage = "无法创建伴奏目录，请授权 Music 目录访问权限"
+            )
+        }
+
+        val treeRoot = DocumentFile.fromTreeUri(context, treeUri)
+            ?: return@withContext AccompanimentOperationResult(
+                success = false,
+                needPermissionForTree = true,
+                errorMessage = "伴奏目录权限已失效，请重新授权"
+            )
+        val musicDir = findOrCreateChildDirectory(treeRoot, "Music")
+            ?: return@withContext AccompanimentOperationResult(
+                success = false,
+                needPermissionForTree = true,
+                errorMessage = "无法访问 Music 目录，请重新授权"
+            )
+        val singDir = findOrCreateChildDirectory(musicDir, ".sing")
+            ?: return@withContext AccompanimentOperationResult(
+                success = false,
+                needPermissionForTree = true,
+                errorMessage = "无法访问 .sing 目录，请重新授权"
+            )
+
+        singDir.listFiles()
+            .orEmpty()
+            .filter { file ->
+                val docName = file.name.orEmpty()
+                val docBaseName = docName.substringBeforeLast('.', docName)
+                file.isFile && docBaseName.equals(baseName, ignoreCase = true) && docName != targetName
+            }
+            .forEach { oldFile -> runCatching { oldFile.delete() } }
+
+        singDir.findFile(targetName)?.delete()
+        val mimeType = if (extension.isNotBlank()) {
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase()) ?: "audio/*"
+        } else {
+            "audio/*"
+        }
+        val targetDoc = singDir.createFile(mimeType, targetName)
+            ?: return@withContext AccompanimentOperationResult(
+                success = false,
+                errorMessage = "在授权目录创建伴奏文件失败"
+            )
+
+        val wrote = runCatching {
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                context.contentResolver.openOutputStream(targetDoc.uri, "w")?.use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
+            }
+        }.isSuccess
+
+        if (!wrote) {
+            return@withContext AccompanimentOperationResult(
+                success = false,
+                errorMessage = "写入伴奏文件失败"
+            )
+        }
+
+        val resolvedPath = findAccompanimentFileForAudio(audioPath)?.absolutePath
+        AccompanimentOperationResult(
+            success = true,
+            path = resolvedPath ?: ACCOMPANIMENT_DIR_PATH + File.separator + targetName
+        )
+    } catch (e: SecurityException) {
+        Log.e(TAG, "No permission to save accompaniment file", e)
         AccompanimentOperationResult(
             success = false,
-            errorMessage = if (dirErrors.isNotEmpty()) {
-                "无法创建伴奏目录或写入失败：${dirErrors.joinToString("；")}"
-            } else {
-                "无法创建伴奏目录"
-            }
+            needPermissionForTree = true,
+            errorMessage = "没有目录访问权限，请重新授权"
         )
     } catch (e: Exception) {
         Log.e(TAG, "Error copying accompaniment file", e)
-        AccompanimentOperationResult(success = false, errorMessage = e.message ?: "添加伴奏失败")
+        AccompanimentOperationResult(
+            success = false,
+            errorMessage = e.message ?: "添加伴奏失败"
+        )
     }
 }
+
 
 suspend fun removeAccompanimentFile(
     context: Context,

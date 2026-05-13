@@ -533,7 +533,6 @@ class LyricPreviewActivity : ComponentActivity() {
         private const val STATE_IS_PLAYING = "state_is_playing"
         private const val DEFAULT_COMPANION_FOLDER_NAME = "sing"
         private const val DEFAULT_COMPANION_EXACT_DIR = "/storage/emulated/0/Music/.sing"
-        private const val DEFAULT_COMPANION_FALLBACK_DIR = "/storage/emulated/0/Documents/LunaBeat/.sing"
         private const val CROSSFADE_DURATION_MS = 420L
         
         fun createIntent(
@@ -1099,7 +1098,6 @@ class LyricPreviewActivity : ComponentActivity() {
         val sourceBaseName = sourceFile.nameWithoutExtension.takeIf { it.isNotBlank() } ?: return null
         val candidateDirs = linkedSetOf<File>()
         candidateDirs += File(DEFAULT_COMPANION_EXACT_DIR)
-        candidateDirs += File(DEFAULT_COMPANION_FALLBACK_DIR)
         val sourceParent = sourceFile.parentFile
         if (sourceParent != null) {
             candidateDirs += File(sourceParent, DEFAULT_COMPANION_FOLDER_NAME)
