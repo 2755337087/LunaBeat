@@ -1,9 +1,11 @@
 package com.example.LyricBox.utils
 
 import android.Manifest
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -38,7 +40,8 @@ data class AudioMetadata(
 data class WriteResult(
     val success: Boolean,
     val errorMessage: String = "",
-    val needPermission: Boolean = false
+    val needPermission: Boolean = false,
+    val recoverableIntentSender: IntentSender? = null
 )
 
 object AudioMetadataReader {
@@ -445,58 +448,72 @@ object AudioMetadataReader {
         }
     }
     
-    suspend fun writeLyrics(context: Context, filePath: String, lyrics: String): WriteResult {
+    suspend fun writeLyrics(
+        context: Context,
+        filePath: String,
+        lyrics: String,
+        mediaStoreId: Long = -1L
+    ): WriteResult {
         return withContext(Dispatchers.IO) {
             try {
                 val file = File(filePath)
                 if (!file.exists()) {
                     return@withContext WriteResult(false, "文件不存在: $filePath")
                 }
-                
-                if (!file.canWrite()) {
-                    Log.d(TAG, "File not writable, checking storage permission")
-                    if (!hasStoragePermission(context)) {
-                        return@withContext WriteResult(
-                            false, 
-                            "需要\"所有文件访问\"权限才能写入此文件。请点击\"设置权限\"按钮授权。",
-                            needPermission = true
-                        )
-                    }
-                    return@withContext WriteResult(false, "文件不可写: $filePath")
-                }
-                
+
                 Log.d(TAG, "Writing lyrics to: $filePath, content length: ${lyrics.length}")
-                
-                val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_WRITE)
-                
+
+                val pfd = openReadWritePfdForLyrics(context, filePath, mediaStoreId)
+                    ?: return@withContext WriteResult(false, "无法打开音频文件进行写入")
+
                 val nativeFd = pfd.dup().detachFd()
                 Log.d(TAG, "Native fd for reading: $nativeFd")
-                
+
                 val oldMeta = TagLib.getMetadata(nativeFd, false)
                 val mapToSave = HashMap<String, Array<String>>()
-                
+
                 if (oldMeta != null) {
                     mapToSave.putAll(oldMeta.propertyMap)
                     Log.d(TAG, "Read existing properties: ${oldMeta.propertyMap.keys}")
                 }
-                
+
                 mapToSave["LYRICS"] = arrayOf(lyrics)
                 Log.d(TAG, "Properties to save: ${mapToSave.keys}")
-                
+
                 val saveFd = pfd.dup().detachFd()
                 Log.d(TAG, "Native fd for saving: $saveFd")
-                
+
                 val success = TagLib.savePropertyMap(saveFd, mapToSave)
                 Log.d(TAG, "TagLib.savePropertyMap result: $success")
-                
+
                 pfd.close()
-                
+
                 if (success) {
                     Log.d(TAG, "Lyrics written successfully")
                     WriteResult(true)
                 } else {
                     WriteResult(false, "TagLib保存失败，可能是文件格式不支持")
                 }
+            } catch (e: RecoverableSecurityException) {
+                val sender = e.userAction.actionIntent.intentSender
+                WriteResult(
+                    success = false,
+                    errorMessage = "需要授予此歌曲的写入权限后才能继续",
+                    needPermission = false,
+                    recoverableIntentSender = sender
+                )
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Security error writing lyrics to $filePath", e)
+                val needAllFilesPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasStoragePermission(context)
+                WriteResult(
+                    success = false,
+                    errorMessage = if (needAllFilesPermission) {
+                        "需要\"所有文件访问\"权限才能写入此文件。请点击\"设置权限\"按钮授权。"
+                    } else {
+                        "写入失败: ${e.javaClass.simpleName} - ${e.message}"
+                    },
+                    needPermission = needAllFilesPermission
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Error writing lyrics to $filePath", e)
                 WriteResult(false, "写入失败: ${e.javaClass.simpleName} - ${e.message}")
@@ -521,10 +538,37 @@ object AudioMetadataReader {
                 } else {
                     WriteResult(false, "TagLib写入失败")
                 }
+            } catch (e: RecoverableSecurityException) {
+                WriteResult(
+                    success = false,
+                    errorMessage = "需要授予此歌曲的写入权限后才能继续",
+                    recoverableIntentSender = e.userAction.actionIntent.intentSender
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Error writing lyrics to uri $uri", e)
                 WriteResult(false, "写入失败: ${e.javaClass.simpleName} - ${e.message}")
             }
         }
+    }
+
+    private fun openReadWritePfdForLyrics(
+        context: Context,
+        filePath: String,
+        mediaStoreId: Long
+    ): ParcelFileDescriptor? {
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId)
+            if (mediaUri != null) {
+                return context.contentResolver.openFileDescriptor(mediaUri, "rw")
+            }
+        }
+
+        val file = File(filePath)
+        if (file.exists()) {
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_WRITE)
+        }
+
+        val mediaUri = resolveMediaStoreUri(context, filePath, mediaStoreId) ?: return null
+        return context.contentResolver.openFileDescriptor(mediaUri, "rw")
     }
 }

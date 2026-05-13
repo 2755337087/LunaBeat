@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,6 +16,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.AnimatedContent
@@ -6755,7 +6757,8 @@ fun EmbedEnhancedLrcDialog(
     onCopied: () -> Unit,
     displayTitle: String,
     sourceAudioPath: String,
-    onEmbedResult: (Boolean, String, Boolean) -> Unit
+    sourceMediaStoreId: Long,
+    onEmbedResult: (Boolean, String, Boolean, IntentSender?) -> Unit
 ) {
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val enhancedLrcContent = remember(lyricLines, showDuet) {
@@ -6827,15 +6830,25 @@ fun EmbedEnhancedLrcDialog(
                         onClick = {
                             onDismiss()
                             if (sourceAudioPath.isEmpty()) {
-                                onEmbedResult(false, "音频路径为空，无法嵌入歌词", false)
+                                onEmbedResult(false, "音频路径为空，无法嵌入歌词", false, null)
                                 return@Button
                             }
                             kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                 Log.d("LyricTiming", "Embedding Enhanced LRC lyrics to: $sourceAudioPath")
-                                val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, enhancedLrcContent)
+                                val result = LyricSaveEmbedUtils.embedLyrics(
+                                    context = context,
+                                    sourceAudioPath = sourceAudioPath,
+                                    lyricsContent = enhancedLrcContent,
+                                    mediaStoreId = sourceMediaStoreId
+                                )
                                 Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                 withContext(Dispatchers.Main) {
-                                    onEmbedResult(result.success, if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage, result.needPermission)
+                                    onEmbedResult(
+                                        result.success,
+                                        if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage,
+                                        result.needPermission,
+                                        result.recoverableIntentSender
+                                    )
                                 }
                             }
                         }
@@ -7392,6 +7405,8 @@ fun LyricTimingScreen(
     var showEmbedResultDialog by remember { mutableStateOf(false) }
     var embedResultMessage by remember { mutableStateOf("") }
     var embedResultSuccess by remember { mutableStateOf(false) }
+    var pendingRecoverableEmbedIntentSender by remember { mutableStateOf<IntentSender?>(null) }
+    var pendingRecoverableEmbedLyricsContent by remember { mutableStateOf<String?>(null) }
     var showFormatTimelineConfirmDialog by remember { mutableStateOf(false) }
     var showFormatTimelineResultDialog by remember { mutableStateOf(false) }
     var formatTimelineResultMessage by remember { mutableStateOf("") }
@@ -8057,6 +8072,45 @@ fun LyricTimingScreen(
                 selectedWordIndex = foundWordIndex
             }
         }
+    }
+
+    val recoverableEmbedPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            pendingRecoverableEmbedIntentSender = null
+            val pendingContent = pendingRecoverableEmbedLyricsContent
+            pendingRecoverableEmbedLyricsContent = null
+            showEmbedResultDialog = false
+            if (!pendingContent.isNullOrBlank() && sourceAudioPath.isNotBlank()) {
+                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                    val retryResult = LyricSaveEmbedUtils.embedLyrics(
+                        context = context,
+                        sourceAudioPath = sourceAudioPath,
+                        lyricsContent = pendingContent,
+                        mediaStoreId = sourceMediaStoreId
+                    )
+                    withContext(Dispatchers.Main) {
+                        embedResultSuccess = retryResult.success
+                        embedResultMessage = if (retryResult.success) {
+                            "歌词已成功嵌入到音频文件"
+                        } else {
+                            retryResult.errorMessage
+                        }
+                        needStoragePermission = retryResult.needPermission
+                        pendingRecoverableEmbedIntentSender = retryResult.recoverableIntentSender
+                        showEmbedResultDialog = true
+                    }
+                }
+            }
+        }
+    }
+
+    fun launchRecoverableEmbedPermissionIfNeeded() {
+        val sender = pendingRecoverableEmbedIntentSender ?: return
+        recoverableEmbedPermissionLauncher.launch(
+            IntentSenderRequest.Builder(sender).build()
+        )
     }
     
     // 处理歌词导入
@@ -8796,10 +8850,13 @@ fun LyricTimingScreen(
             onCopied = { showCopiedDialog = true },
             displayTitle = displayTitle,
             sourceAudioPath = sourceAudioPath,
-            onEmbedResult = { success, message, needPermission ->
+            sourceMediaStoreId = sourceMediaStoreId,
+            onEmbedResult = { success, message, needPermission, recoverableSender ->
                 embedResultSuccess = success
                 embedResultMessage = message
                 needStoragePermission = needPermission
+                pendingRecoverableEmbedIntentSender = recoverableSender
+                pendingRecoverableEmbedLyricsContent = if (success) null else LyricSaveEmbedUtils.buildEnhancedLrc(lyricLines, showDuetInEnhancedLrc)
                 showEmbedResultDialog = true
             }
         )
@@ -8957,12 +9014,19 @@ fun LyricTimingScreen(
                                 }
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     Log.d("LyricTiming", "Embedding lyrics to: $sourceAudioPath")
-                                    val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, lrcContent)
+                                    val result = LyricSaveEmbedUtils.embedLyrics(
+                                        context = context,
+                                        sourceAudioPath = sourceAudioPath,
+                                        lyricsContent = lrcContent,
+                                        mediaStoreId = sourceMediaStoreId
+                                    )
                                     Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                     withContext(Dispatchers.Main) {
                                         embedResultSuccess = result.success
                                         embedResultMessage = if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage
                                         needStoragePermission = result.needPermission
+                                        pendingRecoverableEmbedIntentSender = result.recoverableIntentSender
+                                        pendingRecoverableEmbedLyricsContent = if (result.success) null else lrcContent
                                         showEmbedResultDialog = true
                                     }
                                 }
@@ -9054,12 +9118,19 @@ fun LyricTimingScreen(
                                 }
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     Log.d("LyricTiming", "Embedding line lyrics to: $sourceAudioPath")
-                                    val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, lineLrcContent)
+                                    val result = LyricSaveEmbedUtils.embedLyrics(
+                                        context = context,
+                                        sourceAudioPath = sourceAudioPath,
+                                        lyricsContent = lineLrcContent,
+                                        mediaStoreId = sourceMediaStoreId
+                                    )
                                     Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                     withContext(Dispatchers.Main) {
                                         embedResultSuccess = result.success
                                         embedResultMessage = if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage
                                         needStoragePermission = result.needPermission
+                                        pendingRecoverableEmbedIntentSender = result.recoverableIntentSender
+                                        pendingRecoverableEmbedLyricsContent = if (result.success) null else lineLrcContent
                                         showEmbedResultDialog = true
                                     }
                                 }
@@ -9145,12 +9216,19 @@ fun LyricTimingScreen(
                                 }
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     Log.d("LyricTiming", "Embedding TTML lyrics to: $sourceAudioPath")
-                                    val result = LyricSaveEmbedUtils.embedLyrics(context, sourceAudioPath, ttmlContent)
+                                    val result = LyricSaveEmbedUtils.embedLyrics(
+                                        context = context,
+                                        sourceAudioPath = sourceAudioPath,
+                                        lyricsContent = ttmlContent,
+                                        mediaStoreId = sourceMediaStoreId
+                                    )
                                     Log.d("LyricTiming", "Write result: success=${result.success}, error=${result.errorMessage}")
                                     withContext(Dispatchers.Main) {
                                         embedResultSuccess = result.success
                                         embedResultMessage = if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage
                                         needStoragePermission = result.needPermission
+                                        pendingRecoverableEmbedIntentSender = result.recoverableIntentSender
+                                        pendingRecoverableEmbedLyricsContent = if (result.success) null else ttmlContent
                                         showEmbedResultDialog = true
                                     }
                                 }
@@ -9497,7 +9575,13 @@ fun LyricTimingScreen(
                     }
                 },
                 confirmButton = {
-                    if (needStoragePermission) {
+                    if (pendingRecoverableEmbedIntentSender != null) {
+                        Button(onClick = {
+                            launchRecoverableEmbedPermissionIfNeeded()
+                        }) {
+                            Text("授予写入权限")
+                        }
+                    } else if (needStoragePermission) {
                         Button(onClick = {
                             showEmbedResultDialog = false
                             com.example.LyricBox.utils.AudioMetadataReader.requestStoragePermission(context)
@@ -9511,7 +9595,11 @@ fun LyricTimingScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showEmbedResultDialog = false }) {
+                    TextButton(onClick = {
+                        showEmbedResultDialog = false
+                        pendingRecoverableEmbedIntentSender = null
+                        pendingRecoverableEmbedLyricsContent = null
+                    }) {
                         Text("取消")
                     }
                 }

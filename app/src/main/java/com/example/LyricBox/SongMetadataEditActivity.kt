@@ -1,10 +1,12 @@
 package com.example.LyricBox
 
 import android.Manifest
+import android.app.RecoverableSecurityException
 import android.content.ContentValues
 import android.content.Context
 import android.content.ContentUris
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -22,6 +24,7 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -659,6 +662,15 @@ fun SongMetadataEditScreen(
     
     var audioFileName by remember { mutableStateOf("") }
 
+    val retrySaveActionRef = remember { mutableStateOf<(() -> Unit)?>(null) }
+    val recoverableWritePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            retrySaveActionRef.value?.invoke()
+        }
+    }
+
     LaunchedEffect(audioPath) {
         accompanimentPath = withContext(Dispatchers.IO) {
             getAccompanimentPathForAudio(audioPath)
@@ -866,6 +878,7 @@ fun SongMetadataEditScreen(
                 
                 var successCount = 0
                 var needPermission = false
+                var recoverableIntentSender: IntentSender? = null
                 
                 for ((index, filePath) in selectedPaths!!.withIndex()) {
                     if (isBatchCancelled) {
@@ -937,6 +950,9 @@ fun SongMetadataEditScreen(
                         successCount++
                     } else if (result.needPermission) {
                         needPermission = true
+                    } else if (result.recoverableIntentSender != null) {
+                        recoverableIntentSender = result.recoverableIntentSender
+                        break
                     }
                     
                     batchProgress = (index + 1) to selectedPaths!!.size
@@ -946,6 +962,10 @@ fun SongMetadataEditScreen(
                 
                 if (needPermission) {
                     showPermissionDialog = true
+                } else if (recoverableIntentSender != null) {
+                    recoverableWritePermissionLauncher.launch(
+                        IntentSenderRequest.Builder(recoverableIntentSender!!).build()
+                    )
                 } else if (!isBatchCancelled) {
                     showBatchCompleteDialog = true
                     onDataSaved()
@@ -1058,8 +1078,18 @@ fun SongMetadataEditScreen(
                     }
                 } else if (result.needPermission) {
                     showPermissionDialog = true
+                } else if (result.recoverableIntentSender != null) {
+                    recoverableWritePermissionLauncher.launch(
+                        IntentSenderRequest.Builder(result.recoverableIntentSender!!).build()
+                    )
                 }
             }
+        }
+    }
+
+    retrySaveActionRef.value = {
+        scope.launch {
+            saveAllData()
         }
     }
     
@@ -3776,7 +3806,8 @@ fun getIllegalChars(name: String): String {
 
 data class SaveResult(
     val success: Boolean,
-    val needPermission: Boolean = false
+    val needPermission: Boolean = false,
+    val recoverableIntentSender: IntentSender? = null
 )
 
 data class VideoSaveResult(
@@ -4436,10 +4467,35 @@ suspend fun saveMetadata(
             }
             
             var success = true
+            fun openWritablePfdOrResult(): Pair<ParcelFileDescriptor?, SaveResult?> {
+                return try {
+                    Pair(openAudioReadWritePfd(context, filePath, mediaStoreId), null)
+                } catch (e: RecoverableSecurityException) {
+                    Pair(
+                        null,
+                        SaveResult(
+                            success = false,
+                            recoverableIntentSender = e.userAction.actionIntent.intentSender
+                        )
+                    )
+                } catch (e: SecurityException) {
+                    val needAllFilesPermission =
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasStoragePermission(context)
+                    Pair(
+                        null,
+                        SaveResult(
+                            success = false,
+                            needPermission = needAllFilesPermission
+                        )
+                    )
+                }
+            }
+
             // 只有有字段更新时才写标签
             if (updates.isNotEmpty()) {
-                val pfd = openAudioReadWritePfd(context, filePath, mediaStoreId)
-                    ?: return@withContext SaveResult(false)
+                val (pfd, openResult) = openWritablePfdOrResult()
+                if (openResult != null) return@withContext openResult
+                if (pfd == null) return@withContext SaveResult(false)
                 try {
                     success = AudioTagWriter.writeTags(pfd, updates, true)
                 } finally {
@@ -4460,16 +4516,18 @@ suspend fun saveMetadata(
                         pictureType = "Front Cover"
                     )
                     
-                    val picPfd = openAudioReadWritePfd(context, filePath, mediaStoreId)
-                        ?: return@withContext SaveResult(false)
+                    val (picPfd, openResult) = openWritablePfdOrResult()
+                    if (openResult != null) return@withContext openResult
+                    if (picPfd == null) return@withContext SaveResult(false)
                     try {
                         AudioTagWriter.writePictures(picPfd, listOf(newPic))
                     } finally {
                         picPfd.close()
                     }
                 } else if (coverRemoved && oldCoverData != null) {
-                    val picPfd = openAudioReadWritePfd(context, filePath, mediaStoreId)
-                        ?: return@withContext SaveResult(false)
+                    val (picPfd, openResult) = openWritablePfdOrResult()
+                    if (openResult != null) return@withContext openResult
+                    if (picPfd == null) return@withContext SaveResult(false)
                     try {
                         AudioTagWriter.writePictures(picPfd, emptyList())
                     } finally {
@@ -4479,6 +4537,11 @@ suspend fun saveMetadata(
             }
             
             SaveResult(success)
+        } catch (e: RecoverableSecurityException) {
+            SaveResult(
+                success = false,
+                recoverableIntentSender = e.userAction.actionIntent.intentSender
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error saving metadata", e)
             SaveResult(false)
@@ -4491,15 +4554,22 @@ private fun openAudioReadWritePfd(
     filePath: String,
     mediaStoreId: Long = -1L
 ): ParcelFileDescriptor? {
-    val direct = runCatching {
+    val direct = try {
         val file = File(filePath)
-        if (!file.exists()) return@runCatching null
-        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_WRITE)
-    }.getOrNull()
+        if (!file.exists()) {
+            null
+        } else {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_WRITE)
+        }
+    } catch (e: RecoverableSecurityException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
     if (direct != null) return direct
 
     val uri = resolveMediaStoreAudioUri(context, filePath, mediaStoreId) ?: return null
-    return runCatching { context.contentResolver.openFileDescriptor(uri, "rw") }.getOrNull()
+    return context.contentResolver.openFileDescriptor(uri, "rw")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

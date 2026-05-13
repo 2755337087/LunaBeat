@@ -776,6 +776,7 @@ class MusicPlaybackController(private val context: Context) {
                 if (!file.exists()) return@mapNotNull null
                 val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
                 val inferredCoverCachePath = resolveExistingCoverCachePath(path)
+                val resolvedMediaStoreId = resolveMediaStoreIdByPath(context, path)
                 val audio = AudioFile(
                     path = path,
                     title = metadata?.title.orEmpty(),
@@ -787,7 +788,7 @@ class MusicPlaybackController(private val context: Context) {
                     addedTime = file.lastModified(),
                     coverCachePath = inferredCoverCachePath,
                     year = metadata?.year.orEmpty(),
-                    mediaStoreId = -1L
+                    mediaStoreId = resolvedMediaStoreId
                 )
                 val shouldPreferOriginalCover = path == uniqueSavedPaths.getOrNull(targetIndex)
                 audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
@@ -848,6 +849,7 @@ class MusicPlaybackController(private val context: Context) {
         val file = File(path)
         if (!file.exists()) return null
         val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
+        val resolvedMediaStoreId = resolveMediaStoreIdByPath(context, path)
         val audio = AudioFile(
             path = path,
             title = metadata?.title.orEmpty(),
@@ -859,7 +861,7 @@ class MusicPlaybackController(private val context: Context) {
             addedTime = file.lastModified(),
             coverCachePath = resolveExistingCoverCachePath(path),
             year = metadata?.year.orEmpty(),
-            mediaStoreId = -1L
+            mediaStoreId = resolvedMediaStoreId
         )
         return audio.toPlayableMediaItem(context, preferOriginalCover = preferOriginalCover)
     }
@@ -1112,6 +1114,26 @@ private fun resolvePlayablePathForPlayback(context: Context, sourcePath: String)
         sourcePath = normalizedPath,
         forceForM4aFailure = true
     ) ?: sourcePath
+}
+
+private fun resolveMediaStoreIdByPath(context: Context, sourcePath: String): Long {
+    return try {
+        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        val selection = "${MediaStore.Audio.Media.DATA} = ?"
+        val args = arrayOf(sourcePath)
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use -1L
+            cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+        } ?: -1L
+    } catch (_: Exception) {
+        -1L
+    }
 }
 
 private fun supportsDirectAlacDecode(): Boolean {

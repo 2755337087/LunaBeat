@@ -1002,7 +1002,8 @@ class LyricPreviewActivity : ComponentActivity() {
             }
             mediaPlayer = ExoPlayer.Builder(this, renderersFactory).build().apply {
                 attachPreviewPlayerListener(this, fallbackPath = path, allowFallback = allowFallback)
-                setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(File(path))))
+                val playableUri = resolvePlayablePreviewUri(path)
+                setMediaItem(MediaItem.fromUri(playableUri))
                 prepare()
                 if (initialPosition > 0L) {
                     seekTo(initialPosition)
@@ -1204,7 +1205,8 @@ class LyricPreviewActivity : ComponentActivity() {
                 }
             ).build().apply {
                 attachPreviewPlayerListener(this, fallbackPath = targetPath, allowFallback = false)
-                setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(targetFile)))
+                val playableUri = resolvePlayablePreviewUri(targetPath)
+                setMediaItem(MediaItem.fromUri(playableUri))
                 prepare()
                 if (resumePosition > 0L) {
                     seekTo(resumePosition)
@@ -1284,6 +1286,14 @@ class LyricPreviewActivity : ComponentActivity() {
                 }
             }
         })
+    }
+
+    private fun resolvePlayablePreviewUri(path: String): android.net.Uri {
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            val mediaStoreUri = resolveMediaStoreAudioUri(this, path)
+            if (mediaStoreUri != null) return mediaStoreUri
+        }
+        return android.net.Uri.fromFile(File(path))
     }
 
     private suspend fun animateDualPlayerVolume(

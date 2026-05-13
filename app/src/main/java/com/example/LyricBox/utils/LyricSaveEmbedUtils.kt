@@ -77,7 +77,8 @@ object LyricSaveEmbedUtils {
     suspend fun embedLyrics(
         context: Context,
         sourceAudioPath: String,
-        lyricsContent: String
+        lyricsContent: String,
+        mediaStoreId: Long = -1L
     ): WriteResult {
         if (sourceAudioPath.isBlank()) {
             return WriteResult(
@@ -86,7 +87,12 @@ object LyricSaveEmbedUtils {
                 needPermission = false
             )
         }
-        return AudioMetadataReader.writeLyrics(context, sourceAudioPath, lyricsContent)
+        return AudioMetadataReader.writeLyrics(
+            context = context,
+            filePath = sourceAudioPath,
+            lyrics = lyricsContent,
+            mediaStoreId = mediaStoreId
+        )
     }
 
     fun saveTtmlFile(audioPath: String, ttmlContent: String): Boolean {
