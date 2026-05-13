@@ -4032,6 +4032,19 @@ private fun resolveUriExtension(context: Context, uri: Uri): String {
     return fromPathSegment
 }
 
+private fun isCompanionNameMatch(fileName: String?, sourceBaseName: String): Boolean {
+    if (fileName.isNullOrBlank() || sourceBaseName.isBlank()) return false
+    val candidate = fileName.trim()
+    val lowerCandidate = candidate.lowercase()
+    val lowerBase = sourceBaseName.lowercase()
+    if (lowerCandidate == lowerBase) return true
+    if (lowerCandidate.startsWith("$lowerBase.")) return true
+    val withoutLast = candidate.substringBeforeLast('.', candidate)
+    if (withoutLast.equals(sourceBaseName, ignoreCase = true)) return true
+    val withoutTwo = withoutLast.substringBeforeLast('.', withoutLast)
+    return withoutTwo.equals(sourceBaseName, ignoreCase = true)
+}
+
 fun findAccompanimentFileForAudio(audioPath: String?): File? {
     if (audioPath.isNullOrBlank()) return null
     val sourceAudio = File(audioPath)
@@ -4042,7 +4055,7 @@ fun findAccompanimentFileForAudio(audioPath: String?): File? {
     return dir.listFiles()
         ?.filter { it.isFile }
         ?.sortedBy { it.name }
-        ?.firstOrNull { it.nameWithoutExtension.equals(baseName, ignoreCase = true) }
+        ?.firstOrNull { isCompanionNameMatch(it.name, baseName) }
 }
 
 fun getAccompanimentPathForAudio(audioPath: String?): String? {
@@ -4168,19 +4181,16 @@ suspend fun copyAccompanimentToDefaultPath(
         singDir.listFiles()
             .orEmpty()
             .filter { file ->
-                val docName = file.name.orEmpty()
-                val docBaseName = docName.substringBeforeLast('.', docName)
-                file.isFile && docBaseName.equals(baseName, ignoreCase = true) && docName != targetName
+                file.isFile && isCompanionNameMatch(file.name, baseName)
             }
             .forEach { oldFile -> runCatching { oldFile.delete() } }
 
-        singDir.findFile(targetName)?.delete()
         val mimeType = if (extension.isNotBlank()) {
             MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase()) ?: "audio/*"
         } else {
             "audio/*"
         }
-        val targetDoc = singDir.createFile(mimeType, targetName)
+        val targetDoc = singDir.createFile(mimeType, baseName)
             ?: return@withContext AccompanimentOperationResult(
                 success = false,
                 errorMessage = "在授权目录创建伴奏文件失败"
@@ -4203,9 +4213,10 @@ suspend fun copyAccompanimentToDefaultPath(
         }
 
         val resolvedPath = findAccompanimentFileForAudio(audioPath)?.absolutePath
+        val resolvedName = targetDoc.name ?: targetName
         AccompanimentOperationResult(
             success = true,
-            path = resolvedPath ?: ACCOMPANIMENT_DIR_PATH + File.separator + targetName
+            path = resolvedPath ?: ACCOMPANIMENT_DIR_PATH + File.separator + resolvedName
         )
     } catch (e: SecurityException) {
         Log.e(TAG, "No permission to save accompaniment file", e)

@@ -1152,7 +1152,7 @@ class LyricPreviewActivity : ComponentActivity() {
 
         val files = dir.listFiles() ?: return null
         val baseMatched = files.firstOrNull { file ->
-            file.isFile && file.nameWithoutExtension.equals(sourceBaseName, ignoreCase = true)
+            file.isFile && isCompanionNameMatch(file.name, sourceBaseName)
         }
         if (baseMatched != null) {
             Log.d(
@@ -1161,6 +1161,19 @@ class LyricPreviewActivity : ComponentActivity() {
             )
         }
         return baseMatched
+    }
+
+    private fun isCompanionNameMatch(fileName: String?, sourceBaseName: String): Boolean {
+        if (fileName.isNullOrBlank() || sourceBaseName.isBlank()) return false
+        val candidate = fileName.trim()
+        val lowerCandidate = candidate.lowercase()
+        val lowerBase = sourceBaseName.lowercase()
+        if (lowerCandidate == lowerBase) return true
+        if (lowerCandidate.startsWith("$lowerBase.")) return true
+        val withoutLast = candidate.substringBeforeLast('.', candidate)
+        if (withoutLast.equals(sourceBaseName, ignoreCase = true)) return true
+        val withoutTwo = withoutLast.substringBeforeLast('.', withoutLast)
+        return withoutTwo.equals(sourceBaseName, ignoreCase = true)
     }
 
     private fun resolveCompanionSelectedState(companionPath: String?): Boolean {
