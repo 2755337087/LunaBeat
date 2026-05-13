@@ -1,0 +1,2 @@
+ninja: Entering directory `D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\.cxx\RelWithDebInfo\4uq1o135\x86'
+ninja: no work to do.

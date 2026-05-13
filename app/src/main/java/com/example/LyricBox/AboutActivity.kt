@@ -249,7 +249,7 @@ fun AboutScreen(
                 AboutItem(
                     title = "访问GitHub",
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/2755337087/LyricBox"))
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/2755337087/LunaBeat"))
                         context.startActivity(intent)
                     }
                 )
@@ -633,6 +633,11 @@ fun SpecialThanksBottomSheet(
         OpenSourceProject(
             name = "EdgeTranslucent",
             url = "https://github.com/qinci/EdgeTranslucent",
+            description = ""
+        ),
+        OpenSourceProject(
+            name = "lottie-android",
+            url = "https://github.com/airbnb/lottie-android",
             description = ""
         ),
     )

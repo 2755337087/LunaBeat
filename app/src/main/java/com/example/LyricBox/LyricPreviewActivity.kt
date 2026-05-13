@@ -3267,7 +3267,16 @@ fun LyricPreviewScreen(
                 isFavorite = previewSongInfoIsFavorite,
                 renameSuccessSignal = 0L,
                 onDismiss = { showSongInfoSheet = false },
-                onEditLyricsFromPreview = { (context as? android.app.Activity)?.let { it.finish() } }
+                onEditLyricsFromPreview = { (context as? android.app.Activity)?.let { it.finish() } },
+                onEditMetadataFromSheet = { audioToEdit ->
+                    val activity = context as? android.app.Activity ?: return@SongInfoBottomSheet
+                    val editIntent = Intent(activity, SongMetadataEditActivity::class.java).apply {
+                        putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, audioToEdit.path)
+                        putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audioToEdit.mediaStoreId)
+                    }
+                    activity.startActivity(editIntent)
+                    activity.finish()
+                }
             )
         }
     }

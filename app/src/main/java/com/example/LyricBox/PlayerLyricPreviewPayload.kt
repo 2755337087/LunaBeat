@@ -2,6 +2,8 @@ package com.example.LyricBox
 
 import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
+import android.os.Environment
 import android.provider.MediaStore
 import com.example.LyricBox.utils.AudioMetadataReader
 import java.io.File
@@ -56,20 +58,52 @@ private fun readExternalTtmlWithFallback(context: Context, ttmlFile: File): Stri
     }.getOrNull()
     if (!directRead.isNullOrBlank()) return directRead
 
+    val contentUri = resolveMediaStoreFileUriForTtml(context, ttmlFile) ?: return null
     return runCatching {
-        val baseUri = MediaStore.Files.getContentUri("external")
-        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        context.contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+            reader.readText().takeIf { it.isNotBlank() }
+        }
+    }.getOrNull()
+}
+
+@Suppress("DEPRECATION")
+private fun resolveMediaStoreFileUriForTtml(context: Context, ttmlFile: File): Uri? {
+    val baseUri = MediaStore.Files.getContentUri("external")
+    val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+    val byData = runCatching {
         val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
         val args = arrayOf(ttmlFile.absolutePath)
         context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
-            if (!cursor.moveToFirst()) return@runCatching null
+            if (!cursor.moveToFirst()) return@use null
             val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
-            val contentUri = ContentUris.withAppendedId(baseUri, id)
-            context.contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                reader.readText().takeIf { it.isNotBlank() }
-            }
+            ContentUris.withAppendedId(baseUri, id)
         }
     }.getOrNull()
+    if (byData != null) return byData
+
+    val relativePath = buildRelativePathForMediaStore(ttmlFile.absolutePath) ?: return null
+    return runCatching {
+        val selection =
+            "${MediaStore.Files.FileColumns.RELATIVE_PATH} = ? AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} = ?"
+        val args = arrayOf(relativePath, ttmlFile.name)
+        context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@runCatching null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+            ContentUris.withAppendedId(baseUri, id)
+        }
+    }.getOrNull()
+}
+
+@Suppress("DEPRECATION")
+private fun buildRelativePathForMediaStore(absolutePath: String): String? {
+    val externalRoot = Environment.getExternalStorageDirectory().absolutePath
+        .replace('\\', '/')
+        .trimEnd('/')
+    val normalizedPath = absolutePath.replace('\\', '/')
+    if (!normalizedPath.startsWith(externalRoot, ignoreCase = true)) return null
+    val relativeFull = normalizedPath.removePrefix(externalRoot).trimStart('/')
+    val dir = relativeFull.substringBeforeLast('/', "")
+    return if (dir.isBlank()) null else "$dir/"
 }
 
 private fun resolveSameNameTtmlFile(audioPath: String): File? {

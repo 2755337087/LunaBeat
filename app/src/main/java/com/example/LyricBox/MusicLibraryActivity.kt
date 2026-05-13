@@ -1694,6 +1694,7 @@ fun MusicLibraryScreen(
     var isInitialListFadeReady by remember { mutableStateOf(false) }
     var displayUpdateJob by remember { mutableStateOf<Job?>(null) }
     var displayUpdateVersion by remember { mutableIntStateOf(0) }
+    var hasCompletedInitialDisplayBuild by remember { mutableStateOf(false) }
     val miniPlayerReady = !isLoadingCache && isInitialListFadeReady
     val showMiniPlayer = miniPlayerVisible && miniPlayerReady
     val miniPlayerExtraBottomPadding = if (showMiniPlayer) miniPlayerHeight + 12.dp else 0.dp
@@ -1954,21 +1955,25 @@ fun MusicLibraryScreen(
 
             if (requestVersion != displayUpdateVersion) return@launch
             displayAudioFiles.clear()
-            if (filtered.isEmpty()) return@launch
-            val batchSize = 200
-            var start = 0
-            while (start < filtered.size) {
-                if (requestVersion != displayUpdateVersion) return@launch
-                val end = minOf(start + batchSize, filtered.size)
-                displayAudioFiles.addAll(filtered.subList(start, end))
-                start = end
-                if (start < filtered.size) {
-                    kotlinx.coroutines.yield()
+            if (filtered.isNotEmpty()) {
+                val batchSize = 200
+                var start = 0
+                while (start < filtered.size) {
+                    if (requestVersion != displayUpdateVersion) return@launch
+                    val end = minOf(start + batchSize, filtered.size)
+                    displayAudioFiles.addAll(filtered.subList(start, end))
+                    start = end
+                    if (start < filtered.size) {
+                        kotlinx.coroutines.yield()
+                    }
                 }
             }
 
             if (isAlbumSearchQuery(querySnapshot)) {
                 warmupTrackSortCacheFor(querySnapshot, filtered)
+            }
+            if (requestVersion == displayUpdateVersion) {
+                hasCompletedInitialDisplayBuild = true
             }
         }
     }
@@ -2193,6 +2198,12 @@ fun MusicLibraryScreen(
         scanPopupDelayJob = null
         showScanProgressPopup = false
     }
+
+    fun showScanPopupImmediately() {
+        scanPopupDelayJob?.cancel()
+        scanPopupDelayJob = null
+        showScanProgressPopup = true
+    }
     
     LaunchedEffect(Unit) {
         val favoritePathsSnapshot = withContext(Dispatchers.IO) {
@@ -2360,7 +2371,7 @@ fun MusicLibraryScreen(
                                 onClick = {
                                     isScanning = true
                                     showScanComplete = false
-                                    startScanPopupDelay()
+                                    showScanPopupImmediately()
                                     scanJob?.cancel()
                                     scanJob = scope.launch {
                                         scanAudioFiles(context, prefs, allAudioFiles,
@@ -2632,7 +2643,8 @@ fun MusicLibraryScreen(
                 }
             )
             
-            val shouldShowLibraryLoading = isLoadingCache || !isInitialListFadeReady
+            val shouldShowLibraryLoading =
+                isLoadingCache || !isInitialListFadeReady || !hasCompletedInitialDisplayBuild
             val shouldShowScanBootstrapLoading =
                 !shouldShowLibraryLoading && isScanning && displayAudioFiles.isEmpty()
             val shouldShowMusicListLoading = shouldShowLibraryLoading || shouldShowScanBootstrapLoading
@@ -2651,7 +2663,7 @@ fun MusicLibraryScreen(
                 enter = fadeIn(animationSpec = tween(durationMillis = 320)),
                 exit = fadeOut(animationSpec = tween(durationMillis = 120))
             ) {
-                if (displayAudioFiles.isEmpty() && !isScanning) {
+                if (displayAudioFiles.isEmpty() && !isScanning && hasCompletedInitialDisplayBuild) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -2934,7 +2946,11 @@ fun MusicLibraryScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = if (showMiniPlayer && !isMultiSelectMode) miniPlayerHeight + 16.dp else 8.dp
+                )
                 .offset(y = -fabOffset),
             enter = fadeIn(animationSpec = tween(400)) + 
                      scaleIn(
@@ -3048,7 +3064,7 @@ fun MusicLibraryScreen(
                 .padding(
                     start = 12.dp,
                     end = 12.dp,
-                    bottom = if (showScanPanel) 76.dp else 8.dp
+                    bottom = 8.dp
                 ),
             enter = fadeIn(animationSpec = tween(220)),
             exit = fadeOut(animationSpec = tween(180))
