@@ -27,6 +27,7 @@ import androidx.media3.session.SessionToken
 import com.example.LyricBox.utils.AudioMetadataReader
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -577,6 +578,65 @@ class MusicPlaybackController(private val context: Context) {
             currentMediaId = newPath
             currentTitle = File(newPath).nameWithoutExtension
             persistSnapshotState()
+        }
+    }
+
+    fun refreshMetadataForPath(path: String) {
+        val targetPath = path.trim()
+        if (targetPath.isEmpty()) return
+        ContextCompat.getMainExecutor(context).execute {
+            val player = controller ?: return@execute
+            if (player.mediaItemCount <= 0) return@execute
+
+            val currentIndexSnapshot = player.currentMediaItemIndex
+            val resumePosition = player.currentPosition.coerceAtLeast(0L)
+            val resumePlayWhenReady = player.playWhenReady
+            val wasPlaying = player.isPlaying || resumePlayWhenReady
+            val targetIndexes = mutableListOf<Pair<Int, Boolean>>()
+
+            for (idx in 0 until player.mediaItemCount) {
+                val item = player.getMediaItemAt(idx)
+                val itemPath = item.resolveSourcePath()
+                if (itemPath == targetPath) {
+                    targetIndexes += idx to (idx == currentIndexSnapshot)
+                }
+            }
+            if (targetIndexes.isEmpty()) return@execute
+
+            transcodeQueueExecutor.execute {
+                val replacements = targetIndexes.mapNotNull { (idx, preferOriginalCover) ->
+                    buildMediaItemForRenamedPath(
+                        path = targetPath,
+                        preferOriginalCover = preferOriginalCover
+                    )?.let { updatedItem -> idx to updatedItem }
+                }
+                if (replacements.isEmpty()) return@execute
+
+                ContextCompat.getMainExecutor(context).execute {
+                    val latestPlayer = controller ?: return@execute
+                    if (latestPlayer.mediaItemCount <= 0) return@execute
+
+                    replacements.forEach { (idx, updatedItem) ->
+                        if (idx in 0 until latestPlayer.mediaItemCount) {
+                            val latestItemPath = latestPlayer.getMediaItemAt(idx).resolveSourcePath()
+                            if (latestItemPath == targetPath) {
+                                latestPlayer.replaceMediaItem(idx, updatedItem)
+                            }
+                        }
+                    }
+
+                    val currentIdx = latestPlayer.currentMediaItemIndex
+                    if (currentIdx >= 0 && currentIdx == currentIndexSnapshot) {
+                        latestPlayer.seekTo(currentIdx, resumePosition)
+                    }
+                    latestPlayer.playWhenReady = resumePlayWhenReady
+                    if (wasPlaying) {
+                        latestPlayer.play()
+                    }
+                    persistCurrentQueue(latestPlayer)
+                    syncFromPlayer(latestPlayer)
+                }
+            }
         }
     }
 
@@ -1188,6 +1248,12 @@ fun rememberMusicPlaybackController(): MusicPlaybackController {
         while (controller.isReady && (controller.isPlaying || controller.playbackState == Player.STATE_BUFFERING)) {
             delay(500L)
             controller.refreshProgress()
+        }
+    }
+
+    LaunchedEffect(controller) {
+        AudioMetadataUpdateBus.updates.collect { path ->
+            controller.refreshMetadataForPath(path)
         }
     }
 

@@ -61,6 +61,10 @@
 -keep interface okhttp3.** { *; }
 -keep class okio.** { *; }
 
+# Keep Transition classes required by UCropActivity runtime animations.
+-keep class androidx.transition.** { *; }
+-keep class com.yalantis.ucrop.** { *; }
+
 # Remove all Log statements in release build
 -assumenosideeffects class android.util.Log {
     public static boolean isLoggable(java.lang.String, int);
