@@ -1,10 +1,13 @@
 package com.example.LyricBox
 
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -976,12 +979,64 @@ private fun AudioFile.toPlayableMediaItem(
     }
 
     val metadata = metadataBuilder.build()
+    val playableUri = resolvePlayableAudioUri(
+        context = context,
+        sourcePath = path,
+        playbackPath = playbackPath,
+        mediaStoreId = mediaStoreId
+    )
 
     return MediaItem.Builder()
         .setMediaId(path)
-        .setUri(Uri.fromFile(File(playbackPath)))
+        .setUri(playableUri)
         .setMediaMetadata(metadata)
         .build()
+}
+
+private fun resolvePlayableAudioUri(
+    context: Context,
+    sourcePath: String,
+    playbackPath: String,
+    mediaStoreId: Long = -1L
+): Uri {
+    val playbackFile = File(playbackPath)
+    if (playbackFile.exists()) {
+        return Uri.fromFile(playbackFile)
+    }
+    if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) {
+        return Uri.fromFile(File(sourcePath))
+    }
+    val mediaUri = resolveMediaStoreAudioUri(context, sourcePath, mediaStoreId)
+    if (mediaUri != null) return mediaUri
+    return Uri.fromFile(File(sourcePath))
+}
+
+private fun resolveMediaStoreAudioUri(
+    context: Context,
+    sourcePath: String,
+    mediaStoreId: Long = -1L
+): Uri? {
+    return try {
+        if (mediaStoreId > 0L) {
+            return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaStoreId)
+        }
+        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        val selection = "${MediaStore.Audio.Media.DATA} = ?"
+        val args = arrayOf(sourcePath)
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+            ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun MediaItem.resolveSourcePath(): String? {

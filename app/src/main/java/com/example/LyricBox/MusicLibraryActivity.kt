@@ -1,6 +1,7 @@
 package com.example.LyricBox
 
 import android.content.Context
+import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
@@ -376,19 +377,15 @@ private fun handleMusicLibraryItemLyricsAction(
     }
 
     scope.launch {
-        val hasExternalTtml = withContext(Dispatchers.IO) {
-            resolveExternalTtmlFile(audio.path)?.exists() == true
-        }
-        if (hasExternalTtml) {
-            onShowOptions(audio)
-            return@launch
-        }
-
         val lyricsLoadResult = loadAudioLyricsLoadResult(
             context = context,
             audioPath = audio.path,
             mediaStoreId = audio.mediaStoreId
         )
+        if (lyricsLoadResult.hasExternal) {
+            onShowOptions(audio)
+            return@launch
+        }
         if (lyricsLoadResult.isEmbeddedOnly && lyricsLoadResult.embeddedLyrics != null) {
             onStartLyricTimingEditor(
                 audio,
@@ -600,9 +597,9 @@ private fun buildPreviewLyricPayload(
     }
 
     val preferredLyrics = run {
-        val externalTtmlLyrics = if (sameNameTtml?.exists() == true) {
+        val externalTtmlLyrics = if (sameNameTtml != null) {
             try {
-                sameNameTtml.readText().takeIf { it.isNotBlank() }
+                readExternalTtmlWithFallback(context, sameNameTtml)
             } catch (e: Exception) {
                 Log.e("MusicLibrary", "Error reading preferred TTML lyric file", e)
                 null
@@ -825,6 +822,7 @@ class MusicLibraryActivity : ComponentActivity() {
     private var showPiracyWarning by mutableStateOf(false)
     private var externalAudioFile by mutableStateOf<AudioFile?>(null)
     private var editingMetadataPath by mutableStateOf<String?>(null)
+    private var editingMetadataMediaStoreId by mutableStateOf(-1L)
     private var _refreshMetadataPath by mutableStateOf<String?>(null)
     private var initialSearchQueryState by mutableStateOf("")
     private var initialSearchRequestState by mutableIntStateOf(0)
@@ -980,6 +978,7 @@ class MusicLibraryActivity : ComponentActivity() {
                             onEditMetadata = { path, finishAfterNavigate ->
                                 val intent = Intent(this, SongMetadataEditActivity::class.java).apply {
                                     putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, path)
+                                    putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, externalAudioFile!!.mediaStoreId)
                                 }
                                 startActivity(intent)
                                 if (finishAfterNavigate) {
@@ -998,8 +997,11 @@ class MusicLibraryActivity : ComponentActivity() {
                             },
                             onEditMetadata = { path ->
                                 editingMetadataPath = path
+                                editingMetadataMediaStoreId =
+                                    externalAudioFile?.takeIf { it.path == path }?.mediaStoreId ?: -1L
                                 val intent = Intent(this, SongMetadataEditActivity::class.java).apply {
                                     putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, path)
+                                    putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, editingMetadataMediaStoreId)
                                 }
                                 startActivityForResult(intent, REQUEST_CODE_EDIT_METADATA)
                             },
@@ -5185,6 +5187,28 @@ private fun resolveExternalTtmlFile(audioPath: String): File? {
     return File(parentDir, "${audioFile.nameWithoutExtension}.ttml")
 }
 
+private fun readExternalTtmlWithFallback(context: Context, ttmlFile: File): String? {
+    val directRead = runCatching {
+        ttmlFile.readText().takeIf { it.isNotBlank() }
+    }.getOrNull()
+    if (!directRead.isNullOrBlank()) return directRead
+
+    return runCatching {
+        val baseUri = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val args = arrayOf(ttmlFile.absolutePath)
+        context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@runCatching null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+            val contentUri = ContentUris.withAppendedId(baseUri, id)
+            context.contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                reader.readText().takeIf { it.isNotBlank() }
+            }
+        }
+    }.getOrNull()
+}
+
 private suspend fun loadAudioLyricsLoadResult(
     context: Context,
     audioPath: String,
@@ -5193,9 +5217,9 @@ private suspend fun loadAudioLyricsLoadResult(
     withContext(Dispatchers.IO) {
         val embeddedLyrics = extractEmbeddedLyrics(context, audioPath, mediaStoreId)?.takeIf { it.isNotBlank() }
         val ttmlFile = resolveExternalTtmlFile(audioPath)
-        val externalLyrics = if (ttmlFile?.exists() == true) {
+        val externalLyrics = if (ttmlFile != null) {
             try {
-                ttmlFile.readText().takeIf { it.isNotBlank() }
+                readExternalTtmlWithFallback(context, ttmlFile)
             } catch (e: Exception) {
                 Log.e("MusicLibrary", "Error reading external TTML", e)
                 null
@@ -10467,8 +10491,8 @@ private suspend fun resolveLyricsForExternalExport(
     if (!preferSameNameTtml) {
         return@withContext embeddedLyrics
     }
-    val ttmlLyrics = resolveExternalTtmlFile(audioPath)?.takeIf { it.exists() }?.let { ttmlFile ->
-        runCatching { ttmlFile.readText().takeIf { it.isNotBlank() } }
+    val ttmlLyrics = resolveExternalTtmlFile(audioPath)?.let { ttmlFile ->
+        runCatching { readExternalTtmlWithFallback(context, ttmlFile) }
             .onFailure { Log.e("BatchLyricsExport", "Error reading external TTML: $audioPath", it) }
             .getOrNull()
     }

@@ -3,6 +3,7 @@ package com.example.LyricBox
 import android.Manifest
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -303,6 +304,7 @@ class SongMetadataEditActivity : ComponentActivity() {
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
+        const val EXTRA_MEDIA_STORE_ID = "media_store_id"
         const val EXTRA_IS_BATCH_EDIT = "is_batch_edit"
         const val EXTRA_SELECTED_PATHS = "selected_paths"
         const val REQUEST_CODE_LYRIC_TIMING = 1002
@@ -311,6 +313,7 @@ class SongMetadataEditActivity : ComponentActivity() {
     }
     
     private var audioPath by mutableStateOf<String?>(null)
+    private var mediaStoreId by mutableStateOf(-1L)
     private var selectedPaths by mutableStateOf<ArrayList<String>?>(null)
     private var isBatchEdit by mutableStateOf(false)
     private var searchResultData by mutableStateOf<android.content.Intent?>(null)
@@ -325,6 +328,7 @@ class SongMetadataEditActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         audioPath = intent.getStringExtra(EXTRA_AUDIO_PATH)
+        mediaStoreId = intent.getLongExtra(EXTRA_MEDIA_STORE_ID, -1L)
         isBatchEdit = intent.getBooleanExtra(EXTRA_IS_BATCH_EDIT, false)
         selectedPaths = intent.getStringArrayListExtra(EXTRA_SELECTED_PATHS)
         
@@ -347,6 +351,7 @@ class SongMetadataEditActivity : ComponentActivity() {
                 ) { paddingValues ->
                     SongMetadataEditScreen(
                         audioPath = audioPath,
+                        mediaStoreId = mediaStoreId,
                         isBatchEdit = isBatchEdit,
                         selectedPaths = selectedPaths,
                         onCheckUnsavedChanges = { hasUnsavedChanges ->
@@ -492,6 +497,7 @@ class SongMetadataEditActivity : ComponentActivity() {
 @Composable
 fun SongMetadataEditScreen(
     audioPath: String?,
+    mediaStoreId: Long,
     isBatchEdit: Boolean,
     selectedPaths: ArrayList<String>?,
     onCheckUnsavedChanges: (Boolean) -> Unit,
@@ -1365,7 +1371,7 @@ fun SongMetadataEditScreen(
     LaunchedEffect(lyricTimingReturnNonce) {
         if (lyricTimingReturnNonce == 0L || audioPath.isNullOrBlank() || isBatchEdit) return@LaunchedEffect
         val refreshed = withContext(Dispatchers.IO) {
-            com.example.LyricBox.utils.AudioMetadataReader.readLyrics(context, audioPath!!)
+            com.example.LyricBox.utils.AudioMetadataReader.readLyrics(context, audioPath!!, mediaStoreId)
         } ?: ""
         lyrics = refreshed
         originalData = originalData?.copy(lyrics = refreshed)
@@ -1508,6 +1514,7 @@ fun SongMetadataEditScreen(
             loadMetadata(
                 context = context,
                 filePath = audioPath,
+                mediaStoreId = mediaStoreId,
                 onLoaded = { data, cover, copyrightFromTagLib, lyricsFromTagLib, genreFromTagLib, customFieldsFromTagLib ->
                     tagData = data
                     coverBitmap = cover
@@ -3466,9 +3473,94 @@ suspend fun getVideoCoverPath(context: Context, audioPath: String?, albumName: S
     }
 }
 
+private fun resolveMediaStoreAudioUri(
+    context: Context,
+    filePath: String,
+    mediaStoreId: Long = -1L
+): Uri? {
+    return try {
+        if (mediaStoreId > 0L) {
+            return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaStoreId)
+        }
+        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        val selection = "${MediaStore.Audio.Media.DATA} = ?"
+        val args = arrayOf(filePath)
+        context.contentResolver.query(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+            ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private suspend fun readAudioTagDataWithFallback(
+    context: Context,
+    filePath: String,
+    mediaStoreId: Long = -1L
+): AudioTagData {
+    val file = File(filePath)
+    val primary = runCatching {
+        if (!file.exists()) throw FileNotFoundException("Audio file does not exist: $filePath")
+        val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        try {
+            AudioTagReader.read(pfd, true)
+        } finally {
+            pfd.close()
+        }
+    }.getOrNull()
+    if (primary != null) return primary
+
+    val uri = resolveMediaStoreAudioUri(context, filePath, mediaStoreId)
+        ?: throw FileNotFoundException("Cannot resolve MediaStore uri for: $filePath")
+    val uriPfd = context.contentResolver.openFileDescriptor(uri, "r")
+        ?: throw FileNotFoundException("Cannot open audio from uri: $uri")
+    return try {
+        AudioTagReader.read(uriPfd, true)
+    } finally {
+        uriPfd.close()
+    }
+}
+
+private fun readTagLibPropertyMapWithFallback(
+    context: Context,
+    filePath: String,
+    mediaStoreId: Long = -1L
+): Map<String, Array<String>>? {
+    val file = File(filePath)
+    val fromFile = runCatching {
+        if (!file.exists()) throw FileNotFoundException("Audio file does not exist: $filePath")
+        val tagPfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        try {
+            val nativeFd = tagPfd.dup().detachFd()
+            TagLib.getMetadata(nativeFd, false)?.propertyMap
+        } finally {
+            tagPfd.close()
+        }
+    }.getOrNull()
+    if (fromFile != null) return fromFile
+
+    val uri = resolveMediaStoreAudioUri(context, filePath, mediaStoreId) ?: return null
+    val uriPfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
+    return try {
+        val nativeFd = uriPfd.dup().detachFd()
+        TagLib.getMetadata(nativeFd, false)?.propertyMap
+    } finally {
+        uriPfd.close()
+    }
+}
+
 suspend fun loadMetadata(
     context: Context,
     filePath: String?,
+    mediaStoreId: Long = -1L,
     onLoaded: (AudioTagData, Bitmap?, String?, String?, String?, Map<String, String>) -> Unit,
     onError: (Throwable) -> Unit = {}
 ) {
@@ -3481,17 +3573,11 @@ suspend fun loadMetadata(
                 return@withContext
             }
             
-            val file = File(filePath)
-            if (!file.exists()) {
-                withContext(Dispatchers.Main) {
-                    onError(FileNotFoundException("Audio file does not exist: $filePath"))
-                }
-                return@withContext
-            }
-            
-            val pfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-            val data = AudioTagReader.read(pfd, true)
-            pfd.close()
+            val data = readAudioTagDataWithFallback(
+                context = context,
+                filePath = filePath,
+                mediaStoreId = mediaStoreId
+            )
             
             var coverBitmap = data.pictures.firstOrNull()?.let { pic ->
                 BitmapFactory.decodeByteArray(pic.data, 0, pic.data.size)
@@ -3507,13 +3593,13 @@ suspend fun loadMetadata(
             val enabledFields = prefs.getStringSet("enabledMetadataFields", emptySet())?.toList() ?: emptyList()
             
             try {
-                val tagPfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-                val nativeFd = tagPfd.dup().detachFd()
-                val metadata = TagLib.getMetadata(nativeFd, false)
-                tagPfd.close()
+                val props = readTagLibPropertyMapWithFallback(
+                    context = context,
+                    filePath = filePath,
+                    mediaStoreId = mediaStoreId
+                )
                 
-                if (metadata != null) {
-                    val props = metadata.propertyMap
+                if (props != null) {
                     
                     fun firstOf(vararg keys: String): String? {
                         for (key in keys) {
@@ -3545,18 +3631,6 @@ suspend fun loadMetadata(
                     lyricsValue = firstOf("LYRICS", "UNSYNCED LYRICS", "UNSYNCEDLYRICS", "USLT", "LYRIC", "LYRICSENG")
                     genreValue = joinedOf("GENRE")
 
-                    if (coverBitmap == null) {
-                        try {
-                            val coverFd = tagPfd.dup().detachFd()
-                            val frontCover = TagLib.getFrontCover(coverFd)
-                            coverBitmap = frontCover?.data?.let { bytes ->
-                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            }
-                        } catch (coverError: Exception) {
-                            Log.w(TAG, "TagLib fallback cover read failed", coverError)
-                        }
-                    }
-                    
                     // 读取自定义字段
                     enabledFields.forEach { field ->
                         val value = firstOf(field.uppercase()) ?: ""
