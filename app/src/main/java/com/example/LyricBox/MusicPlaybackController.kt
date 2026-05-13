@@ -395,10 +395,12 @@ class MusicPlaybackController(private val context: Context) {
                 if (latestItem.resolveSourcePath() != sourcePath) return@execute
 
                 if (playbackPath.isNotBlank() && File(playbackPath).exists()) {
+                    val mediaStoreId = latestItem.mediaMetadata.extras?.getLong(EXTRA_MEDIA_STORE_ID, -1L) ?: -1L
                     val updatedUri = resolvePlayableAudioUri(
                         context = context,
                         sourcePath = sourcePath,
-                        playbackPath = playbackPath
+                        playbackPath = playbackPath,
+                        mediaStoreId = mediaStoreId
                     )
                     val currentUriPath = latestItem.localConfiguration?.uri?.path
                     if (latestItem.localConfiguration?.uri != updatedUri && currentUriPath != playbackPath) {

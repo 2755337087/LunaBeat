@@ -1,12 +1,15 @@
 package com.example.LyricBox
 
 import android.content.ClipboardManager
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -91,6 +94,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -151,6 +155,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.pow
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -162,6 +167,7 @@ import androidx.media3.exoplayer.ExoPlayer
 
 class LyricTimingActivity : ComponentActivity() {
     companion object {
+        const val EXTRA_MEDIA_STORE_ID = "media_store_id"
         private const val KEY_SOURCE_AUDIO_PATH = "lyric_timing.source_audio_path"
         private const val KEY_SOURCE_TITLE = "lyric_timing.source_title"
         private const val KEY_SOURCE_ARTIST = "lyric_timing.source_artist"
@@ -186,6 +192,7 @@ class LyricTimingActivity : ComponentActivity() {
     private var convertedAudioPath by mutableStateOf("")
     private var audioImportCount by mutableIntStateOf(0)
     private var sourceAudioPath by mutableStateOf("")
+    private var sourceMediaStoreId by mutableLongStateOf(-1L)
     private var sourceTitle by mutableStateOf("")
     private var sourceArtist by mutableStateOf("")
     private var importedLyricsContent by mutableStateOf("")
@@ -307,12 +314,14 @@ class LyricTimingActivity : ComponentActivity() {
     
     private fun loadAudioFromPath(path: String, updateSourcePath: Boolean = true) {
         val targetFile = java.io.File(path)
-        if (!targetFile.exists()) {
+        val mediaStoreUri = resolveMediaStoreAudioUri(path, sourceMediaStoreId)
+        if (!targetFile.exists() && mediaStoreUri == null) {
             Log.w("LyricTiming", "Audio file does not exist: $path")
             return
         }
         val player = ensureTimingPlayer()
-        player.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(targetFile)))
+        val playbackUri = mediaStoreUri ?: Uri.fromFile(targetFile)
+        player.setMediaItem(MediaItem.fromUri(playbackUri))
         player.prepare()
         playbackCompleted = false
         if (updateSourcePath) {
@@ -354,6 +363,68 @@ class LyricTimingActivity : ComponentActivity() {
     
     private fun setPlaybackSpeed(speed: Float) {
         mediaPlayer?.setPlaybackParameters(PlaybackParameters(speed))
+    }
+
+    private fun resolveMediaStoreAudioUri(filePath: String, mediaStoreId: Long = -1L): Uri? {
+        return try {
+            if (mediaStoreId > 0L) {
+                return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaStoreId)
+            }
+            val projection = arrayOf(MediaStore.Audio.Media._ID)
+            val selection = "${MediaStore.Audio.Media.DATA} = ?"
+            val args = arrayOf(filePath)
+            contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                args,
+                null
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+                ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readExternalTtmlWithFallback(audioPath: String): String? {
+        val ttmlFile = runCatching {
+            val audioFile = File(audioPath)
+            val parent = audioFile.parentFile ?: return@runCatching null
+            File(parent, "${audioFile.nameWithoutExtension}.ttml")
+        }.getOrNull() ?: return null
+
+        val directRead = runCatching {
+            ttmlFile.readText().takeIf { it.isNotBlank() }
+        }.getOrNull()
+        if (!directRead.isNullOrBlank()) return directRead
+
+        return runCatching {
+            val baseUri = MediaStore.Files.getContentUri("external")
+            val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+            val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+            val args = arrayOf(ttmlFile.absolutePath)
+            contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@runCatching null
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+                val contentUri = ContentUris.withAppendedId(baseUri, id)
+                contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                    reader.readText().takeIf { it.isNotBlank() }
+                }
+            }
+        }.getOrNull()
+    }
+
+    private fun readLyricsForTiming(audioPath: String, mediaStoreId: Long = -1L): String? {
+        val externalTtml = readExternalTtmlWithFallback(audioPath)?.takeIf { it.isNotBlank() }
+        if (!externalTtml.isNullOrBlank()) return externalTtml
+        return runCatching {
+            com.example.LyricBox.utils.AudioMetadataReader
+                .readLyrics(this, audioPath, mediaStoreId)
+                ?.takeIf { it.isNotBlank() }
+        }.getOrNull()
     }
 
     private fun ensureTimingPlayer(): ExoPlayer {
@@ -483,6 +554,7 @@ class LyricTimingActivity : ComponentActivity() {
         val intentSourceTitle = intent.getStringExtra("sourceTitle") ?: ""
         val intentSourceArtist = intent.getStringExtra("sourceArtist") ?: ""
         val intentLyricsContent = intent.getStringExtra("lyricsContent") ?: ""
+        val intentMediaStoreId = intent.getLongExtra(EXTRA_MEDIA_STORE_ID, -1L)
         val intentLyricsFormat = when (intent.getStringExtra("lyricsFormat") ?: "") {
             "纯文本歌词" -> 0
             "LRC歌词", "LRC逐行/逐字歌词" -> 1
@@ -495,6 +567,7 @@ class LyricTimingActivity : ComponentActivity() {
             sourceAudioPath = savedInstanceState.getString(KEY_SOURCE_AUDIO_PATH, intentAudioPath)
             sourceTitle = savedInstanceState.getString(KEY_SOURCE_TITLE, intentSourceTitle)
             sourceArtist = savedInstanceState.getString(KEY_SOURCE_ARTIST, intentSourceArtist)
+            sourceMediaStoreId = intentMediaStoreId
             importedLyricsContent = savedInstanceState.getString(KEY_IMPORTED_LYRICS_CONTENT, intentLyricsContent)
             importedLyricsFormat = savedInstanceState.getInt(KEY_IMPORTED_LYRICS_FORMAT, intentLyricsFormat)
             convertedAudioPath = savedInstanceState.getString(KEY_CONVERTED_AUDIO_PATH, "")
@@ -518,6 +591,7 @@ class LyricTimingActivity : ComponentActivity() {
             sourceAudioPath = intentAudioPath
             sourceTitle = intentSourceTitle
             sourceArtist = intentSourceArtist
+            sourceMediaStoreId = intentMediaStoreId
             importedLyricsContent = intentLyricsContent
             importedLyricsFormat = intentLyricsFormat
             pendingRestoreSeekMs = null
@@ -542,12 +616,24 @@ class LyricTimingActivity : ComponentActivity() {
             if (file.exists()) {
                 loadAudioFromPath(startupAudioPath)
             } else {
-                pendingRestoreSeekMs = null
-                lastKnownPlaybackPositionMs = 0L
+                val mediaStoreUri = resolveMediaStoreAudioUri(startupAudioPath, sourceMediaStoreId)
+                if (mediaStoreUri != null) {
+                    loadAudioFromPath(startupAudioPath)
+                } else {
+                    pendingRestoreSeekMs = null
+                    lastKnownPlaybackPositionMs = 0L
+                }
             }
         } else {
             pendingRestoreSeekMs = null
             lastKnownPlaybackPositionMs = 0L
+        }
+
+        if (startupAudioPath.isNotEmpty() && importedLyricsContent.isBlank()) {
+            importedLyricsContent = readLyricsForTiming(startupAudioPath, sourceMediaStoreId).orEmpty()
+            if (importedLyricsContent.isNotBlank()) {
+                importedLyricsFormat = detectLyricsFormat(importedLyricsContent).coerceIn(0, 3)
+            }
         }
         
         val callback = object : OnBackPressedCallback(true) {
@@ -599,6 +685,7 @@ class LyricTimingActivity : ComponentActivity() {
                         convertMessage = convertMessage,
                         audioImportCount = audioImportCount,
                         sourceAudioPath = sourceAudioPath,
+                        sourceMediaStoreId = sourceMediaStoreId,
                         sourceTitle = sourceTitle,
                         sourceArtist = sourceArtist,
                         importedLyricsContent = importedLyricsContent,
@@ -7200,6 +7287,7 @@ fun LyricTimingScreen(
     convertMessage: String = "",
     audioImportCount: Int = 0,
     sourceAudioPath: String = "",
+    sourceMediaStoreId: Long = -1L,
     sourceTitle: String = "",
     sourceArtist: String = "",
     importedLyricsContent: String = "",
@@ -8243,6 +8331,7 @@ fun LyricTimingScreen(
                                         context = context,
                                         lyricLines = lyricLines,
                                         sourceAudioPath = sourceAudioPath,
+                                        sourceMediaStoreId = sourceMediaStoreId,
                                         convertedAudioPath = convertedAudioPath,
                                         displayTitle = displayTitle,
                                         currentPos = currentPos,
@@ -8434,6 +8523,7 @@ fun LyricTimingScreen(
                                         context = context,
                                         lyricLines = lyricLines,
                                         sourceAudioPath = sourceAudioPath,
+                                        sourceMediaStoreId = sourceMediaStoreId,
                                         convertedAudioPath = convertedAudioPath,
                                         displayTitle = displayTitle,
                                         currentPos = currentPos,
@@ -11405,6 +11495,7 @@ private fun createLyricPreviewIntent(
     context: Context,
     lyricLines: List<LyricLine>,
     sourceAudioPath: String,
+    sourceMediaStoreId: Long,
     convertedAudioPath: String,
     displayTitle: String,
     currentPos: Long,
@@ -11418,6 +11509,7 @@ private fun createLyricPreviewIntent(
     return Intent(context, LyricPreviewActivity::class.java).apply {
         putExtra(LyricPreviewActivity.EXTRA_AUDIO_PATH, audioPath)
         putExtra(LyricPreviewActivity.EXTRA_SOURCE_AUDIO_PATH, previewSourceAudioPath)
+        putExtra(LyricPreviewActivity.EXTRA_MEDIA_STORE_ID, sourceMediaStoreId)
         putExtra(LyricPreviewActivity.EXTRA_TITLE, displayTitle)
         putExtra(LyricPreviewActivity.EXTRA_INITIAL_POSITION, currentPos)
         putExtra(LyricPreviewActivity.EXTRA_CREATORS, pendingLyricsCreators.toTypedArray())

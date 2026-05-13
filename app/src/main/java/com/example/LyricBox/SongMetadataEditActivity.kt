@@ -382,6 +382,7 @@ class SongMetadataEditActivity : ComponentActivity() {
                                 putExtra("sourceTitle", audioPath?.let { java.io.File(it).nameWithoutExtension } ?: "")
                                 putExtra("sourceArtist", "")
                                 putExtra("lyricsFormat", lyricsFormat)
+                                putExtra(LyricTimingActivity.EXTRA_MEDIA_STORE_ID, mediaStoreId)
                             }
                             startActivityForResult(intent, REQUEST_CODE_LYRIC_TIMING)
                         },
@@ -896,6 +897,7 @@ fun SongMetadataEditScreen(
                     val result = saveMetadata(
                         context = context,
                         filePath = filePath,
+                        mediaStoreId = -1L,
                         title = if (title != KEEP) title else "",
                         artist = if (artist != KEEP) artist else "",
                         album = if (album != KEEP) album else "",
@@ -964,6 +966,7 @@ fun SongMetadataEditScreen(
                 val result = saveMetadata(
                     context = context,
                     filePath = audioPath ?: "",
+                    mediaStoreId = mediaStoreId,
                     title = title,
                     artist = artist,
                     album = album,
@@ -4364,6 +4367,7 @@ fun MusicLibraryCoverItem(
 suspend fun saveMetadata(
     context: Context,
     filePath: String,
+    mediaStoreId: Long = -1L,
     title: String,
     artist: String,
     album: String,
@@ -4434,9 +4438,13 @@ suspend fun saveMetadata(
             var success = true
             // 只有有字段更新时才写标签
             if (updates.isNotEmpty()) {
-                val pfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_WRITE)
-                success = AudioTagWriter.writeTags(pfd, updates, true)
-                pfd.close()
+                val pfd = openAudioReadWritePfd(context, filePath, mediaStoreId)
+                    ?: return@withContext SaveResult(false)
+                try {
+                    success = AudioTagWriter.writeTags(pfd, updates, true)
+                } finally {
+                    pfd.close()
+                }
             }
             
             // 只有封面修改时才处理封面
@@ -4452,13 +4460,21 @@ suspend fun saveMetadata(
                         pictureType = "Front Cover"
                     )
                     
-                    val picPfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_WRITE)
-                    AudioTagWriter.writePictures(picPfd, listOf(newPic))
-                    picPfd.close()
+                    val picPfd = openAudioReadWritePfd(context, filePath, mediaStoreId)
+                        ?: return@withContext SaveResult(false)
+                    try {
+                        AudioTagWriter.writePictures(picPfd, listOf(newPic))
+                    } finally {
+                        picPfd.close()
+                    }
                 } else if (coverRemoved && oldCoverData != null) {
-                    val picPfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_WRITE)
-                    AudioTagWriter.writePictures(picPfd, emptyList())
-                    picPfd.close()
+                    val picPfd = openAudioReadWritePfd(context, filePath, mediaStoreId)
+                        ?: return@withContext SaveResult(false)
+                    try {
+                        AudioTagWriter.writePictures(picPfd, emptyList())
+                    } finally {
+                        picPfd.close()
+                    }
                 }
             }
             
@@ -4468,6 +4484,22 @@ suspend fun saveMetadata(
             SaveResult(false)
         }
     }
+}
+
+private fun openAudioReadWritePfd(
+    context: Context,
+    filePath: String,
+    mediaStoreId: Long = -1L
+): ParcelFileDescriptor? {
+    val direct = runCatching {
+        val file = File(filePath)
+        if (!file.exists()) return@runCatching null
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_WRITE)
+    }.getOrNull()
+    if (direct != null) return direct
+
+    val uri = resolveMediaStoreAudioUri(context, filePath, mediaStoreId) ?: return null
+    return runCatching { context.contentResolver.openFileDescriptor(uri, "rw") }.getOrNull()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

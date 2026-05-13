@@ -969,6 +969,7 @@ class MusicLibraryActivity : ComponentActivity() {
                                     putExtra("sourceTitle", externalAudioFile!!.displayTitle)
                                     putExtra("sourceArtist", externalAudioFile!!.artist)
                                     putExtra("lyricsFormat", format)
+                                    putExtra(LyricTimingActivity.EXTRA_MEDIA_STORE_ID, externalAudioFile!!.mediaStoreId)
                                 }
                                 startActivity(intent)
                                 if (finishAfterNavigate) {
@@ -2120,6 +2121,7 @@ fun MusicLibraryScreen(
             putExtra("sourceTitle", audio.displayTitle)
             putExtra("sourceArtist", audio.artist)
             putExtra("lyricsFormat", format)
+            putExtra(LyricTimingActivity.EXTRA_MEDIA_STORE_ID, audio.mediaStoreId)
         }
         context.startActivity(intent)
     }

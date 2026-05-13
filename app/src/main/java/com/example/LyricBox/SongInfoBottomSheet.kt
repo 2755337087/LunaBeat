@@ -260,7 +260,7 @@ fun SongInfoBottomSheet(
             SongInfoActionItem(
                 title = "去编辑歌曲元数据",
                 onClick = {
-                    launchSongMetadataEditorFromSongInfo(context, audio.path)
+                    launchSongMetadataEditorFromSongInfo(context, audio)
                     onDismiss()
                 }
             )
@@ -581,10 +581,10 @@ private suspend fun launchLyricTimingEditorFromSongInfo(
             File(parent, "${audioFile.nameWithoutExtension}.ttml")
         }
         val preferredLyrics = when {
-            sameNameTtml?.exists() == true -> {
-                runCatching { sameNameTtml.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
+            sameNameTtml != null -> {
+                readExternalTtmlWithFallback(context, sameNameTtml)?.takeIf { it.isNotBlank() }
             }
-            else -> AudioMetadataReader.readLyrics(audio.path)?.takeIf { it.isNotBlank() }
+            else -> AudioMetadataReader.readLyrics(context, audio.path, audio.mediaStoreId)?.takeIf { it.isNotBlank() }
         }
         val formatLabel = preferredLyrics
             ?.let { detectLyricsFormat(it).toSongInfoLyricFormatLabel() }
@@ -598,6 +598,7 @@ private suspend fun launchLyricTimingEditorFromSongInfo(
         putExtra("sourceTitle", songInfo.title.ifBlank { audio.displayTitle })
         putExtra("sourceArtist", songInfo.artist.ifBlank { audio.displayArtist })
         putExtra("lyricsFormat", lyricsFormatLabel)
+        putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audio.mediaStoreId)
         if (context !is Activity) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -605,14 +606,37 @@ private suspend fun launchLyricTimingEditorFromSongInfo(
     context.startActivity(intent)
 }
 
-private fun launchSongMetadataEditorFromSongInfo(context: Context, audioPath: String) {
+private fun launchSongMetadataEditorFromSongInfo(context: Context, audio: AudioFile) {
     val intent = Intent(context, SongMetadataEditActivity::class.java).apply {
-        putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, audioPath)
+        putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, audio.path)
+        putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audio.mediaStoreId)
         if (context !is Activity) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
     context.startActivity(intent)
+}
+
+private fun readExternalTtmlWithFallback(context: Context, ttmlFile: File): String? {
+    val directRead = runCatching {
+        ttmlFile.readText().takeIf { it.isNotBlank() }
+    }.getOrNull()
+    if (!directRead.isNullOrBlank()) return directRead
+
+    return runCatching {
+        val baseUri = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val args = arrayOf(ttmlFile.absolutePath)
+        context.contentResolver.query(baseUri, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@runCatching null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+            val contentUri = ContentUris.withAppendedId(baseUri, id)
+            context.contentResolver.openInputStream(contentUri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                reader.readText().takeIf { it.isNotBlank() }
+            }
+        }
+    }.getOrNull()
 }
 
 private fun Int.toSongInfoLyricFormatLabel(): String {
