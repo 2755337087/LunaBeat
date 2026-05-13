@@ -105,6 +105,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.OutputStream
 
 private const val TAG = "SongMetadataEdit"
@@ -1504,59 +1505,67 @@ fun SongMetadataEditScreen(
             }
         } else if (audioPath != null) {
             // 普通编辑模式
-            loadMetadata(context, audioPath) { data, cover, copyrightFromTagLib, lyricsFromTagLib, genreFromTagLib, customFieldsFromTagLib ->
-                tagData = data
-                coverBitmap = cover
-                originalCoverBitmap = cover
-                val resolvedGenre = genreFromTagLib ?: data.genre ?: ""
-                if (!hasInitializedEditableFields) {
-                    title = data.title ?: ""
-                    artist = data.artist ?: ""
-                    album = data.album ?: ""
-                    year = data.date ?: ""
-                    trackNumber = data.trackNumber ?: ""
-                    discNumber = data.discNumber?.toString() ?: ""
-                    genre = resolvedGenre
-                    albumArtist = data.albumArtist ?: ""
-                    composer = data.composer ?: ""
-                    lyricist = data.lyricist ?: ""
-                    comment = data.comment ?: ""
-                    copyright = copyrightFromTagLib ?: ""
-                    lyrics = lyricsFromTagLib ?: ""
-                    customFieldValues.clear()
-                    customFieldValues.putAll(customFieldsFromTagLib)
-                    hasInitializedEditableFields = true
+            loadMetadata(
+                context = context,
+                filePath = audioPath,
+                onLoaded = { data, cover, copyrightFromTagLib, lyricsFromTagLib, genreFromTagLib, customFieldsFromTagLib ->
+                    tagData = data
+                    coverBitmap = cover
+                    originalCoverBitmap = cover
+                    val resolvedGenre = genreFromTagLib ?: data.genre ?: ""
+                    if (!hasInitializedEditableFields) {
+                        title = data.title ?: ""
+                        artist = data.artist ?: ""
+                        album = data.album ?: ""
+                        year = data.date ?: ""
+                        trackNumber = data.trackNumber ?: ""
+                        discNumber = data.discNumber?.toString() ?: ""
+                        genre = resolvedGenre
+                        albumArtist = data.albumArtist ?: ""
+                        composer = data.composer ?: ""
+                        lyricist = data.lyricist ?: ""
+                        comment = data.comment ?: ""
+                        copyright = copyrightFromTagLib ?: ""
+                        lyrics = lyricsFromTagLib ?: ""
+                        customFieldValues.clear()
+                        customFieldValues.putAll(customFieldsFromTagLib)
+                        hasInitializedEditableFields = true
+                    }
+
+                    // 原始值始终更新，用于计算修改状态和撤销逻辑
+                    originalCustomFieldValues.clear()
+                    originalCustomFieldValues.putAll(customFieldsFromTagLib)
+
+                    originalData = OriginalData(
+                        title = data.title ?: "",
+                        artist = data.artist ?: "",
+                        album = data.album ?: "",
+                        year = data.date ?: "",
+                        trackNumber = data.trackNumber ?: "",
+                        discNumber = data.discNumber?.toString() ?: "",
+                        genre = resolvedGenre,
+                        albumArtist = data.albumArtist ?: "",
+                        composer = data.composer ?: "",
+                        lyricist = data.lyricist ?: "",
+                        comment = data.comment ?: "",
+                        copyrightInfo = copyrightFromTagLib ?: "",
+                        lyrics = lyricsFromTagLib ?: "",
+                        coverBitmap = cover,
+                        customFields = customFieldsFromTagLib
+                    )
+                    scope.launch {
+                        videoCoverPath = getVideoCoverPath(context, audioPath, data.album)
+                        hasVideoCover = videoCoverPath != null
+                    }
+                    audioFileName = File(audioPath).nameWithoutExtension
+                    isLoading = false
+                    onUnsavedChangesChanged(false)
+                },
+                onError = {
+                    // 权限或文件访问失败时，避免界面一直停留在“正在加载”
+                    isLoading = false
                 }
-                
-                // 原始值始终更新，用于计算修改状态和撤销逻辑
-                originalCustomFieldValues.clear()
-                originalCustomFieldValues.putAll(customFieldsFromTagLib)
-                
-                originalData = OriginalData(
-                    title = data.title ?: "",
-                    artist = data.artist ?: "",
-                    album = data.album ?: "",
-                    year = data.date ?: "",
-                    trackNumber = data.trackNumber ?: "",
-                    discNumber = data.discNumber?.toString() ?: "",
-                    genre = resolvedGenre,
-                    albumArtist = data.albumArtist ?: "",
-                    composer = data.composer ?: "",
-                    lyricist = data.lyricist ?: "",
-                    comment = data.comment ?: "",
-                    copyrightInfo = copyrightFromTagLib ?: "",
-                    lyrics = lyricsFromTagLib ?: "",
-                    coverBitmap = cover,
-                    customFields = customFieldsFromTagLib
-                )
-                scope.launch {
-                    videoCoverPath = getVideoCoverPath(context, audioPath, data.album)
-                    hasVideoCover = videoCoverPath != null
-                }
-                audioFileName = File(audioPath).nameWithoutExtension
-                isLoading = false
-                onUnsavedChangesChanged(false)
-            }
+            )
         } else {
             isLoading = false
         }
@@ -3460,14 +3469,23 @@ suspend fun getVideoCoverPath(context: Context, audioPath: String?, albumName: S
 suspend fun loadMetadata(
     context: Context,
     filePath: String?,
-    onLoaded: (AudioTagData, Bitmap?, String?, String?, String?, Map<String, String>) -> Unit
+    onLoaded: (AudioTagData, Bitmap?, String?, String?, String?, Map<String, String>) -> Unit,
+    onError: (Throwable) -> Unit = {}
 ) {
     withContext(Dispatchers.IO) {
         try {
-            if (filePath == null) return@withContext
+            if (filePath == null) {
+                withContext(Dispatchers.Main) {
+                    onError(IllegalArgumentException("filePath is null"))
+                }
+                return@withContext
+            }
             
             val file = File(filePath)
             if (!file.exists()) {
+                withContext(Dispatchers.Main) {
+                    onError(FileNotFoundException("Audio file does not exist: $filePath"))
+                }
                 return@withContext
             }
             
@@ -3554,6 +3572,9 @@ suspend fun loadMetadata(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading metadata", e)
+            withContext(Dispatchers.Main) {
+                onError(e)
+            }
         }
     }
 }
