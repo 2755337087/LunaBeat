@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.io.File
 
 object SecureStorage {
     init {
@@ -26,18 +27,51 @@ object SecureStorage {
         }
     }
 
-    private fun getEncryptedPrefs(context: Context): android.content.SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    private fun clearCorruptedEncryptedPrefs(context: Context) {
+        try {
+            val prefsFile = File(context.applicationInfo.dataDir, "shared_prefs/$PREFS_NAME.xml")
+            if (prefsFile.exists()) {
+                prefsFile.delete()
+                Log.w(TAG, "已删除损坏的加密偏好设置文件")
+            }
+            val prefsBackupFile = File(context.applicationInfo.dataDir, "shared_prefs/$PREFS_NAME.xml.bak")
+            if (prefsBackupFile.exists()) {
+                prefsBackupFile.delete()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "清理损坏数据失败", e)
+        }
+    }
 
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+    private fun getEncryptedPrefs(context: Context): android.content.SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "加密偏好设置初始化失败，尝试清理损坏数据", e)
+            clearCorruptedEncryptedPrefs(context)
+            
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
     }
 
     fun saveCloudflareSecretKey(context: Context, secretKey: String) {
@@ -62,10 +96,14 @@ object SecureStorage {
     }
 
     fun initializeIfNeeded(context: Context) {
-        val prefs = getEncryptedPrefs(context)
-        if (!prefs.contains(KEY_CLOUDFLARE_SECRET_KEY)) {
-            Log.d(TAG, "初始化密钥已保存默认密钥")
-            saveCloudflareSecretKey(context, getDecodedDefaultKey())
+        try {
+            val prefs = getEncryptedPrefs(context)
+            if (!prefs.contains(KEY_CLOUDFLARE_SECRET_KEY)) {
+                Log.d(TAG, "初始化密钥已保存默认密钥")
+                saveCloudflareSecretKey(context, getDecodedDefaultKey())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "初始化安全存储失败", e)
         }
     }
 }
