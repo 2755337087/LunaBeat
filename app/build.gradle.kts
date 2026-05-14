@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -14,11 +18,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.LyricBox1"
+        applicationId = "com.example.LyricBox"
         minSdk = 24
         targetSdk = 36
         versionCode = 26
-        versionName = "2.0.1"
+        versionName = "2.0.1_beta01"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -62,6 +66,28 @@ android {
     }
 }
 
+val apkAppName = "LunaBeat"
+
+val renameReleaseApkTask = tasks.register("renameReleaseApk") {
+    dependsOn("assembleRelease")
+    doLast {
+        val version = android.defaultConfig.versionName?.replace("_", "") ?: "unknown"
+        val buildTime = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val sourceApk = file("release/app-release.apk")
+        if (sourceApk.exists()) {
+            copy {
+                from(sourceApk)
+                into(file("release"))
+                rename { "${apkAppName}_${version}_${buildTime}.apk" }
+            }
+        }
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(renameReleaseApkTask)
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -96,6 +122,7 @@ dependencies {
     implementation("androidx.room:room-runtime:2.7.2")
     implementation("androidx.room:room-ktx:2.7.2")
     implementation("androidx.room:room-paging:2.7.2")
+    implementation(libs.androidx.ui.text)
     ksp("androidx.room:room-compiler:2.7.2")
     implementation("androidx.paging:paging-runtime-ktx:3.3.6")
     implementation("androidx.paging:paging-compose:3.3.6")

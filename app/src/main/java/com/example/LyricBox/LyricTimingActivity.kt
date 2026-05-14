@@ -13329,7 +13329,7 @@ private fun saveTtmlToPublicDownloadFallback(
     fileName: String,
     ttmlContent: String
 ): PublicTtmlSaveResult {
-    val relativeDir = "Download/LunaBeatLyrics/"
+    val relativeDir = "Documents/LunaBeatLyrics/"
     val displayPath = "/storage/emulated/0/$relativeDir$fileName"
     return runCatching {
         val values = ContentValues().apply {
