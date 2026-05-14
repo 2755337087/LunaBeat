@@ -232,20 +232,18 @@ class MusicPlaybackService : MediaSessionService() {
         mainHandler.removeCallbacks(lyriconProgressRunnable)
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
         lyriconBridge.release()
+        mediaSession?.run {
+            player.release()
+            release()
+        }
+        player = null
+        mediaSession = null
+        // 服务即将销毁，不需要再执行异步清理任务，直接同步清理或跳过
         lyricExecutor.shutdownNow()
         alacWorkExecutor.shutdownNow()
         alacCleanupExecutor.shutdownNow()
         transcodeExecutor.shutdownNow()
         artworkExecutor.shutdownNow()
-        mediaSession?.run {
-            player.release()
-            release()
-        }
-        alacCleanupExecutor.execute {
-            PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
-        }
-        player = null
-        mediaSession = null
         super.onDestroy()
     }
 

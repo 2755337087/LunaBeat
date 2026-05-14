@@ -20,6 +20,7 @@ import android.provider.Settings
 import android.provider.DocumentsContract
 import android.util.Log
 import android.view.ViewGroup
+import java.util.Locale
 import android.webkit.MimeTypeMap
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -334,10 +335,19 @@ class SongMetadataEditActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // 优先使用直接传入的路径
         audioPath = intent.getStringExtra(EXTRA_AUDIO_PATH)
         mediaStoreId = intent.getLongExtra(EXTRA_MEDIA_STORE_ID, -1L)
         isBatchEdit = intent.getBooleanExtra(EXTRA_IS_BATCH_EDIT, false)
         selectedPaths = intent.getStringArrayListExtra(EXTRA_SELECTED_PATHS)
+        
+        // 如果没有直接传入路径，尝试从外部 Intent 解析
+        if (audioPath == null) {
+            val externalPath = handleExternalIntent(intent)
+            if (externalPath != null) {
+                audioPath = externalPath
+            }
+        }
         
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -504,6 +514,291 @@ class SongMetadataEditActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading bitmap from uri", e)
+            null
+        }
+    }
+    
+    private fun handleExternalIntent(intent: Intent): String? {
+        Log.d(TAG, "handleExternalIntent start: action=${intent.action}, type=${intent.type}, data=${intent.data}")
+        
+        // 处理 ACTION_SEND
+        if (intent.action == Intent.ACTION_SEND) {
+            val uri: Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            if (uri != null) {
+                Log.d(TAG, "ACTION_SEND uri=$uri")
+                val resolved = getRealPathFromUri(uri)
+                Log.d(TAG, "ACTION_SEND resolved=$resolved")
+                return resolved
+            }
+        }
+        
+        // 检查 Intent 的 data（用于 ACTION_VIEW 和 ACTION_EDIT）
+        val uri = intent.data ?: return null
+        Log.d(TAG, "fallback intent.data uri=$uri")
+        
+        // 尝试从 Uri 获取真实路径
+        val resolved = getRealPathFromUri(uri)
+        Log.d(TAG, "intent.data resolved=$resolved")
+        return resolved
+    }
+    
+    private fun getRealPathFromUri(uri: Uri): String? {
+        Log.d(TAG, "getRealPathFromUri start: $uri")
+        // file:// 直接取本地路径
+        if (uri.scheme.equals("file", ignoreCase = true)) {
+            val filePath = uri.path
+            if (isExistingFilePath(filePath)) {
+                Log.d(TAG, "resolved by file scheme path: $filePath")
+                return filePath
+            }
+        }
+
+        // 直接 path（部分机型 ACTION_VIEW 会给出）
+        uri.path?.let { rawPath ->
+            val decodedPath = Uri.decode(rawPath)
+            if (isExistingFilePath(decodedPath)) {
+                Log.d(TAG, "resolved by decoded raw path: $decodedPath")
+                return decodedPath
+            }
+        }
+
+        if (!uri.scheme.equals("content", ignoreCase = true)) {
+            Log.d(TAG, "unsupported scheme for resolution: ${uri.scheme}")
+            return null
+        }
+
+        resolvePathFromFileProviderUri(uri)?.let { providerDerivedPath ->
+            if (isExistingFilePath(providerDerivedPath)) {
+                Log.d(TAG, "resolved by FileProvider derived path: $providerDerivedPath")
+                return providerDerivedPath
+            }
+        }
+
+        // 优先处理 DocumentUri（更接近真实路径）
+        resolvePathFromDocumentUri(uri)?.let { documentPath ->
+            if (isExistingFilePath(documentPath)) {
+                Log.d(TAG, "resolved by DocumentUri: $documentPath")
+                return documentPath
+            }
+        }
+
+        // 兜底查询
+        getPathFromDataColumn(uri)?.let { dataPath ->
+            if (isExistingFilePath(dataPath)) {
+                Log.d(TAG, "resolved by _data column: $dataPath")
+                return dataPath
+            }
+        }
+        getPathFromMediaStore(uri)?.let { mediaPath ->
+            if (isExistingFilePath(mediaPath)) {
+                Log.d(TAG, "resolved by MediaStore lookup: $mediaPath")
+                return mediaPath
+            }
+        }
+        getPathFromDocumentsProvider(uri)?.let { providerPath ->
+            if (isExistingFilePath(providerPath)) {
+                Log.d(TAG, "resolved by legacy DocumentsProvider: $providerPath")
+                return providerPath
+            }
+        }
+
+        // 解析不到真实路径时，最后兜底复制到缓存，保证可继续处理
+        Log.w(TAG, "无法获取外部音频真实路径，回退到缓存文件: $uri")
+        val fallbackPath = copyContentUriToCache(uri)
+        Log.d(TAG, "fallback cache copy path=$fallbackPath")
+        return fallbackPath
+    }
+
+    private fun isExistingFilePath(path: String?): Boolean {
+        if (path.isNullOrBlank()) return false
+        return runCatching { File(path).exists() && File(path).isFile }.getOrDefault(false)
+    }
+
+    private fun resolvePathFromFileProviderUri(uri: Uri): String? {
+        val authority = uri.authority ?: return null
+        if (!authority.contains("fileprovider", ignoreCase = true)) {
+            return null
+        }
+        val lowerAuthority = authority.lowercase(Locale.ROOT)
+        val fileProviderSuffix = ".fileprovider"
+        val suffixIndex = lowerAuthority.indexOf(fileProviderSuffix)
+        val senderPackage = if (suffixIndex > 0) {
+            authority.substring(0, suffixIndex)
+        } else {
+            authority
+        }.takeIf { it.isNotBlank() } ?: return null
+        val segments = uri.pathSegments
+        if (segments.isEmpty()) return null
+        val rootName = segments.first().lowercase(Locale.ROOT)
+        val relativePath = segments.drop(1).joinToString("/")
+        if (relativePath.isBlank()) return null
+
+        val externalRoot = android.os.Environment.getExternalStorageDirectory().absolutePath
+        val candidates = when (rootName) {
+            "external_files", "external-files", "externalfiles", "external_file", "external-file" -> listOf(
+                "$externalRoot/$relativePath",
+                "$externalRoot/Android/data/$senderPackage/files/$relativePath"
+            )
+            "external_cache", "external-cache", "externalcache" -> listOf(
+                "$externalRoot/Android/data/$senderPackage/cache/$relativePath"
+            )
+            "external_media", "external-media", "externalmedia" -> listOf(
+                "$externalRoot/Android/media/$senderPackage/$relativePath"
+            )
+            "external_path", "external-path", "external", "sdcard", "root" -> listOf(
+                "$externalRoot/$relativePath"
+            )
+            "files", "internal_files", "internal-files" -> listOf(
+                "/data/user/0/$senderPackage/files/$relativePath"
+            )
+            "cache", "internal_cache", "internal-cache" -> listOf(
+                "/data/user/0/$senderPackage/cache/$relativePath"
+            )
+            else -> emptyList()
+        }
+        if (candidates.isEmpty()) {
+            return null
+        }
+        candidates.forEach { candidate ->
+            val exists = isExistingFilePath(candidate)
+            if (exists) {
+                return candidate
+            }
+        }
+        return null
+    }
+
+    private fun resolvePathFromDocumentUri(uri: Uri): String? {
+        return try {
+            if (!android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                return null
+            }
+            val docId = android.provider.DocumentsContract.getDocumentId(uri)
+            when (uri.authority) {
+                "com.android.externalstorage.documents" -> {
+                    val split = docId.split(":", limit = 2)
+                    if (split.size < 2) return null
+                    val volume = split[0]
+                    val relativePath = split[1]
+                    val candidate = if (volume.equals("primary", ignoreCase = true)) {
+                        "${android.os.Environment.getExternalStorageDirectory()}/$relativePath"
+                    } else {
+                        "/storage/$volume/$relativePath"
+                    }
+                    candidate
+                }
+                "com.android.providers.downloads.documents" -> {
+                    when {
+                        docId.startsWith("raw:") -> docId.removePrefix("raw:")
+                        docId.startsWith("/storage/") -> docId
+                        docId.toLongOrNull() != null -> {
+                            val id = docId.toLong()
+                            val publicUri = android.content.ContentUris.withAppendedId(
+                                Uri.parse("content://downloads/public_downloads"),
+                                id
+                            )
+                            getPathFromDataColumn(publicUri) ?: run {
+                                val myUri = android.content.ContentUris.withAppendedId(
+                                    Uri.parse("content://downloads/my_downloads"),
+                                    id
+                                )
+                                getPathFromDataColumn(myUri)
+                            }
+                        }
+                        else -> null
+                    }
+                }
+                "com.android.providers.media.documents" -> {
+                    val split = docId.split(":")
+                    if (split.size < 2) return null
+                    val type = split[0]
+                    val id = split[1]
+                    val contentUri = when (type) {
+                        "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                        else -> null
+                    } ?: return null
+                    val selection = "${MediaStore.MediaColumns._ID}=?"
+                    val selectionArgs = arrayOf(id)
+                    queryDataColumn(contentUri, selection, selectionArgs)
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving document uri path: $uri", e)
+            null
+        }
+    }
+
+    private fun queryDataColumn(
+        uri: Uri,
+        selection: String? = null,
+        selectionArgs: Array<String>? = null
+    ): String? {
+        return try {
+            val projection = arrayOf(MediaStore.MediaColumns.DATA)
+            contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val columnIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    if (columnIndex >= 0) {
+                        cursor.getString(columnIndex)
+                    } else null
+                } else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun copyContentUriToCache(uri: Uri): String? {
+        return try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val fileName = getFileName(uri)?.replace('/', '_')?.replace('\\', '_')
+                    ?: "temp_audio_${System.currentTimeMillis()}"
+                val tempFile = File(cacheDir, fileName)
+                tempFile.outputStream().use { output ->
+                    inputStream.copyTo(output)
+                }
+                tempFile.absolutePath
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error copying file from content URI", e)
+            null
+        }
+    }
+
+    private fun getPathFromDataColumn(uri: Uri): String? {
+        return queryDataColumn(uri)
+    }
+
+    private fun getPathFromMediaStore(uri: Uri): String? {
+        return try {
+            val projection = arrayOf(MediaStore.Audio.Media.DATA)
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val columnIndex = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                    if (columnIndex >= 0) {
+                        cursor.getString(columnIndex)
+                    } else null
+                } else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getPathFromDocumentsProvider(uri: Uri): String? {
+        return getPathFromDataColumn(uri)
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        return try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && nameIndex >= 0) {
+                    cursor.getString(nameIndex)
+                } else null
+            }
+        } catch (e: Exception) {
             null
         }
     }
