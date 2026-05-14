@@ -2069,14 +2069,19 @@ fun SongMetadataEditScreen(
     }
 
     val requestAccompanimentDirectoryPermissionAndPickAudio: () -> Unit = {
-        val cachedTreeUri = getAccompanimentTreeUri(context)
-        val isAuthorized = cachedTreeUri != null &&
-            hasPersistedTreeReadWritePermission(context, cachedTreeUri) &&
-            isMusicDirectoryTreeUri(context, cachedTreeUri)
-        if (isAuthorized) {
+        // 只在 Android 10 上检查授权，其他版本直接选择文件
+        if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) {
             pickAccompanimentLauncher.launch("audio/*")
         } else {
-            showAccompanimentDirectoryAuthDialog = true
+            val cachedTreeUri = getAccompanimentTreeUri(context)
+            val isAuthorized = cachedTreeUri != null &&
+                hasPersistedTreeReadWritePermission(context, cachedTreeUri) &&
+                isMusicDirectoryTreeUri(context, cachedTreeUri)
+            if (isAuthorized) {
+                pickAccompanimentLauncher.launch("audio/*")
+            } else {
+                showAccompanimentDirectoryAuthDialog = true
+            }
         }
     }
     
@@ -4445,6 +4450,14 @@ suspend fun copyAccompanimentToDefaultPath(
             return@withContext AccompanimentOperationResult(success = true, path = directWriteResult)
         }
 
+        // 只有 Android 10 才尝试 SAF 授权方式，其他版本直接失败
+        if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) {
+            return@withContext AccompanimentOperationResult(
+                success = false,
+                errorMessage = "无法创建或写入伴奏文件"
+            )
+        }
+
         val treeUri = preferredTreeUri ?: getAccompanimentTreeUri(context)
         if (treeUri == null) {
             return@withContext AccompanimentOperationResult(
@@ -4515,11 +4528,19 @@ suspend fun copyAccompanimentToDefaultPath(
         )
     } catch (e: SecurityException) {
         Log.e(TAG, "No permission to save accompaniment file", e)
-        AccompanimentOperationResult(
-            success = false,
-            needPermissionForTree = true,
-            errorMessage = "没有目录访问权限，请重新授权"
-        )
+        // 只有 Android 10 才返回需要授权的错误
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            AccompanimentOperationResult(
+                success = false,
+                needPermissionForTree = true,
+                errorMessage = "没有目录访问权限，请重新授权"
+            )
+        } else {
+            AccompanimentOperationResult(
+                success = false,
+                errorMessage = "没有目录访问权限"
+            )
+        }
     } catch (e: Exception) {
         Log.e(TAG, "Error copying accompaniment file", e)
         AccompanimentOperationResult(
