@@ -200,8 +200,29 @@ private fun isLiftStaggerLetterChar(c: Char): Boolean {
     }
 }
 
+private fun isLiftStaggerPunctuationChar(c: Char): Boolean {
+    return c == '\'' ||
+        c == '’' ||
+        c == '‘' ||
+        c == '-' ||
+        c == '‐' ||
+        c == '‑' ||
+        c == '–' ||
+        c == '—' ||
+        c == ',' ||
+        c == '.' ||
+        c == '!' ||
+        c == '?' ||
+        c == ':' ||
+        c == ';'
+}
+
 private fun isSingleLiftStaggerLetterText(text: String): Boolean {
     return text.length == 1 && isLiftStaggerLetterChar(text[0])
+}
+
+private fun isSingleLiftStaggerParticipantText(text: String): Boolean {
+    return text.length == 1 && (isLiftStaggerLetterChar(text[0]) || isLiftStaggerPunctuationChar(text[0]))
 }
 //英文字母上抬开始时间及长持续时间间隔阈值
 private const val LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS = 70L
@@ -450,13 +471,16 @@ private fun buildLongAsciiLetterLiftStartOverrides(
         var runEndExclusive = index + 1
         while (
             runEndExclusive < words.size &&
-            isSingleLiftStaggerLetterText(words[runEndExclusive].word.text)
+            isSingleLiftStaggerParticipantText(words[runEndExclusive].word.text)
         ) {
             runEndExclusive++
         }
 
         val runCount = runEndExclusive - runStart
-        if (runCount >= 2) {
+        val letterCount = words
+            .subList(runStart, runEndExclusive)
+            .count { isSingleLiftStaggerLetterText(it.word.text) }
+        if (letterCount >= 2) {
             val runBegin = words[runStart].word.begin
             val runEnd = words.subList(runStart, runEndExclusive).maxOf { it.word.end }
             val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / runCount
@@ -4519,14 +4543,14 @@ fun LyricWordsCanvasWithWrap(
                     continue
                 }
                 
-                // 否则检查是否是连续拉丁/西里尔字母
-                val isLetterChar = isSingleLiftStaggerLetterText(word.text)
-                val prevWasLetter = currentGroup.isNotEmpty() && {
+                // 否则检查是否是连续拉丁/西里尔字母及其英文模式标点
+                val isLetterParticipant = isSingleLiftStaggerParticipantText(word.text)
+                val prevWasLetterParticipant = currentGroup.isNotEmpty() && {
                     val lastWord = currentGroup.last().second
-                    isSingleLiftStaggerLetterText(lastWord.text)
+                    isSingleLiftStaggerParticipantText(lastWord.text)
                 }()
                 
-                if (isLetterChar && prevWasLetter) {
+                if (isLetterParticipant && prevWasLetterParticipant) {
                     currentGroup.add(i to word)
                 } else {
                     if (currentGroup.isNotEmpty()) {
