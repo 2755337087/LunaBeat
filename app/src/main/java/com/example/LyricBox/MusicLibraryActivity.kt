@@ -26,6 +26,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -1700,6 +1701,8 @@ fun MusicLibraryScreen(
     val scope = rememberCoroutineScope()
     val playbackController = rememberMusicPlaybackController()
     val miniPlayerVisible = playbackController.hasCurrentItem
+    val currentPlayingAudioPath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
+    val canLocatePlayingSong = currentPlayingAudioPath != null
     val miniPlayerHeight = 72.dp
     
     val allAudioFiles = remember { mutableStateListOf<AudioFile>() }
@@ -1743,6 +1746,10 @@ fun MusicLibraryScreen(
     var hasTriggeredInitialReveal by remember { mutableStateOf(false) }
     var showScanProgressPopup by remember { mutableStateOf(false) }
     var scanPopupDelayJob by remember { mutableStateOf<Job?>(null) }
+    var pendingLocateAudioPath by remember { mutableStateOf<String?>(null) }
+    var locateHighlightPath by remember { mutableStateOf<String?>(null) }
+    var locateHighlightActive by remember { mutableStateOf(false) }
+    var locateHighlightJob by remember { mutableStateOf<Job?>(null) }
     
     var searchQuery by remember(initialSearchQuery) { mutableStateOf(initialSearchQuery) }
     var showSearchHistoryPopup by remember { mutableStateOf(false) }
@@ -2356,7 +2363,74 @@ fun MusicLibraryScreen(
                 }
                 previousFirstVisibleIndex = currentIndex
             }
-            
+
+            fun requestLocatePlayingSong(path: String) {
+                val directIndex = displayAudioFiles.indexOfFirst { it.path == path }
+                if (directIndex >= 0) {
+                    pendingLocateAudioPath = path
+                    return
+                }
+
+                val existsInLibrary = allAudioFiles.any { it.path == path }
+                if (!existsInLibrary) {
+                    Toast.makeText(context, "当前播放歌曲不在音乐库列表中", Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                pendingLocateAudioPath = path
+                if (searchQuery.isNotBlank()) {
+                    searchQuery = ""
+                    updateDisplayFiles()
+                }
+            }
+
+            fun triggerLocateHighlight(path: String) {
+                locateHighlightJob?.cancel()
+                locateHighlightJob = scope.launch {
+                    locateHighlightPath = path
+                    locateHighlightActive = false
+                    repeat(2) {
+                        locateHighlightActive = true
+                        delay(180L)
+                        locateHighlightActive = false
+                        delay(140L)
+                    }
+                    locateHighlightPath = null
+                }
+            }
+
+            LaunchedEffect(
+                pendingLocateAudioPath,
+                isUpdatingDisplayList,
+                displayAudioFiles.size,
+                listState.firstVisibleItemIndex
+            ) {
+                val targetPath = pendingLocateAudioPath ?: return@LaunchedEffect
+                if (isUpdatingDisplayList || displayAudioFiles.isEmpty()) return@LaunchedEffect
+
+                val targetIndex = displayAudioFiles.indexOfFirst { it.path == targetPath }
+                if (targetIndex < 0) return@LaunchedEffect
+
+                val viewportHeightPx = listState.layoutInfo.viewportSize.height
+                val desiredUpperBandMin = (viewportHeightPx * 0.18f).toInt()
+                val desiredUpperBandMax = (viewportHeightPx * 0.42f).toInt()
+                val estimatedItemHeightPx = with(density) { 84.dp.roundToPx().coerceAtLeast(1) }
+                val leadItemCount = ((viewportHeightPx * 0.30f).toInt() / estimatedItemHeightPx).coerceAtLeast(2)
+                val anchorIndex = (targetIndex - leadItemCount).coerceAtLeast(0)
+
+                val visibleRange = listState.layoutInfo.visibleItemsInfo
+                val currentTargetInfo = visibleRange.firstOrNull { it.index == targetIndex }
+                val inDesiredBand = currentTargetInfo?.offset?.let { it in desiredUpperBandMin..desiredUpperBandMax } == true
+
+                if (!inDesiredBand) {
+                    listState.scrollToItem(anchorIndex)
+                    listState.animateScrollToItem(anchorIndex)
+                }
+
+                triggerLocateHighlight(targetPath)
+                pendingLocateAudioPath = null
+            }
+             
             val headbarTitle = when {
                 isMultiSelectMode -> "已选 ${selectedPaths.size}"
                 showDoubleTapHint -> "双击返回顶部"
@@ -2412,44 +2486,59 @@ fun MusicLibraryScreen(
                             )
                         )
                     } else {
-                        listOf(
-                            MenuItem(title = "多选模式", onClick = {
-                                menuExpanded = false
-                                isMultiSelectMode = true
-                            }),
-                            MenuItem(title = "目录设置", onClick = { onOpenSettings() }),
-                            MenuItem(
-                                title = "刷新",
-                                onClick = {
-                                    isScanning = true
-                                    showScanComplete = false
-                                    showScanPopupImmediately()
-                                    scanJob?.cancel()
-                                    scanJob = scope.launch {
-                                        scanAudioFiles(context, prefs, allAudioFiles,
-                                            onProgress = { current, total ->
-                                                scanProgress = current to total
-                                            },
-                                            onComplete = { summary ->
-                                                isScanning = false
-                                                hideScanPopupImmediately()
-                                                scanSummary = summary
-                                                if (shouldShowScanComplete(summary)) {
-                                                    showScanComplete = true
-                                                    scope.launch {
-                                                        kotlinx.coroutines.delay(3000)
+                        buildList {
+                            if (canLocatePlayingSong) {
+                                add(
+                                    MenuItem(
+                                        title = "定位正在播放歌曲",
+                                        onClick = {
+                                            menuExpanded = false
+                                            currentPlayingAudioPath?.let { requestLocatePlayingSong(it) }
+                                        }
+                                    )
+                                )
+                            }
+                            add(
+                                MenuItem(title = "多选模式", onClick = {
+                                    menuExpanded = false
+                                    isMultiSelectMode = true
+                                })
+                            )
+                            add(MenuItem(title = "目录设置", onClick = { onOpenSettings() }))
+                            add(
+                                MenuItem(
+                                    title = "刷新",
+                                    onClick = {
+                                        isScanning = true
+                                        showScanComplete = false
+                                        showScanPopupImmediately()
+                                        scanJob?.cancel()
+                                        scanJob = scope.launch {
+                                            scanAudioFiles(context, prefs, allAudioFiles,
+                                                onProgress = { current, total ->
+                                                    scanProgress = current to total
+                                                },
+                                                onComplete = { summary ->
+                                                    isScanning = false
+                                                    hideScanPopupImmediately()
+                                                    scanSummary = summary
+                                                    if (shouldShowScanComplete(summary)) {
+                                                        showScanComplete = true
+                                                        scope.launch {
+                                                            kotlinx.coroutines.delay(3000)
+                                                            showScanComplete = false
+                                                        }
+                                                    } else {
                                                         showScanComplete = false
                                                     }
-                                                } else {
-                                                    showScanComplete = false
+                                                    updateDisplayFiles()
                                                 }
-                                                updateDisplayFiles()
-                                            }
-                                        )
+                                            )
+                                        }
                                     }
-                                }
+                                )
                             )
-                        )
+                        }
                     }
                     CustomDropdownMenu(
                         expanded = menuExpanded,
@@ -2813,6 +2902,7 @@ fun MusicLibraryScreen(
                                     audio = audio,
                                     isInMultiSelectMode = isMultiSelectMode,
                                     isSelected = isSelected,
+                                    isLocateHighlightActive = locateHighlightActive && locateHighlightPath == audio.path,
                                     sequenceNumber = if (isMultiSelectMode) index else null,
                                     onClick = {
                                         if (isMultiSelectMode) {
@@ -3854,6 +3944,7 @@ fun AudioFileItem(
     modifier: Modifier = Modifier,
     isInMultiSelectMode: Boolean = false,
     isSelected: Boolean = false,
+    isLocateHighlightActive: Boolean = false,
     sequenceNumber: Int? = null,
     onLongClick: (() -> Unit)? = null,
     onSelectionChange: ((Boolean) -> Unit)? = null,
@@ -3896,6 +3987,22 @@ fun AudioFileItem(
             dampingRatio = Spring.DampingRatioNoBouncy
         ),
         label = "sequenceOffset"
+    )
+
+    val baseBackgroundColor = if (isInMultiSelectMode && isSelected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val locateHighlightColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isLocateHighlightActive && !(isInMultiSelectMode && isSelected)) {
+            locateHighlightColor
+        } else {
+            baseBackgroundColor
+        },
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "audioItemBackgroundColor"
     )
     
     LaunchedEffect(audio.coverCachePath, audio.lastModified) {
@@ -3940,12 +4047,7 @@ fun AudioFileItem(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isInMultiSelectMode && isSelected) 
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                else 
-                    MaterialTheme.colorScheme.surfaceVariant
-            )
+            .background(backgroundColor)
             .then(
                 if (onLongClick != null) {
                     Modifier.pointerInput(Unit) {

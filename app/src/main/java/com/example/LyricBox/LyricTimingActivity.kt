@@ -6566,6 +6566,7 @@ fun CommonHeadBar(
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier
+                        .fillMaxWidth()
                         .then(
                             if (onTitleClick != null) {
                                 Modifier.clickable(
@@ -6576,7 +6577,9 @@ fun CommonHeadBar(
                                 Modifier
                             }
                         ),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             
