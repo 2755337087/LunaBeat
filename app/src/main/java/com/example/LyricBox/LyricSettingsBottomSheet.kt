@@ -9,15 +9,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +34,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,10 +46,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 
 private enum class LyricSettingsPage {
@@ -54,7 +63,8 @@ private enum class LyricSettingsPage {
     LYRIC_DISPLAY_POSITION,
     FONT_SIZE,
     FONT_WEIGHT,
-    LYRIC_ANIMATION,
+    INTERLUDE_ANIMATION,
+    WORD_LIFT_ANIMATION,
     CUSTOM_FONT
 }
 
@@ -66,6 +76,7 @@ fun LyricSettingsBottomSheet(
     showTransliteration: Boolean,
     supportsLyricBlur: Boolean,
     lyricBlurEnabled: Boolean,
+    lyricGlowEnabled: Boolean,
     lyriconStatusBarEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
     lyricDisplayMode: Int,
@@ -79,6 +90,7 @@ fun LyricSettingsBottomSheet(
     onShowTranslationChange: (Boolean) -> Unit,
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
+    onLyricGlowEnabledChange: (Boolean) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
     onLyricDisplayModeChange: (Int) -> Unit,
@@ -95,7 +107,19 @@ fun LyricSettingsBottomSheet(
     accentColor: Color
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
+    val blockSheetDragFromList = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = Offset(x = 0f, y = available.y)
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                Velocity(x = 0f, y = available.y)
+        }
+    }
     var page by remember { mutableStateOf(LyricSettingsPage.MAIN) }
     var tempLyricDisplayPosition by remember(lyricDisplayPosition) { mutableFloatStateOf(lyricDisplayPosition.toFloat()) }
     var tempLyricDisplayMode by remember(lyricDisplayMode) { mutableIntStateOf(lyricDisplayMode) }
@@ -103,29 +127,39 @@ fun LyricSettingsBottomSheet(
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
     var tempAnimationType by remember(animationType) { mutableIntStateOf(animationType) }
     var tempWordLiftDistanceDp by remember(wordLiftDistanceDp) { mutableFloatStateOf(wordLiftDistanceDp) }
+    LaunchedEffect(page) { listState.scrollToItem(0) }
 
     ModalBottomSheet(
+        modifier = Modifier.statusBarsPadding(),
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = containerColor,
-        contentColor = contentColor
+        contentColor = contentColor,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
+                .nestedScroll(blockSheetDragFromList)
                 .animateContentSize(animationSpec = tween(durationMillis = 260))
-                .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            when (page) {
+            item {
+                when (page) {
                 LyricSettingsPage.MAIN -> {
                     Text(
                         text = "歌词设置",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = contentColor
+                    )
+                    LyricSettingsSectionTitle(
+                        title = "歌词显示",
+                        contentColor = contentColor
                     )
                     LyricSettingsSwitchRow(
                         title = "显示翻译",
@@ -138,29 +172,6 @@ fun LyricSettingsBottomSheet(
                         title = "显示注音",
                         checked = showTransliteration,
                         onCheckedChange = onShowTransliterationChange,
-                        contentColor = contentColor,
-                        accentColor = accentColor
-                    )
-                    if (supportsLyricBlur) {
-                        LyricSettingsSwitchRow(
-                            title = "歌词模糊",
-                            checked = lyricBlurEnabled,
-                            onCheckedChange = onLyricBlurEnabledChange,
-                            contentColor = contentColor,
-                            accentColor = accentColor
-                        )
-                    }
-                    LyricSettingsSwitchRow(
-                        title = "状态栏歌词（Lyricon）",
-                        checked = lyriconStatusBarEnabled,
-                        onCheckedChange = onLyriconStatusBarEnabledChange,
-                        contentColor = contentColor,
-                        accentColor = accentColor
-                    )
-                    LyricSettingsSwitchRow(
-                        title = "屏幕常亮",
-                        checked = keepScreenOnEnabled,
-                        onCheckedChange = onKeepScreenOnEnabledChange,
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
@@ -197,18 +208,65 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "歌词动画",
-                        contentColor = contentColor,
-                        onClick = {
-                            tempAnimationType = animationType
-                            tempWordLiftDistanceDp = wordLiftDistanceDp
-                            page = LyricSettingsPage.LYRIC_ANIMATION
-                        }
-                    )
-                    LyricSettingsActionRow(
                         title = "自定义字体",
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.CUSTOM_FONT }
+                    )
+
+                    LyricSettingsSectionTitle(
+                        title = "动画效果",
+                        contentColor = contentColor
+                    )
+                    LyricSettingsActionRow(
+                        title = "间奏动画",
+                        contentColor = contentColor,
+                        onClick = {
+                            tempAnimationType = animationType
+                            page = LyricSettingsPage.INTERLUDE_ANIMATION
+                        }
+                    )
+                    LyricSettingsActionRow(
+                        title = "上抬动画",
+                        contentColor = contentColor,
+                        onClick = {
+                            tempWordLiftDistanceDp = wordLiftDistanceDp
+                            page = LyricSettingsPage.WORD_LIFT_ANIMATION
+                        }
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "歌词发光",
+                        checked = lyricGlowEnabled,
+                        onCheckedChange = onLyricGlowEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    if (supportsLyricBlur) {
+                        LyricSettingsSwitchRow(
+                            title = "歌词模糊",
+                            checked = lyricBlurEnabled,
+                            onCheckedChange = onLyricBlurEnabledChange,
+                            contentColor = contentColor,
+                            accentColor = accentColor
+                        )
+                    }
+
+                    LyricSettingsSectionTitle(
+                        title = "播放与系统",
+                        contentColor = contentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "状态栏歌词（词幕）",
+                        checked = lyriconStatusBarEnabled,
+                        onCheckedChange = onLyriconStatusBarEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "屏幕常亮",
+                        checked = keepScreenOnEnabled,
+                        onCheckedChange = onKeepScreenOnEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
                     )
                 }
 
@@ -392,18 +450,11 @@ fun LyricSettingsBottomSheet(
                     }
                 }
 
-                LyricSettingsPage.LYRIC_ANIMATION -> {
+                LyricSettingsPage.INTERLUDE_ANIMATION -> {
                     LyricSettingsSubPageTitle(
-                        title = "歌词动画",
+                        title = "间奏动画",
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
-                    )
-                    Text(
-                        text = "间奏动画",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = contentColor,
-                        modifier = Modifier.padding(top = 4.dp)
                     )
                     LyricSettingsRadioRow(
                         title = "默认 圆点",
@@ -435,12 +486,13 @@ fun LyricSettingsBottomSheet(
                             onAnimationTypeChange(LyricPreviewActivity.ANIMATION_TYPE_DOGE)
                         }
                     )
-                    Text(
-                        text = "上抬动画",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = contentColor,
-                        modifier = Modifier.padding(top = 12.dp)
+                }
+
+                LyricSettingsPage.WORD_LIFT_ANIMATION -> {
+                    LyricSettingsSubPageTitle(
+                        title = "上抬动画",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
                     )
                     val snappedLiftDistance = tempWordLiftDistanceDp.roundToInt().coerceIn(
                         LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP.toInt(),
@@ -505,6 +557,7 @@ fun LyricSettingsBottomSheet(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -535,6 +588,20 @@ private fun getFontWeightLabelForSheet(weight: Int): String {
 }
 
 @Composable
+private fun LyricSettingsSectionTitle(
+    title: String,
+    contentColor: Color
+) {
+    Text(
+        text = title,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = contentColor.copy(alpha = 0.72f),
+        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+    )
+}
+
+@Composable
 private fun LyricSettingsSubPageTitle(
     title: String,
     contentColor: Color,
@@ -545,7 +612,7 @@ private fun LyricSettingsSubPageTitle(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Default.ArrowBack,
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = "返回",
             tint = contentColor,
             modifier = Modifier
@@ -573,6 +640,7 @@ private fun LyricSettingsSwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = 3.dp)
             .height(56.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(contentColor.copy(alpha = 0.10f))
@@ -609,6 +677,7 @@ private fun LyricSettingsActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = 3.dp)
             .height(56.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(contentColor.copy(alpha = 0.10f))
@@ -641,6 +710,7 @@ private fun LyricSettingsRadioRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = 2.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (selected) accentColor.copy(alpha = 0.16f) else Color.Transparent)
             .clickable(onClick = onClick)
@@ -671,6 +741,7 @@ private fun LyricSettingsFontRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = 2.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (selected) accentColor.copy(alpha = 0.16f) else Color.Transparent)
             .clickable(onClick = onSelect)

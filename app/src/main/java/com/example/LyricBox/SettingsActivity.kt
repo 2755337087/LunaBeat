@@ -293,6 +293,14 @@ fun SettingsScreen(
             )
         )
     }
+    var lyricGlowEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_LYRIC_GLOW,
+                LyricPreviewActivity.DEFAULT_LYRIC_GLOW
+            )
+        )
+    }
     var lyriconStatusBarEnabled by remember {
         mutableStateOf(
             lyricPreviewPrefs.getBoolean(
@@ -564,7 +572,7 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = "歌词设置",
-                    summary = "翻译、注音、字体、歌词动画",
+                    summary = "显示、动画、播放与系统",
                     onClick = { showLyricSettingsSheet = true }
                 )
             }
@@ -873,6 +881,7 @@ fun SettingsScreen(
             showTransliteration = lyricShowTransliteration,
             supportsLyricBlur = supportsLyricBlur,
             lyricBlurEnabled = lyricBlurEnabled,
+            lyricGlowEnabled = lyricGlowEnabled,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
             lyricDisplayMode = lyricDisplayMode,
@@ -899,6 +908,12 @@ fun SettingsScreen(
                 lyricBlurEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, it)
+                    .apply()
+            },
+            onLyricGlowEnabledChange = {
+                lyricGlowEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_LYRIC_GLOW, it)
                     .apply()
             },
             onLyriconStatusBarEnabledChange = {

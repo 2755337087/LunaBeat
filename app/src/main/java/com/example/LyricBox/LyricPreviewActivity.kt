@@ -241,6 +241,9 @@ private fun isForeignGlowText(text: String): Boolean {
 //英文字母上抬开始时间及长持续时间间隔阈值
 private const val LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS = 70L
 private const val ASCII_LETTER_LIFT_STAGGER_MS = 60L
+private const val MIN_CJK_LIFT_AVG_DURATION_MS = 100L
+private const val MAX_CJK_LIFT_AVG_DURATION_MS = 400L
+private const val CJK_LIFT_STAGGER_MS = 100L
 
 private fun isHanChar(c: Char): Boolean {
     return Character.UnicodeScript.of(c.code) == Character.UnicodeScript.HAN
@@ -514,13 +517,13 @@ private fun applyCjkLiftStartOverridesForRange(
     val runBegin = words[start].word.begin
     val runEnd = words.subList(start, endExclusive).maxOf { it.word.end }
     val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / averageDivisor
-    if (averageDuration < LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS) return
+    if (averageDuration !in MIN_CJK_LIFT_AVG_DURATION_MS..MAX_CJK_LIFT_AVG_DURATION_MS) return
 
     var previousCjkBegin: Long? = null
     for (runIndex in start until endExclusive) {
         val word = words[runIndex].word
         if (!isSingleCjkGlowText(word.text)) continue
-        overrides[runIndex] = previousCjkBegin ?: word.begin
+        overrides[runIndex] = previousCjkBegin?.plus(CJK_LIFT_STAGGER_MS) ?: word.begin
         previousCjkBegin = word.begin
     }
 }
@@ -857,6 +860,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_FONT_WEIGHT = "font_weight"
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
+        const val KEY_LYRIC_GLOW = "lyric_glow"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
         const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
@@ -867,6 +871,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_FONT_WEIGHT = 400 // Normal
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
+        const val DEFAULT_LYRIC_GLOW = true
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_SCREEN_KEEP_ON = true
         const val LYRIC_DISPLAY_MODE_DEFAULT = 0
@@ -2036,6 +2041,14 @@ fun LyricPreviewScreen(
             }
         )
     }
+    var lyricGlowEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_LYRIC_GLOW,
+                LyricPreviewActivity.DEFAULT_LYRIC_GLOW
+            )
+        )
+    }
     var lyriconStatusBarEnabled by remember {
         mutableStateOf(
             prefs.getBoolean(
@@ -2598,6 +2611,11 @@ fun LyricPreviewScreen(
         lyricBlurPreferenceEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRIC_BLUR, enabled).apply()
         isLyricBlurEnabled = enabled
+    }
+
+    fun saveLyricGlowEnabled(enabled: Boolean) {
+        lyricGlowEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRIC_GLOW, enabled).apply()
     }
 
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
@@ -3169,6 +3187,7 @@ fun LyricPreviewScreen(
                                     isPlaying = isPlaying, // 新增
                                     animationType = animationType, // 新增
                                     wordLiftDistanceDp = wordLiftDistanceDp,
+                                    lyricGlowEnabled = lyricGlowEnabled,
                                     blurRadius = lyricLineBlurRadius,
                                     hideInterludeAnimation = hideInterludeAnimationDuringManualScroll,
                                     onClick = {
@@ -3279,6 +3298,7 @@ fun LyricPreviewScreen(
                                             isPlaying = isPlaying,
                                             animationType = animationType,
                                             blurRadius = 0f,
+                                            lyricGlowEnabled = lyricGlowEnabled,
                                             clickableEnabled = false,
                                             overrideInactiveColor = creatorLyricColor,
                                             onClick = {}
@@ -3605,6 +3625,7 @@ fun LyricPreviewScreen(
                 showTransliteration = showTransliteration,
                 supportsLyricBlur = supportsLyricBlur,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
+                lyricGlowEnabled = lyricGlowEnabled,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
                 lyricDisplayMode = lyricDisplayMode,
@@ -3618,6 +3639,7 @@ fun LyricPreviewScreen(
                 onShowTranslationChange = { saveShowTranslation(it) },
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
+                onLyricGlowEnabledChange = { saveLyricGlowEnabled(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
                 onLyricDisplayModeChange = { saveLyricDisplayMode(it) },
@@ -4234,6 +4256,7 @@ fun LyricLineView(
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
+    lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW,
     blurRadius: Float = 0f,
     hideInterludeAnimation: Boolean = false,
     clickableEnabled: Boolean = true,
@@ -4488,7 +4511,8 @@ fun LyricLineView(
                                 showTransliteration = showTransliteration, // 新增
                                 fontFamily = fontFamily,
                                 customTypeface = customTypeface,
-                                wordLiftDistanceDp = wordLiftDistanceDp
+                                wordLiftDistanceDp = wordLiftDistanceDp,
+                                lyricGlowEnabled = lyricGlowEnabled
                             )
                         }
 
@@ -4556,7 +4580,8 @@ fun LyricLineView(
                             showTransliteration = showTransliteration, // 新增
                             fontFamily = fontFamily,
                             customTypeface = customTypeface,
-                            wordLiftDistanceDp = wordLiftDistanceDp
+                            wordLiftDistanceDp = wordLiftDistanceDp,
+                            lyricGlowEnabled = lyricGlowEnabled
                         )
                     }
                     
@@ -4720,7 +4745,8 @@ fun LyricWordsCanvasWithWrap(
     showTransliteration: Boolean = true, // 新增：是否显示注音
     fontFamily: FontFamily? = null,
     customTypeface: Typeface? = null,
-    wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP
+    wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
+    lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -5189,7 +5215,11 @@ fun LyricWordsCanvasWithWrap(
             
             val lineWidth = effectiveLineWords.lastOrNull()?.endPosition ?: 0f
             val liftStartOverrides = buildLongLyricLiftStartOverrides(effectiveLineWords)
-            val glowStates = buildLyricGlowStates(effectiveLineWords, currentTime)
+            val glowStates = if (lyricGlowEnabled) {
+                buildLyricGlowStates(effectiveLineWords, currentTime)
+            } else {
+                emptyMap()
+            }
             
             Box(
                 modifier = Modifier
