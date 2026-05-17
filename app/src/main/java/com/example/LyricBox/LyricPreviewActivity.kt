@@ -214,7 +214,14 @@ private fun isLiftStaggerPunctuationChar(c: Char): Boolean {
         c == '!' ||
         c == '?' ||
         c == ':' ||
-        c == ';'
+        c == ';' ||
+        c == '"' ||
+        c == '“' ||
+        c == '”' ||
+        c == '(' ||
+        c == ')' ||
+        c == '[' ||
+        c == ']'
 }
 
 private fun isSingleLiftStaggerLetterText(text: String): Boolean {
@@ -224,12 +231,34 @@ private fun isSingleLiftStaggerLetterText(text: String): Boolean {
 private fun isSingleLiftStaggerParticipantText(text: String): Boolean {
     return text.length == 1 && (isLiftStaggerLetterChar(text[0]) || isLiftStaggerPunctuationChar(text[0]))
 }
+
+private fun isForeignGlowText(text: String): Boolean {
+    val trimmed = text.trim()
+    return trimmed.length > 1 &&
+        trimmed.any { isLiftStaggerLetterChar(it) } &&
+        trimmed.all { isLiftStaggerLetterChar(it) || isLiftStaggerPunctuationChar(it) }
+}
 //英文字母上抬开始时间及长持续时间间隔阈值
 private const val LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS = 70L
 private const val ASCII_LETTER_LIFT_STAGGER_MS = 60L
 
 private fun isHanChar(c: Char): Boolean {
     return Character.UnicodeScript.of(c.code) == Character.UnicodeScript.HAN
+}
+
+private fun isCjkGlowChar(c: Char): Boolean {
+    return when (Character.UnicodeScript.of(c.code)) {
+        Character.UnicodeScript.HAN,
+        Character.UnicodeScript.HIRAGANA,
+        Character.UnicodeScript.KATAKANA,
+        Character.UnicodeScript.HANGUL,
+        Character.UnicodeScript.BOPOMOFO -> true
+        else -> false
+    }
+}
+
+private fun isSingleCjkGlowText(text: String): Boolean {
+    return text.length == 1 && isCjkGlowChar(text[0])
 }
 
 private fun tokenizeForceWordText(text: String): List<String> {
@@ -494,6 +523,175 @@ private fun buildLongAsciiLetterLiftStartOverrides(
         index = runEndExclusive
     }
     return overrides
+}
+
+private enum class LyricGlowLevel {
+    VERY_SLIGHT,
+    SLIGHT,
+    NORMAL,
+    HIGH
+}
+
+private data class LyricGlowState(
+    val level: LyricGlowLevel,
+    val alpha: Float,
+    val playbackScale: Float = 1f
+)
+
+private const val LYRIC_GLOW_FADE_DURATION_MS = 200L
+private const val LYRIC_GLOW_LEAD_IN_MS = 200L
+private const val LYRIC_GLOW_FADE_OUT_DELAY_MS = 200L
+private const val LYRIC_GLOW_PRE_PLAY_ALPHA = 0.20f
+private const val LYRIC_GLOW_MAX_ALPHA = 1.00f
+//CJK字符发光阈值
+private fun resolveCjkGlowLevel(durationMs: Long): LyricGlowLevel? {
+    return when {
+        durationMs >= 1800L -> LyricGlowLevel.VERY_SLIGHT
+        durationMs >= 1200L -> LyricGlowLevel.VERY_SLIGHT
+        else -> null
+    }
+}
+
+private fun resolveForeignWordGlowLevel(averageDurationMs: Long): LyricGlowLevel? {
+    return when {
+        averageDurationMs > 500L -> LyricGlowLevel.HIGH
+        averageDurationMs > 350L -> LyricGlowLevel.NORMAL
+        averageDurationMs > 200L -> LyricGlowLevel.SLIGHT
+        else -> null
+    }
+}
+
+private fun resolveForeignWordGlowLevel(durationMs: Long, letterCount: Int): LyricGlowLevel? {
+    if (letterCount <= 1) {
+        return when {
+            durationMs >= 1000L -> LyricGlowLevel.HIGH
+            durationMs >= 700L -> LyricGlowLevel.NORMAL
+            durationMs >= 400L -> LyricGlowLevel.SLIGHT
+            else -> null
+        }
+    }
+    return resolveForeignWordGlowLevel(durationMs / letterCount)
+}
+
+private fun computeLyricGlowAlpha(
+    currentTime: Long,
+    glowStart: Long,
+    contentBegin: Long,
+    contentEnd: Long
+): Float {
+    val fadeOutStart = contentEnd + LYRIC_GLOW_FADE_OUT_DELAY_MS
+    val glowEnd = fadeOutStart + LYRIC_GLOW_FADE_DURATION_MS
+    if (currentTime < glowStart || currentTime >= glowEnd) return 0f
+    val fadeDuration = LYRIC_GLOW_FADE_DURATION_MS.coerceAtLeast(1L)
+    val leadInDuration = (contentBegin - glowStart).coerceAtLeast(1L)
+    val leadInProgress = ((currentTime - glowStart).toFloat() / leadInDuration.toFloat()).coerceIn(0f, 1f)
+    val fadeInAlpha = LYRIC_GLOW_PRE_PLAY_ALPHA +
+        (LYRIC_GLOW_MAX_ALPHA - LYRIC_GLOW_PRE_PLAY_ALPHA) * leadInProgress
+    return when {
+        currentTime < contentBegin -> fadeInAlpha
+        currentTime < fadeOutStart -> LYRIC_GLOW_MAX_ALPHA
+        else -> LYRIC_GLOW_MAX_ALPHA *
+            ((glowEnd - currentTime).toFloat() / fadeDuration.toFloat()).coerceIn(0f, 1f)
+    }
+}
+
+private fun computeLyricGlowPlaybackScale(currentTime: Long, itemBegin: Long): Float {
+    if (currentTime < itemBegin) return 0.34f
+    val progress = ((currentTime - itemBegin).toFloat() / LYRIC_GLOW_FADE_DURATION_MS.toFloat())
+        .coerceIn(0f, 1f)
+    return 0.34f + (1f - 0.34f) * progress
+}
+
+private fun buildLyricGlowStates(
+    words: List<NewPreviewWordLayout>,
+    currentTime: Long
+): Map<Int, LyricGlowState> {
+    val glowStates = mutableMapOf<Int, LyricGlowState>()
+    var index = 0
+    while (index < words.size) {
+        val word = words[index].word
+        val text = word.text
+
+        if (text == " ") {
+            index++
+            continue
+        }
+
+        if (isSingleCjkGlowText(text)) {
+            val glowStart = word.begin - LYRIC_GLOW_LEAD_IN_MS
+            val glowAlpha = computeLyricGlowAlpha(currentTime, glowStart, word.begin, word.end)
+            val glowLevel = resolveCjkGlowLevel(word.duration)
+            if (glowLevel != null && glowAlpha > 0f) {
+                glowStates[index] = LyricGlowState(
+                    level = glowLevel,
+                    alpha = glowAlpha,
+                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin)
+                )
+            }
+            index++
+            continue
+        }
+
+        if (isForeignGlowText(text)) {
+            val letterCount = text.count { isLiftStaggerLetterChar(it) }.coerceAtLeast(1)
+            val duration = word.duration.coerceAtLeast(0L)
+            val glowLevel = resolveForeignWordGlowLevel(duration, letterCount)
+            val glowStart = word.begin - LYRIC_GLOW_LEAD_IN_MS
+            val glowAlpha = computeLyricGlowAlpha(currentTime, glowStart, word.begin, word.end)
+            if (glowLevel != null && glowAlpha > 0f) {
+                glowStates[index] = LyricGlowState(
+                    level = glowLevel,
+                    alpha = glowAlpha,
+                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin)
+                )
+            }
+            index++
+            continue
+        }
+
+        if (!isSingleLiftStaggerParticipantText(text)) {
+            index++
+            continue
+        }
+
+        val runStart = index
+        var runEndExclusive = index + 1
+        while (
+            runEndExclusive < words.size &&
+            words[runEndExclusive].word.text != " " &&
+            !isSingleCjkGlowText(words[runEndExclusive].word.text) &&
+            isSingleLiftStaggerParticipantText(words[runEndExclusive].word.text)
+        ) {
+            runEndExclusive++
+        }
+
+        val run = words.subList(runStart, runEndExclusive)
+        val letterCount = run.count { isSingleLiftStaggerLetterText(it.word.text) }
+        if (letterCount == 0) {
+            index = runEndExclusive
+            continue
+        }
+        val runBegin = run.minOf { it.word.begin }
+        val runEnd = run.maxOf { it.word.end }
+        val duration = (runEnd - runBegin).coerceAtLeast(0L)
+        val glowLevel = resolveForeignWordGlowLevel(duration, letterCount)
+        if (glowLevel != null) {
+            val glowStart = runBegin - LYRIC_GLOW_LEAD_IN_MS
+            val glowAlpha = computeLyricGlowAlpha(currentTime, glowStart, runBegin, runEnd)
+            for (runIndex in runStart until runEndExclusive) {
+                if (glowAlpha > 0f) {
+                    glowStates[runIndex] = LyricGlowState(
+                        level = glowLevel,
+                        alpha = glowAlpha,
+                        playbackScale = computeLyricGlowPlaybackScale(currentTime, words[runIndex].word.begin)
+                    )
+                }
+            }
+        }
+
+        index = runEndExclusive
+    }
+    return glowStates
 }
 
 // ==================== 歌词上抬动画状态 ====================
@@ -4931,6 +5129,7 @@ fun LyricWordsCanvasWithWrap(
             
             val lineWidth = effectiveLineWords.lastOrNull()?.endPosition ?: 0f
             val liftStartOverrides = buildLongAsciiLetterLiftStartOverrides(effectiveLineWords)
+            val glowStates = buildLyricGlowStates(effectiveLineWords, currentTime)
             
             Box(
                 modifier = Modifier
@@ -4978,7 +5177,8 @@ fun LyricWordsCanvasWithWrap(
                             density = density,
                             fontSize = fontSize,
                             fontWeight = fontWeight, // 新增
-                            customTypeface = customTypeface
+                            customTypeface = customTypeface,
+                            glowState = glowStates[wordIndex]
                         )
                     }
                 }
@@ -4999,7 +5199,8 @@ private fun DrawScope.drawWordWithTransliteration(
     density: Density,
     fontSize: TextUnit,
     fontWeight: Int = 400, // 新增：字体粗细
-    customTypeface: Typeface? = null
+    customTypeface: Typeface? = null,
+    glowState: LyricGlowState? = null
 ) {
     val word = layout.word
     
@@ -5034,6 +5235,37 @@ private fun DrawScope.drawWordWithTransliteration(
     
     // 绘制主歌词
     val baseInactiveColor = inactiveColor
+
+    if (glowState != null && word.text != " ") {
+        val (innerRadiusDp, outerRadiusDp, levelAlphaScale) = when (glowState.level) {
+            LyricGlowLevel.VERY_SLIGHT -> Triple(2f, 4.5f, 0.42f)
+            LyricGlowLevel.SLIGHT -> Triple(3f, 7f, 1f)
+            LyricGlowLevel.NORMAL -> Triple(5f, 11f, 1f)
+            LyricGlowLevel.HIGH -> Triple(7f, 16f, 1f)
+        }
+        val glowAlpha = (glowState.alpha * glowState.playbackScale * levelAlphaScale)
+            .coerceIn(0f, LYRIC_GLOW_MAX_ALPHA)
+        val outerGlowColor = activeColor.copy(alpha = 0.28f * glowAlpha)
+        val innerGlowColor = activeColor.copy(alpha = 0.56f * glowAlpha)
+        val bodyGlowColor = activeColor.copy(alpha = 0.06f * glowAlpha)
+
+        fun drawGlowLayer(radiusDp: Float, color: Color) {
+            val layerPaint = android.graphics.Paint(paint).apply {
+                shader = null
+                this.color = bodyGlowColor.toArgb()
+                setShadowLayer(
+                    with(density) { radiusDp.dp.toPx() },
+                    0f,
+                    0f,
+                    color.toArgb()
+                )
+            }
+            drawContext.canvas.nativeCanvas.drawText(word.text, textX, mainBaseLineY, layerPaint)
+        }
+
+        drawGlowLayer(outerRadiusDp, outerGlowColor)
+        drawGlowLayer(innerRadiusDp, innerGlowColor)
+    }
     
     // 1. 绘制背景层（灰色）
     drawContext.canvas.nativeCanvas.drawText(
