@@ -192,6 +192,21 @@ private fun isAsciiWordChar(c: Char): Boolean {
     return (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9')
 }
 
+private fun isLiftStaggerLetterChar(c: Char): Boolean {
+    return when (Character.UnicodeScript.of(c.code)) {
+        Character.UnicodeScript.LATIN,
+        Character.UnicodeScript.CYRILLIC -> Character.isLetter(c)
+        else -> false
+    }
+}
+
+private fun isSingleLiftStaggerLetterText(text: String): Boolean {
+    return text.length == 1 && isLiftStaggerLetterChar(text[0])
+}
+//英文字母上抬开始时间及长持续时间间隔阈值
+private const val LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS = 70L
+private const val ASCII_LETTER_LIFT_STAGGER_MS = 60L
+
 private fun isHanChar(c: Char): Boolean {
     return Character.UnicodeScript.of(c.code) == Character.UnicodeScript.HAN
 }
@@ -420,16 +435,69 @@ data class NewPreviewWordLayout(
     val charStartPositions: FloatArray
 )
 
+private fun buildLongAsciiLetterLiftStartOverrides(
+    words: List<NewPreviewWordLayout>
+): Map<Int, Long> {
+    val overrides = mutableMapOf<Int, Long>()
+    var index = 0
+    while (index < words.size) {
+        if (!isSingleLiftStaggerLetterText(words[index].word.text)) {
+            index++
+            continue
+        }
+
+        val runStart = index
+        var runEndExclusive = index + 1
+        while (
+            runEndExclusive < words.size &&
+            isSingleLiftStaggerLetterText(words[runEndExclusive].word.text)
+        ) {
+            runEndExclusive++
+        }
+
+        val runCount = runEndExclusive - runStart
+        if (runCount >= 2) {
+            val runBegin = words[runStart].word.begin
+            val runEnd = words.subList(runStart, runEndExclusive).maxOf { it.word.end }
+            val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / runCount
+            if (averageDuration >= LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS) {
+                for (runIndex in runStart until runEndExclusive) {
+                    overrides[runIndex] = runBegin + (runIndex - runStart) * ASCII_LETTER_LIFT_STAGGER_MS
+                }
+            }
+        }
+
+        index = runEndExclusive
+    }
+    return overrides
+}
+
 // ==================== 歌词上抬动画状态 ====================
 
 class WordLiftAnimator {
     private val completedWords = mutableSetOf<String>() // 记录已完成上抬的歌词
     private val wordLiftProgress = mutableMapOf<String, Float>() // 每个歌词的上抬进度
     
-    fun getLiftOffset(word: NewPreviewLyricWord, currentTime: Long, density: Density): Float {
+    fun getLiftOffset(
+        word: NewPreviewLyricWord,
+        currentTime: Long,
+        density: Density,
+        liftDistanceDp: Float,
+        liftBeginMs: Long = word.begin,
+        liftEndMs: Long = word.end + 300L
+    ): Float {
         val wordKey = "${word.begin}_${word.text}"
-        val liftDuration = (word.duration + 500L).coerceAtLeast(1L) // 歌词持续时间 + 500ms
-        val adjustedBegin = word.begin - 200L // 提前200ms开始上抬动画
+        val adjustedBegin = liftBeginMs - 200L // 提前200ms开始上抬动画
+        val liftDuration = (liftEndMs - adjustedBegin).coerceAtLeast(1L)
+        val maxLiftOffset = with(density) {
+            liftDistanceDp
+                .coerceIn(
+                    LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP,
+                    LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP
+                )
+                .dp
+                .toPx()
+        }
         
         // 如果播放进度回退到未播放状态（包括等于开始时间的情况），重置该歌词的上抬状态
         if (currentTime <= adjustedBegin) {
@@ -440,7 +508,7 @@ class WordLiftAnimator {
         
         // 如果已经完成上抬，保持最大上抬位置
         if (completedWords.contains(wordKey)) {
-            return with(density) { 2.dp.toPx() }
+            return maxLiftOffset
         }
         
         // 计算上抬进度
@@ -461,7 +529,7 @@ class WordLiftAnimator {
             completedWords.add(wordKey)
         }
         
-        return with(density) { (2.dp.toPx() * easedProgress) }
+        return maxLiftOffset * easedProgress
     }
     
     fun reset() {
@@ -503,6 +571,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_FONT_SIZE = "font_size"
         const val KEY_SHOW_TRANSLATION = "show_translation"
         const val KEY_INTERLUDE_ANIMATION_TYPE = "interlude_animation_type"
+        const val KEY_WORD_LIFT_DISTANCE_DP = "word_lift_distance_dp"
         const val KEY_FONT_WEIGHT = "font_weight"
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
@@ -512,6 +581,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_LYRIC_DISPLAY_MODE = "lyric_display_mode"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
+        const val DEFAULT_WORD_LIFT_DISTANCE_DP = 2f
         const val DEFAULT_FONT_WEIGHT = 400 // Normal
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
@@ -529,6 +599,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val ANIMATION_TYPE_DEFAULT = 0 // circle
         const val ANIMATION_TYPE_DINOSAUR = 1 // dinosaur
         const val ANIMATION_TYPE_DOGE = 2 // doge
+        const val WORD_LIFT_DISTANCE_MIN_DP = 0f
+        const val WORD_LIFT_DISTANCE_MAX_DP = 5f
         private const val STATE_PLAYBACK_POSITION = "state_playback_position"
         private const val STATE_IS_PLAYING = "state_is_playing"
         private const val DEFAULT_COMPANION_FOLDER_NAME = "sing"
@@ -1658,6 +1730,17 @@ fun LyricPreviewScreen(
     }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat(LyricPreviewActivity.KEY_FONT_SIZE, LyricPreviewActivity.DEFAULT_FONT_SIZE)) }
     var animationType by remember { mutableIntStateOf(prefs.getInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, LyricPreviewActivity.ANIMATION_TYPE_DEFAULT)) }
+    var wordLiftDistanceDp by remember {
+        mutableFloatStateOf(
+            prefs.getFloat(
+                LyricPreviewActivity.KEY_WORD_LIFT_DISTANCE_DP,
+                LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP
+            ).coerceIn(
+                LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP,
+                LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP
+            )
+        )
+    }
     var fontWeight by remember { mutableIntStateOf(prefs.getInt(LyricPreviewActivity.KEY_FONT_WEIGHT, LyricPreviewActivity.DEFAULT_FONT_WEIGHT)) }
     var showTransliteration by remember { 
         mutableStateOf(prefs.getBoolean(LyricPreviewActivity.KEY_SHOW_TRANSLITERATION, LyricPreviewActivity.DEFAULT_SHOW_TRANSLITERATION)) 
@@ -2210,6 +2293,15 @@ fun LyricPreviewScreen(
     fun saveFontWeight(weight: Int) {
         fontWeight = weight
         prefs.edit().putInt(LyricPreviewActivity.KEY_FONT_WEIGHT, weight).apply()
+    }
+
+    fun saveWordLiftDistanceDp(distanceDp: Float) {
+        val normalized = distanceDp.coerceIn(
+            LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP,
+            LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP
+        )
+        wordLiftDistanceDp = normalized
+        prefs.edit().putFloat(LyricPreviewActivity.KEY_WORD_LIFT_DISTANCE_DP, normalized).apply()
     }
     
     // 保存注音显示设置
@@ -2794,6 +2886,7 @@ fun LyricPreviewScreen(
                                     limitWidthForDuetLayout = hasAnyDuetLine,
                                     isPlaying = isPlaying, // 新增
                                     animationType = animationType, // 新增
+                                    wordLiftDistanceDp = wordLiftDistanceDp,
                                     blurRadius = lyricLineBlurRadius,
                                     hideInterludeAnimation = hideInterludeAnimationDuringManualScroll,
                                     onClick = {
@@ -3237,6 +3330,7 @@ fun LyricPreviewScreen(
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 animationType = animationType,
+                wordLiftDistanceDp = wordLiftDistanceDp,
                 fontOptions = customFontOptions,
                 selectedFontId = selectedCustomFontId,
                 onShowTranslationChange = { saveShowTranslation(it) },
@@ -3252,6 +3346,7 @@ fun LyricPreviewScreen(
                     animationType = it
                     prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it).apply()
                 },
+                onWordLiftDistanceDpChange = { saveWordLiftDistanceDp(it) },
                 onOpenCustomFontPicker = {
                     customFontPickerLauncher.launch(arrayOf("*/*"))
                 },
@@ -3856,6 +3951,7 @@ fun LyricLineView(
     limitWidthForDuetLayout: Boolean = false,
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
+    wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
     blurRadius: Float = 0f,
     hideInterludeAnimation: Boolean = false,
     clickableEnabled: Boolean = true,
@@ -4109,7 +4205,8 @@ fun LyricLineView(
                                 fontWeight = fontWeight, // 新增
                                 showTransliteration = showTransliteration, // 新增
                                 fontFamily = fontFamily,
-                                customTypeface = customTypeface
+                                customTypeface = customTypeface,
+                                wordLiftDistanceDp = wordLiftDistanceDp
                             )
                         }
 
@@ -4176,7 +4273,8 @@ fun LyricLineView(
                             fontWeight = fontWeight, // 新增
                             showTransliteration = showTransliteration, // 新增
                             fontFamily = fontFamily,
-                            customTypeface = customTypeface
+                            customTypeface = customTypeface,
+                            wordLiftDistanceDp = wordLiftDistanceDp
                         )
                     }
                     
@@ -4339,7 +4437,8 @@ fun LyricWordsCanvasWithWrap(
     fontWeight: Int = 400, // 新增：字体粗细
     showTransliteration: Boolean = true, // 新增：是否显示注音
     fontFamily: FontFamily? = null,
-    customTypeface: Typeface? = null
+    customTypeface: Typeface? = null,
+    wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -4420,14 +4519,14 @@ fun LyricWordsCanvasWithWrap(
                     continue
                 }
                 
-                // 否则检查是否是连续英文字母
-                val isEnglishChar = word.text.length == 1 && word.text[0] in 'a'..'z' || word.text[0] in 'A'..'Z'
-                val prevWasEnglish = currentGroup.isNotEmpty() && {
+                // 否则检查是否是连续拉丁/西里尔字母
+                val isLetterChar = isSingleLiftStaggerLetterText(word.text)
+                val prevWasLetter = currentGroup.isNotEmpty() && {
                     val lastWord = currentGroup.last().second
-                    lastWord.text.length == 1 && lastWord.text[0] in 'a'..'z' || lastWord.text[0] in 'A'..'Z'
+                    isSingleLiftStaggerLetterText(lastWord.text)
                 }()
                 
-                if (isEnglishChar && prevWasEnglish) {
+                if (isLetterChar && prevWasLetter) {
                     currentGroup.add(i to word)
                 } else {
                     if (currentGroup.isNotEmpty()) {
@@ -4807,6 +4906,7 @@ fun LyricWordsCanvasWithWrap(
             }
             
             val lineWidth = effectiveLineWords.lastOrNull()?.endPosition ?: 0f
+            val liftStartOverrides = buildLongAsciiLetterLiftStartOverrides(effectiveLineWords)
             
             Box(
                 modifier = Modifier
@@ -4814,7 +4914,7 @@ fun LyricWordsCanvasWithWrap(
                     .height(with(density) { lineHeight.toDp() })
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    effectiveLineWords.forEach { layout ->
+                    effectiveLineWords.forEachIndexed { wordIndex, layout ->
                         val word = layout.word
                         val isPassed = currentTime >= word.end
                         val isActive = currentTime >= word.begin && currentTime < word.end
@@ -4832,7 +4932,14 @@ fun LyricWordsCanvasWithWrap(
                         }
                         
                         // 计算上抬偏移（每个字独立计算，不互相影响）
-                        val liftOffset = liftAnimator.getLiftOffset(word, currentTime, density)
+                        val liftOffset = liftAnimator.getLiftOffset(
+                            word = word,
+                            currentTime = currentTime,
+                            density = density,
+                            liftDistanceDp = wordLiftDistanceDp,
+                            liftBeginMs = liftStartOverrides[wordIndex] ?: word.begin,
+                            liftEndMs = word.end + 300L
+                        )
                         
                         // 绘制文字和注音
                         drawWordWithTransliteration(

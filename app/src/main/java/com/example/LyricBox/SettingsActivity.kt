@@ -333,6 +333,17 @@ fun SettingsScreen(
             )
         )
     }
+    var lyricWordLiftDistanceDp by remember {
+        mutableFloatStateOf(
+            lyricPreviewPrefs.getFloat(
+                LyricPreviewActivity.KEY_WORD_LIFT_DISTANCE_DP,
+                LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP
+            ).coerceIn(
+                LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP,
+                LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP
+            )
+        )
+    }
     var lyricDisplayPosition by remember {
         mutableStateOf(
             lyricPreviewPrefs.getInt(
@@ -553,7 +564,7 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = "歌词设置",
-                    summary = "翻译、注音、字体、间奏动画",
+                    summary = "翻译、注音、字体、歌词动画",
                     onClick = { showLyricSettingsSheet = true }
                 )
             }
@@ -869,6 +880,7 @@ fun SettingsScreen(
             fontSize = lyricFontSize,
             fontWeight = lyricFontWeight,
             animationType = lyricAnimationType,
+            wordLiftDistanceDp = lyricWordLiftDistanceDp,
             fontOptions = lyricFontOptions,
             selectedFontId = lyricSelectedFontId,
             onShowTranslationChange = {
@@ -929,6 +941,16 @@ fun SettingsScreen(
                 lyricAnimationType = it
                 lyricPreviewPrefs.edit()
                     .putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it)
+                    .apply()
+            },
+            onWordLiftDistanceDpChange = {
+                val normalized = it.coerceIn(
+                    LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP,
+                    LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP
+                )
+                lyricWordLiftDistanceDp = normalized
+                lyricPreviewPrefs.edit()
+                    .putFloat(LyricPreviewActivity.KEY_WORD_LIFT_DISTANCE_DP, normalized)
                     .apply()
             },
             onOpenCustomFontPicker = {

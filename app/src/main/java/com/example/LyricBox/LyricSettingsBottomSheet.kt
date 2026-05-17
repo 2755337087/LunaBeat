@@ -54,7 +54,7 @@ private enum class LyricSettingsPage {
     LYRIC_DISPLAY_POSITION,
     FONT_SIZE,
     FONT_WEIGHT,
-    INTERLUDE_ANIMATION,
+    LYRIC_ANIMATION,
     CUSTOM_FONT
 }
 
@@ -73,6 +73,7 @@ fun LyricSettingsBottomSheet(
     fontSize: Float,
     fontWeight: Int,
     animationType: Int,
+    wordLiftDistanceDp: Float,
     fontOptions: List<LyricCustomFontOption>,
     selectedFontId: String,
     onShowTranslationChange: (Boolean) -> Unit,
@@ -85,6 +86,7 @@ fun LyricSettingsBottomSheet(
     onFontSizeChange: (Float) -> Unit,
     onFontWeightChange: (Int) -> Unit,
     onAnimationTypeChange: (Int) -> Unit,
+    onWordLiftDistanceDpChange: (Float) -> Unit,
     onOpenCustomFontPicker: () -> Unit,
     onSelectFont: (String) -> Unit,
     onDeleteFont: (String) -> Unit,
@@ -100,6 +102,7 @@ fun LyricSettingsBottomSheet(
     var tempFontSize by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
     var tempAnimationType by remember(animationType) { mutableIntStateOf(animationType) }
+    var tempWordLiftDistanceDp by remember(wordLiftDistanceDp) { mutableFloatStateOf(wordLiftDistanceDp) }
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -194,11 +197,12 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "间奏动画",
+                        title = "歌词动画",
                         contentColor = contentColor,
                         onClick = {
                             tempAnimationType = animationType
-                            page = LyricSettingsPage.INTERLUDE_ANIMATION
+                            tempWordLiftDistanceDp = wordLiftDistanceDp
+                            page = LyricSettingsPage.LYRIC_ANIMATION
                         }
                     )
                     LyricSettingsActionRow(
@@ -388,11 +392,18 @@ fun LyricSettingsBottomSheet(
                     }
                 }
 
-                LyricSettingsPage.INTERLUDE_ANIMATION -> {
+                LyricSettingsPage.LYRIC_ANIMATION -> {
                     LyricSettingsSubPageTitle(
-                        title = "间奏动画",
+                        title = "歌词动画",
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    Text(
+                        text = "间奏动画",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                     LyricSettingsRadioRow(
                         title = "默认 圆点",
@@ -424,6 +435,47 @@ fun LyricSettingsBottomSheet(
                             onAnimationTypeChange(LyricPreviewActivity.ANIMATION_TYPE_DOGE)
                         }
                     )
+                    Text(
+                        text = "上抬动画",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                    val snappedLiftDistance = tempWordLiftDistanceDp.roundToInt().coerceIn(
+                        LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP.toInt(),
+                        LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP.toInt()
+                    )
+                    Text(
+                        text = "上抬距离: ${snappedLiftDistance}dp",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = tempWordLiftDistanceDp,
+                        onValueChange = {
+                            val snapped = it.roundToInt().coerceIn(
+                                LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP.toInt(),
+                                LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP.toInt()
+                            )
+                            tempWordLiftDistanceDp = snapped.toFloat()
+                            onWordLiftDistanceDpChange(snapped.toFloat())
+                        },
+                        valueRange = LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP..LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP,
+                        steps = 4,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("0dp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("2dp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("5dp", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                    }
                 }
 
                 LyricSettingsPage.CUSTOM_FONT -> {
