@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<incidents format="6" by="lint 9.1.1" type="incidents">
+
+    <incident
+        id="GradleDependency"
+        severity="warning"
+        message="A newer version of `compileSdk` than 35 is available: 36">
+        <fix-replace
+            description="Set compileSdk to 36"
+            oldString="35"
+            replacement="36"
+            priority="0"/>
+        <location
+            file="${:audiotag*projectDir}/build.gradle.kts"
+            line="7"
+            column="5"
+            startOffset="93"
+            endLine="7"
+            endColumn="20"
+            endOffset="108"/>
+    </incident>
+
+    <incident
+        id="NewerVersionAvailable"
+        severity="warning"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-coroutines-android than 1.7.3 is available: 1.11.0">
+        <fix-replace
+            description="Change to 1.11.0"
+            family="Update versions"
+            oldString="1.7.3"
+            replacement="1.11.0"
+            priority="0"/>
+        <location
+            file="${:audiotag*projectDir}/build.gradle.kts"
+            line="53"
+            column="20"
+            startOffset="1218"
+            endLine="53"
+            endColumn="76"
+            endOffset="1274"/>
+    </incident>
+
+    <incident
+        id="ChromeOsAbiSupport"
+        severity="warning"
+        message="Missing x86_64 ABI support for ChromeOS">
+        <location
+            file="${:audiotag*projectDir}/build.gradle.kts"
+            line="22"
+            column="27"
+            startOffset="444"
+            endLine="22"
+            endColumn="46"
+            endOffset="463"/>
+    </incident>
+
+    <incident
+        id="UseTomlInstead"
+        severity="warning"
+        message="Use the existing version catalog reference (`libs.kotlinx.coroutines.android`) instead">
+        <fix-replace
+            description="Replace with existing version catalog reference `kotlinx-coroutines-android`"
+            robot="true"
+            independent="true"
+            replacement="libs.kotlinx.coroutines.android"
+            priority="0">
+            <range
+                file="${:audiotag*projectDir}/build.gradle.kts"
+                startOffset="1218"
+                endOffset="1274"/>
+        </fix-replace>
+        <location
+            file="${:audiotag*projectDir}/build.gradle.kts"
+            line="53"
+            column="20"
+            startOffset="1218"
+            endLine="53"
+            endColumn="76"
+            endOffset="1274"/>
+    </incident>
+
+</incidents>

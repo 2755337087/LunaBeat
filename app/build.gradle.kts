@@ -21,8 +21,8 @@ android {
         applicationId = "com.example.LyricBox"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26
-        versionName = "2.0.1_beta01"
+        versionCode = 27
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -34,9 +34,9 @@ android {
         
         ndk {
             abiFilters += listOf("arm64-v8a")
-//            abiFilters += listOf("armeabi-v7a")
-//            abiFilters += listOf("x86")
-//            abiFilters += listOf("x86_64")
+            abiFilters += listOf("armeabi-v7a")
+            abiFilters += listOf("x86")
+            abiFilters += listOf("x86_64")
         }
     }
 

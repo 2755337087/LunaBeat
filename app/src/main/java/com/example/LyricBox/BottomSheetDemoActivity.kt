@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -210,7 +209,6 @@ private fun BottomSheetWithList(
                 menuWidth = 200f
             )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             LoopingList(
                 state = listState,
                 nestedScrollConnection = blockSheetDragFromList
@@ -267,7 +265,6 @@ private fun BottomSheetShort(
                 menuWidth = 200f
             )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             Text("这是一个较低高度、无滚动内容的 BottomSheet。")
         }
     }
@@ -336,7 +333,6 @@ private fun LoopingList(
                         .fillMaxWidth()
                         .padding(vertical = 10.dp)
                 )
-                HorizontalDivider()
             }
         }
     }

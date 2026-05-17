@@ -1,0 +1,20 @@
+<lint-module
+    format="1"
+    dir="D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag"
+    name=":audiotag"
+    type="LIBRARY"
+    maven="歌词转换:audiotag:unspecified"
+    agpVersion="9.1.1"
+    buildFolder="build"
+    bootClassPath="D:\Users\B\AppData\AndroidSDK\platforms\android-35\android.jar;D:\Users\B\AppData\AndroidSDK\build-tools\36.0.0\core-lambda-stubs.jar"
+    javaSourceLevel="11"
+    compileTarget="android-35"
+    neverShrinking="true"
+    highlightGradualR8Api="false">
+  <lintOptions
+      abortOnError="true"
+      absolutePaths="true"
+      checkReleaseBuilds="true"
+      explainIssues="true"/>
+  <variant name="debug"/>
+</lint-module>

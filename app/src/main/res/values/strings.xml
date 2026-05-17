@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">LunaBeat</string>
     <string name="app_name_edit_metadata">LunaBeat(编辑元数据)</string>
-    <string name="app_name_edit_lyrics">LunaBeat(编辑歌词)</string>
+    <string name="app_name_edit_lyrics">LunaBeat(歌词打轴)</string>
 </resources>

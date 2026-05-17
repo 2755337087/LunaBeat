@@ -1,0 +1,34 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.lonx.audiotag-mergeReleaseResources-4:/values-th/values-th.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\B\\.gradle\\caches\\9.3.1\\transforms\\628ff1107ca1800fe9426eecfa9935f7\\workspace\\transformed\\core-1.10.1\\res\\values-th\\values-th.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,151,254,352,450,553,658,770",
+                        "endColumns": "95,102,97,97,102,104,111,100",
+                        "endOffsets": "146,249,347,445,548,653,765,866"
+                    }
+                }
+            ]
+        },
+        {
+            "outputFile": "com.lonx.audiotag-release-6:/values-th/values-th.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\B\\.gradle\\caches\\9.3.1\\transforms\\628ff1107ca1800fe9426eecfa9935f7\\workspace\\transformed\\core-1.10.1\\res\\values-th\\values-th.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,151,254,352,450,553,658,770",
+                        "endColumns": "95,102,97,97,102,104,111,100",
+                        "endOffsets": "146,249,347,445,548,653,765,866"
+                    }
+                }
+            ]
+        }
+    ]
+}

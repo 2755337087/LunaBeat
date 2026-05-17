@@ -605,14 +605,19 @@ private enum class LyricGlowLevel {
 private data class LyricGlowState(
     val level: LyricGlowLevel,
     val alpha: Float,
-    val playbackScale: Float = 1f
+    val playbackScale: Float = 1f,
+    val textScale: Float = 1f
 )
 
 private const val LYRIC_GLOW_FADE_DURATION_MS = 200L
 private const val LYRIC_GLOW_LEAD_IN_MS = 200L
 private const val LYRIC_GLOW_FADE_OUT_DELAY_MS = 200L
+private const val LYRIC_GLOW_FADE_OUT_DURATION_MS = 450L
 private const val LYRIC_GLOW_PRE_PLAY_ALPHA = 0.20f
 private const val LYRIC_GLOW_MAX_ALPHA = 1.00f
+private const val LYRIC_GLOW_FOREIGN_HOLD_DELTA = 0.02f
+private val LYRIC_GLOW_FOREIGN_GROW_EASING = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+private val LYRIC_GLOW_FOREIGN_SHRINK_EASING = CubicBezierEasing(0.3f, 0f, 0.2f, 1f)
 //CJK字符发光阈值
 private fun resolveCjkGlowLevel(durationMs: Long): LyricGlowLevel? {
     return when {
@@ -643,9 +648,9 @@ private fun computeLyricGlowAlpha(
     contentEnd: Long
 ): Float {
     val fadeOutStart = contentEnd + LYRIC_GLOW_FADE_OUT_DELAY_MS
-    val glowEnd = fadeOutStart + LYRIC_GLOW_FADE_DURATION_MS
+    val glowEnd = fadeOutStart + LYRIC_GLOW_FADE_OUT_DURATION_MS
     if (currentTime < glowStart || currentTime >= glowEnd) return 0f
-    val fadeDuration = LYRIC_GLOW_FADE_DURATION_MS.coerceAtLeast(1L)
+    val fadeDuration = LYRIC_GLOW_FADE_OUT_DURATION_MS.coerceAtLeast(1L)
     val leadInDuration = (contentBegin - glowStart).coerceAtLeast(1L)
     val leadInProgress = ((currentTime - glowStart).toFloat() / leadInDuration.toFloat()).coerceIn(0f, 1f)
     val fadeInAlpha = LYRIC_GLOW_PRE_PLAY_ALPHA +
@@ -663,6 +668,118 @@ private fun computeLyricGlowPlaybackScale(currentTime: Long, itemBegin: Long): F
     val progress = ((currentTime - itemBegin).toFloat() / LYRIC_GLOW_FADE_DURATION_MS.toFloat())
         .coerceIn(0f, 1f)
     return 0.34f + (1f - 0.34f) * progress
+}
+
+private fun getLyricGlowTargetScale(level: LyricGlowLevel): Float {
+    return when (level) {
+        LyricGlowLevel.VERY_SLIGHT -> 1.03f
+        LyricGlowLevel.SLIGHT -> 1.05f
+        LyricGlowLevel.NORMAL,
+        LyricGlowLevel.HIGH -> 1.07f
+    }
+}
+
+private fun getLyricGlowScaleAnimDurationMs(level: LyricGlowLevel): Long {
+    return when (level) {
+        LyricGlowLevel.VERY_SLIGHT -> 480L
+        LyricGlowLevel.SLIGHT -> 800L
+        LyricGlowLevel.NORMAL,
+        LyricGlowLevel.HIGH -> 1100L
+    }
+}
+
+private fun getLyricGlowScaleStaggerMs(level: LyricGlowLevel): Long {
+    return when (level) {
+        LyricGlowLevel.VERY_SLIGHT -> 125L
+        LyricGlowLevel.SLIGHT -> 200L
+        LyricGlowLevel.NORMAL,
+        LyricGlowLevel.HIGH -> 275L
+    }
+}
+
+private fun easedScaleLerp(
+    start: Float,
+    end: Float,
+    progress: Float,
+    easing: Easing = FastOutSlowInEasing
+): Float {
+    val eased = easing.transform(progress.coerceIn(0f, 1f))
+    return start + (end - start) * eased
+}
+
+private fun computeLyricGlowScale(
+    currentTime: Long,
+    begin: Long,
+    end: Long,
+    level: LyricGlowLevel
+): Float {
+    if (currentTime < begin || currentTime >= end) return 1f
+    val targetScale = getLyricGlowTargetScale(level)
+    val animDuration = getLyricGlowScaleAnimDurationMs(level)
+    val duration = (end - begin).coerceAtLeast(1L)
+    val inDuration = animDuration
+        .coerceAtMost(duration / 2L)
+        .coerceAtLeast(1L)
+    val outDuration = animDuration
+        .coerceAtMost(duration - inDuration)
+        .coerceAtLeast(1L)
+    val growEnd = begin + inDuration
+    val shrinkStart = (end - outDuration).coerceAtLeast(growEnd)
+    return when {
+        currentTime < growEnd -> {
+            val progress = (currentTime - begin).toFloat() / inDuration.toFloat()
+            easedScaleLerp(1f, targetScale, progress)
+        }
+        currentTime >= shrinkStart -> {
+            val progress = (currentTime - shrinkStart).toFloat() / (end - shrinkStart).coerceAtLeast(1L).toFloat()
+            easedScaleLerp(targetScale, 1f, progress)
+        }
+        else -> targetScale
+    }
+}
+
+private fun computeForeignMultiLetterGlowScale(
+    currentTime: Long,
+    scaleBegin: Long,
+    letterEnd: Long,
+    wordEnd: Long,
+    level: LyricGlowLevel
+): Float {
+    val targetScale = getLyricGlowTargetScale(level)
+    val animDuration = getLyricGlowScaleAnimDurationMs(level)
+    val holdScale = (targetScale - LYRIC_GLOW_FOREIGN_HOLD_DELTA).coerceAtLeast(1f)
+    if (currentTime < scaleBegin) return 1f
+
+    val growDuration = animDuration.coerceAtLeast(1L)
+    val growEnd = scaleBegin + growDuration
+    if (currentTime < growEnd) {
+        val progress = (currentTime - scaleBegin).toFloat() / growDuration.toFloat()
+        return easedScaleLerp(1f, targetScale, progress, LYRIC_GLOW_FOREIGN_GROW_EASING)
+    }
+
+    val hasIntermediateHold = letterEnd < wordEnd
+    if (hasIntermediateHold) {
+        val settleStart = letterEnd
+        if (currentTime < settleStart) return targetScale
+        val settleDuration = animDuration.coerceAtLeast(1L)
+        val settleEnd = settleStart + settleDuration
+        if (currentTime < settleEnd) {
+            val progress = (currentTime - settleStart).toFloat() / settleDuration.toFloat()
+            return easedScaleLerp(targetScale, holdScale, progress, LYRIC_GLOW_FOREIGN_SHRINK_EASING)
+        }
+        if (currentTime < wordEnd) return holdScale
+    } else if (currentTime < wordEnd) {
+        return targetScale
+    }
+
+    val finalDuration = animDuration.coerceAtLeast(1L)
+    val finalEnd = wordEnd + finalDuration
+    if (currentTime < finalEnd) {
+        val startScale = if (hasIntermediateHold) holdScale else targetScale
+        val progress = (currentTime - wordEnd).toFloat() / finalDuration.toFloat()
+        return easedScaleLerp(startScale, 1f, progress, LYRIC_GLOW_FOREIGN_SHRINK_EASING)
+    }
+    return 1f
 }
 
 private fun buildLyricGlowStates(
@@ -688,7 +805,8 @@ private fun buildLyricGlowStates(
                 glowStates[index] = LyricGlowState(
                     level = glowLevel,
                     alpha = glowAlpha,
-                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin)
+                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin),
+                    textScale = computeLyricGlowScale(currentTime, word.begin, word.end, glowLevel)
                 )
             }
             index++
@@ -702,10 +820,22 @@ private fun buildLyricGlowStates(
             val glowStart = word.begin - LYRIC_GLOW_LEAD_IN_MS
             val glowAlpha = computeLyricGlowAlpha(currentTime, glowStart, word.begin, word.end)
             if (glowLevel != null && glowAlpha > 0f) {
+                val textScale = if (letterCount > 1) {
+                    computeForeignMultiLetterGlowScale(
+                        currentTime = currentTime,
+                        scaleBegin = word.begin,
+                        letterEnd = word.end,
+                        wordEnd = word.end,
+                        level = glowLevel
+                    )
+                } else {
+                    computeLyricGlowScale(currentTime, word.begin, word.end, glowLevel)
+                }
                 glowStates[index] = LyricGlowState(
                     level = glowLevel,
                     alpha = glowAlpha,
-                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin)
+                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin),
+                    textScale = textScale
                 )
             }
             index++
@@ -741,12 +871,38 @@ private fun buildLyricGlowStates(
         if (glowLevel != null) {
             val glowStart = runBegin - LYRIC_GLOW_LEAD_IN_MS
             val glowAlpha = computeLyricGlowAlpha(currentTime, glowStart, runBegin, runEnd)
+            val staggerMs = getLyricGlowScaleStaggerMs(glowLevel)
+            val runFirstLetterBegin = run.firstOrNull { isSingleLiftStaggerLetterText(it.word.text) }?.word?.begin
+                ?: runBegin
+            var letterOrderCounter = 0
             for (runIndex in runStart until runEndExclusive) {
                 if (glowAlpha > 0f) {
+                    val runWord = words[runIndex].word
+                    val isLetterToken = isSingleLiftStaggerLetterText(runWord.text)
+                    val letterOrder = if (isLetterToken) {
+                        val order = letterOrderCounter
+                        letterOrderCounter++
+                        order
+                    } else {
+                        (letterOrderCounter - 1).coerceAtLeast(0)
+                    }
+                    val textScale = if (letterCount > 1) {
+                        val scaleBegin = runFirstLetterBegin + letterOrder * staggerMs
+                        computeForeignMultiLetterGlowScale(
+                            currentTime = currentTime,
+                            scaleBegin = scaleBegin,
+                            letterEnd = runWord.end,
+                            wordEnd = runEnd,
+                            level = glowLevel
+                        )
+                    } else {
+                        computeLyricGlowScale(currentTime, runWord.begin, runWord.end, glowLevel)
+                    }
                     glowStates[runIndex] = LyricGlowState(
                         level = glowLevel,
                         alpha = glowAlpha,
-                        playbackScale = computeLyricGlowPlaybackScale(currentTime, words[runIndex].word.begin)
+                        playbackScale = computeLyricGlowPlaybackScale(currentTime, runWord.begin),
+                        textScale = textScale
                     )
                 }
             }
@@ -5325,6 +5481,21 @@ private fun DrawScope.drawWordWithTransliteration(
     
     // 绘制主歌词
     val baseInactiveColor = inactiveColor
+    val lyricTextScale = glowState?.textScale?.coerceAtLeast(1f) ?: 1f
+    val textPivotX = textX + (layout.textWidth / 2f)
+    val textPivotY = mainBaseLineY + fontMetrics.descent
+
+    fun drawMainText(targetPaint: android.graphics.Paint) {
+        val nativeCanvas = drawContext.canvas.nativeCanvas
+        if (lyricTextScale > 1.0001f) {
+            nativeCanvas.save()
+            nativeCanvas.scale(lyricTextScale, lyricTextScale, textPivotX, textPivotY)
+            nativeCanvas.drawText(word.text, textX, mainBaseLineY, targetPaint)
+            nativeCanvas.restore()
+        } else {
+            nativeCanvas.drawText(word.text, textX, mainBaseLineY, targetPaint)
+        }
+    }
 
     if (glowState != null && word.text != " ") {
         val (innerRadiusDp, outerRadiusDp, levelAlphaScale) = when (glowState.level) {
@@ -5335,9 +5506,10 @@ private fun DrawScope.drawWordWithTransliteration(
         }
         val glowAlpha = (glowState.alpha * glowState.playbackScale * levelAlphaScale)
             .coerceIn(0f, LYRIC_GLOW_MAX_ALPHA)
-        val outerGlowColor = activeColor.copy(alpha = 0.28f * glowAlpha)
-        val innerGlowColor = activeColor.copy(alpha = 0.56f * glowAlpha)
-        val bodyGlowColor = activeColor.copy(alpha = 0.06f * glowAlpha)
+        val glowTintColor = blendColors(baseInactiveColor, activeColor, progress.coerceIn(0f, 1f))
+        val outerGlowColor = glowTintColor.copy(alpha = 0.28f * glowAlpha)
+        val innerGlowColor = glowTintColor.copy(alpha = 0.56f * glowAlpha)
+        val bodyGlowColor = glowTintColor.copy(alpha = 0.06f * glowAlpha)
 
         fun drawGlowLayer(radiusDp: Float, color: Color) {
             val layerPaint = android.graphics.Paint(paint).apply {
@@ -5350,7 +5522,7 @@ private fun DrawScope.drawWordWithTransliteration(
                     color.toArgb()
                 )
             }
-            drawContext.canvas.nativeCanvas.drawText(word.text, textX, mainBaseLineY, layerPaint)
+            drawMainText(layerPaint)
         }
 
         drawGlowLayer(outerRadiusDp, outerGlowColor)
@@ -5358,12 +5530,7 @@ private fun DrawScope.drawWordWithTransliteration(
     }
     
     // 1. 绘制背景层（灰色）
-    drawContext.canvas.nativeCanvas.drawText(
-        word.text,
-        textX,
-        mainBaseLineY,
-        paint.apply { color = baseInactiveColor.toArgb() }
-    )
+    drawMainText(paint.apply { color = baseInactiveColor.toArgb() })
     
     // 2. 绘制高亮层
     if (progress > 0f) {
@@ -5371,7 +5538,7 @@ private fun DrawScope.drawWordWithTransliteration(
             // 已完成歌词
             paint.color = activeColor.toArgb()
             paint.shader = null
-            drawContext.canvas.nativeCanvas.drawText(word.text, textX, mainBaseLineY, paint)
+            drawMainText(paint)
         } else {
             val totalWidth = layout.textWidth + layout.spaceWidth
             val highlightWidth = totalWidth * progress
@@ -5386,7 +5553,7 @@ private fun DrawScope.drawWordWithTransliteration(
             )
             
             paint.shader = shader
-            drawContext.canvas.nativeCanvas.drawText(word.text, textX, mainBaseLineY, paint)
+            drawMainText(paint)
         }
     }
     
