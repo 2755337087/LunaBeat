@@ -485,42 +485,109 @@ data class NewPreviewWordLayout(
     val charStartPositions: FloatArray
 )
 
-private fun buildLongAsciiLetterLiftStartOverrides(
+private fun applyLiftStartOverridesForRange(
+    overrides: MutableMap<Int, Long>,
+    words: List<NewPreviewWordLayout>,
+    start: Int,
+    endExclusive: Int,
+    averageDivisor: Int
+) {
+    if (endExclusive <= start || averageDivisor <= 0) return
+    val runBegin = words[start].word.begin
+    val runEnd = words.subList(start, endExclusive).maxOf { it.word.end }
+    val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / averageDivisor
+    if (averageDuration >= LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS) {
+        for (runIndex in start until endExclusive) {
+            overrides[runIndex] = runBegin + (runIndex - start) * ASCII_LETTER_LIFT_STAGGER_MS
+        }
+    }
+}
+
+private fun applyCjkLiftStartOverridesForRange(
+    overrides: MutableMap<Int, Long>,
+    words: List<NewPreviewWordLayout>,
+    start: Int,
+    endExclusive: Int,
+    averageDivisor: Int
+) {
+    if (endExclusive <= start || averageDivisor <= 0) return
+    val runBegin = words[start].word.begin
+    val runEnd = words.subList(start, endExclusive).maxOf { it.word.end }
+    val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / averageDivisor
+    if (averageDuration < LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS) return
+
+    var previousCjkBegin: Long? = null
+    for (runIndex in start until endExclusive) {
+        val word = words[runIndex].word
+        if (!isSingleCjkGlowText(word.text)) continue
+        overrides[runIndex] = previousCjkBegin ?: word.begin
+        previousCjkBegin = word.begin
+    }
+}
+
+private fun buildLongLyricLiftStartOverrides(
     words: List<NewPreviewWordLayout>
 ): Map<Int, Long> {
     val overrides = mutableMapOf<Int, Long>()
     var index = 0
     while (index < words.size) {
-        if (!isSingleLiftStaggerLetterText(words[index].word.text)) {
-            index++
+        val text = words[index].word.text
+
+        if (isSingleLiftStaggerLetterText(text)) {
+            val runStart = index
+            var runEndExclusive = index + 1
+            while (
+                runEndExclusive < words.size &&
+                isSingleLiftStaggerParticipantText(words[runEndExclusive].word.text)
+            ) {
+                runEndExclusive++
+            }
+
+            val letterCount = words
+                .subList(runStart, runEndExclusive)
+                .count { isSingleLiftStaggerLetterText(it.word.text) }
+            if (letterCount >= 2) {
+                applyLiftStartOverridesForRange(
+                    overrides = overrides,
+                    words = words,
+                    start = runStart,
+                    endExclusive = runEndExclusive,
+                    averageDivisor = runEndExclusive - runStart
+                )
+            }
+
+            index = runEndExclusive
             continue
         }
 
-        val runStart = index
-        var runEndExclusive = index + 1
-        while (
-            runEndExclusive < words.size &&
-            isSingleLiftStaggerParticipantText(words[runEndExclusive].word.text)
-        ) {
-            runEndExclusive++
-        }
-
-        val runCount = runEndExclusive - runStart
-        val letterCount = words
-            .subList(runStart, runEndExclusive)
-            .count { isSingleLiftStaggerLetterText(it.word.text) }
-        if (letterCount >= 2) {
-            val runBegin = words[runStart].word.begin
-            val runEnd = words.subList(runStart, runEndExclusive).maxOf { it.word.end }
-            val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / runCount
-            if (averageDuration >= LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS) {
-                for (runIndex in runStart until runEndExclusive) {
-                    overrides[runIndex] = runBegin + (runIndex - runStart) * ASCII_LETTER_LIFT_STAGGER_MS
-                }
+        if (isSingleCjkGlowText(text)) {
+            val runStart = index
+            var runEndExclusive = index + 1
+            while (
+                runEndExclusive < words.size &&
+                words[runEndExclusive].word.text != " "
+            ) {
+                runEndExclusive++
             }
+
+            val cjkCount = words
+                .subList(runStart, runEndExclusive)
+                .count { isSingleCjkGlowText(it.word.text) }
+            if (cjkCount >= 2) {
+                applyCjkLiftStartOverridesForRange(
+                    overrides = overrides,
+                    words = words,
+                    start = runStart,
+                    endExclusive = runEndExclusive,
+                    averageDivisor = runEndExclusive - runStart
+                )
+            }
+
+            index = runEndExclusive
+            continue
         }
 
-        index = runEndExclusive
+        index++
     }
     return overrides
 }
@@ -554,22 +621,15 @@ private fun resolveCjkGlowLevel(durationMs: Long): LyricGlowLevel? {
 
 private fun resolveForeignWordGlowLevel(averageDurationMs: Long): LyricGlowLevel? {
     return when {
-        averageDurationMs > 500L -> LyricGlowLevel.HIGH
-        averageDurationMs > 350L -> LyricGlowLevel.NORMAL
-        averageDurationMs > 200L -> LyricGlowLevel.SLIGHT
+        averageDurationMs > 550L -> LyricGlowLevel.NORMAL
+        averageDurationMs > 400L -> LyricGlowLevel.SLIGHT
+        averageDurationMs > 240L -> LyricGlowLevel.VERY_SLIGHT
         else -> null
     }
 }
 
 private fun resolveForeignWordGlowLevel(durationMs: Long, letterCount: Int): LyricGlowLevel? {
-    if (letterCount <= 1) {
-        return when {
-            durationMs >= 1000L -> LyricGlowLevel.HIGH
-            durationMs >= 700L -> LyricGlowLevel.NORMAL
-            durationMs >= 400L -> LyricGlowLevel.SLIGHT
-            else -> null
-        }
-    }
+    if (durationMs <= 800L) return null
     return resolveForeignWordGlowLevel(durationMs / letterCount)
 }
 
@@ -5128,7 +5188,7 @@ fun LyricWordsCanvasWithWrap(
             }
             
             val lineWidth = effectiveLineWords.lastOrNull()?.endPosition ?: 0f
-            val liftStartOverrides = buildLongAsciiLetterLiftStartOverrides(effectiveLineWords)
+            val liftStartOverrides = buildLongLyricLiftStartOverrides(effectiveLineWords)
             val glowStates = buildLyricGlowStates(effectiveLineWords, currentTime)
             
             Box(
