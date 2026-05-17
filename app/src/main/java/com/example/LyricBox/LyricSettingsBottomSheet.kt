@@ -1,5 +1,6 @@
 package com.example.LyricBox
 
+import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
@@ -50,6 +51,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,7 +68,8 @@ private enum class LyricSettingsPage {
     FONT_WEIGHT,
     INTERLUDE_ANIMATION,
     WORD_LIFT_ANIMATION,
-    CUSTOM_FONT
+    CUSTOM_FONT,
+    FONT_PREVIEW
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,6 +110,7 @@ fun LyricSettingsBottomSheet(
     contentColor: Color,
     accentColor: Color
 ) {
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
     val blockSheetDragFromList = remember {
@@ -127,6 +132,9 @@ fun LyricSettingsBottomSheet(
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
     var tempAnimationType by remember(animationType) { mutableIntStateOf(animationType) }
     var tempWordLiftDistanceDp by remember(wordLiftDistanceDp) { mutableFloatStateOf(wordLiftDistanceDp) }
+    val previewTypeface = remember(selectedFontId, fontOptions) {
+        LyricCustomFontStore.resolveTypefaceById(context, selectedFontId)
+    }
     LaunchedEffect(page) { listState.scrollToItem(0) }
 
     ModalBottomSheet(
@@ -541,10 +549,19 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         onClick = onOpenCustomFontPicker
                     )
+                    LyricSettingsActionRow(
+                        title = "预览字体",
+                        contentColor = contentColor,
+                        onClick = { page = LyricSettingsPage.FONT_PREVIEW }
+                    )
                     fontOptions.forEach { option ->
+                        val optionTypeface = remember(option.id) {
+                            LyricCustomFontStore.resolveTypefaceById(context, option.id)
+                        }
                         LyricSettingsFontRow(
                             option = option,
                             selected = selectedFontId == option.id,
+                            typeface = optionTypeface,
                             contentColor = contentColor,
                             accentColor = accentColor,
                             onSelect = { onSelectFont(option.id) },
@@ -555,6 +572,18 @@ fun LyricSettingsBottomSheet(
                             }
                         )
                     }
+                }
+
+                LyricSettingsPage.FONT_PREVIEW -> {
+                    LyricSettingsSubPageTitle(
+                        title = "预览字体",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.CUSTOM_FONT }
+                    )
+                    FontPreviewTextBlock(
+                        contentColor = contentColor,
+                        typeface = previewTypeface
+                    )
                 }
             }
             }
@@ -733,6 +762,7 @@ private fun LyricSettingsRadioRow(
 private fun LyricSettingsFontRow(
     option: LyricCustomFontOption,
     selected: Boolean,
+    typeface: Typeface?,
     contentColor: Color,
     accentColor: Color,
     onSelect: () -> Unit,
@@ -759,6 +789,7 @@ private fun LyricSettingsFontRow(
         Text(
             text = option.displayName,
             color = contentColor,
+            fontFamily = typeface?.let { FontFamily(it) },
             modifier = Modifier.weight(1f)
         )
         if (!option.isDefault) {
@@ -771,4 +802,38 @@ private fun LyricSettingsFontRow(
             }
         }
     }
+}
+
+@Composable
+private fun FontPreviewTextBlock(
+    contentColor: Color,
+    typeface: Typeface?
+) {
+    val previewFamily = typeface?.let { FontFamily(it) }
+    val previewText = """
+简体中文：
+欢迎使用 LunaBeat，这是一段用于实时预览字体效果的示例文本。
+繁體中文：
+歡迎使用 LunaBeat，這是一段用於即時預覽字體效果的示例文字。
+English：
+Welcome to LunaBeat. This is a sample text used to preview font rendering in real time.
+日本語：
+LunaBeatへようこそ。これはフォントの表示をリアルタイムで確認するためのサンプルテキストです。
+한국어：
+LunaBeat에 오신 것을 환영합니다. 이 문장은 글꼴 표시 효과를 실시간으로 미리보기 위한 예제 텍스트입니다.
+Tiếng Việt（越南语）：
+Chào mừng bạn đến với LunaBeat, đây là văn bản mẫu dùng để xem trước hiệu ứng hiển thị phông chữ theo thời gian thực.
+ไทย（泰语）：
+ยินดีต้อนรับสู่ LunaBeat นี่คือตัวอย่างข้อความสำหรับแสดงตัวอย่างเอฟเฟกต์การแสดงผลของฟอนต์แบบเรียลไทม์
+Русский（俄语）：
+Добро пожаловать в LunaBeat. Это пример текста для предварительного просмотра отображения шрифта в реальном времени.
+""".trimIndent()
+    Text(
+        text = previewText,
+        color = contentColor,
+        fontFamily = previewFamily,
+        lineHeight = 23.sp,
+        fontSize = 16.sp,
+        modifier = Modifier.fillMaxWidth()
+    )
 }

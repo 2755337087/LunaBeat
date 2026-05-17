@@ -611,8 +611,8 @@ private data class LyricGlowState(
 
 private const val LYRIC_GLOW_FADE_DURATION_MS = 200L
 private const val LYRIC_GLOW_LEAD_IN_MS = 200L
-private const val LYRIC_GLOW_FADE_OUT_DELAY_MS = 200L
-private const val LYRIC_GLOW_FADE_OUT_DURATION_MS = 450L
+private const val LYRIC_GLOW_FADE_OUT_DELAY_MS = 300L
+private const val LYRIC_GLOW_FADE_OUT_DURATION_MS = 400L
 private const val LYRIC_GLOW_PRE_PLAY_ALPHA = 0.20f
 private const val LYRIC_GLOW_MAX_ALPHA = 1.00f
 private const val LYRIC_GLOW_FOREIGN_HOLD_DELTA = 0.02f
@@ -637,8 +637,9 @@ private fun resolveForeignWordGlowLevel(averageDurationMs: Long): LyricGlowLevel
 }
 
 private fun resolveForeignWordGlowLevel(durationMs: Long, letterCount: Int): LyricGlowLevel? {
-    if (durationMs <= 800L) return null
-    return resolveForeignWordGlowLevel(durationMs / letterCount)
+    val safeCount = letterCount.coerceAtLeast(1)
+    val divisor = if (safeCount <= 2) 3 else safeCount
+    return resolveForeignWordGlowLevel(durationMs / divisor)
 }
 
 private fun computeLyricGlowAlpha(
@@ -649,7 +650,7 @@ private fun computeLyricGlowAlpha(
 ): Float {
     val fadeOutStart = contentEnd + LYRIC_GLOW_FADE_OUT_DELAY_MS
     val glowEnd = fadeOutStart + LYRIC_GLOW_FADE_OUT_DURATION_MS
-    if (currentTime < glowStart || currentTime >= glowEnd) return 0f
+    if (currentTime < glowStart || currentTime > glowEnd) return 0f
     val fadeDuration = LYRIC_GLOW_FADE_OUT_DURATION_MS.coerceAtLeast(1L)
     val leadInDuration = (contentBegin - glowStart).coerceAtLeast(1L)
     val leadInProgress = ((currentTime - glowStart).toFloat() / leadInDuration.toFloat()).coerceIn(0f, 1f)
@@ -658,8 +659,12 @@ private fun computeLyricGlowAlpha(
     return when {
         currentTime < contentBegin -> fadeInAlpha
         currentTime < fadeOutStart -> LYRIC_GLOW_MAX_ALPHA
-        else -> LYRIC_GLOW_MAX_ALPHA *
-            ((glowEnd - currentTime).toFloat() / fadeDuration.toFloat()).coerceIn(0f, 1f)
+        else -> {
+            val fadeProgress = ((currentTime - fadeOutStart).toFloat() / fadeDuration.toFloat())
+                .coerceIn(0f, 1f)
+            val easedFade = 1f - FastOutLinearInEasing.transform(fadeProgress)
+            LYRIC_GLOW_MAX_ALPHA * easedFade.coerceIn(0f, 1f)
+        }
     }
 }
 
@@ -819,7 +824,7 @@ private fun buildLyricGlowStates(
             val glowLevel = resolveForeignWordGlowLevel(duration, letterCount)
             val glowStart = word.begin - LYRIC_GLOW_LEAD_IN_MS
             val glowAlpha = computeLyricGlowAlpha(currentTime, glowStart, word.begin, word.end)
-            if (glowLevel != null && glowAlpha > 0f) {
+            if (glowLevel != null) {
                 val textScale = if (letterCount > 1) {
                     computeForeignMultiLetterGlowScale(
                         currentTime = currentTime,
@@ -831,12 +836,14 @@ private fun buildLyricGlowStates(
                 } else {
                     computeLyricGlowScale(currentTime, word.begin, word.end, glowLevel)
                 }
-                glowStates[index] = LyricGlowState(
-                    level = glowLevel,
-                    alpha = glowAlpha,
-                    playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin),
-                    textScale = textScale
-                )
+                if (glowAlpha > 0f || textScale > 1.0001f) {
+                    glowStates[index] = LyricGlowState(
+                        level = glowLevel,
+                        alpha = glowAlpha,
+                        playbackScale = computeLyricGlowPlaybackScale(currentTime, word.begin),
+                        textScale = textScale
+                    )
+                }
             }
             index++
             continue
@@ -876,28 +883,28 @@ private fun buildLyricGlowStates(
                 ?: runBegin
             var letterOrderCounter = 0
             for (runIndex in runStart until runEndExclusive) {
-                if (glowAlpha > 0f) {
-                    val runWord = words[runIndex].word
-                    val isLetterToken = isSingleLiftStaggerLetterText(runWord.text)
-                    val letterOrder = if (isLetterToken) {
-                        val order = letterOrderCounter
-                        letterOrderCounter++
-                        order
-                    } else {
-                        (letterOrderCounter - 1).coerceAtLeast(0)
-                    }
-                    val textScale = if (letterCount > 1) {
-                        val scaleBegin = runFirstLetterBegin + letterOrder * staggerMs
-                        computeForeignMultiLetterGlowScale(
-                            currentTime = currentTime,
-                            scaleBegin = scaleBegin,
-                            letterEnd = runWord.end,
-                            wordEnd = runEnd,
-                            level = glowLevel
-                        )
-                    } else {
-                        computeLyricGlowScale(currentTime, runWord.begin, runWord.end, glowLevel)
-                    }
+                val runWord = words[runIndex].word
+                val isLetterToken = isSingleLiftStaggerLetterText(runWord.text)
+                val letterOrder = if (isLetterToken) {
+                    val order = letterOrderCounter
+                    letterOrderCounter++
+                    order
+                } else {
+                    (letterOrderCounter - 1).coerceAtLeast(0)
+                }
+                val textScale = if (letterCount > 1) {
+                    val scaleBegin = runFirstLetterBegin + letterOrder * staggerMs
+                    computeForeignMultiLetterGlowScale(
+                        currentTime = currentTime,
+                        scaleBegin = scaleBegin,
+                        letterEnd = runWord.end,
+                        wordEnd = runEnd,
+                        level = glowLevel
+                    )
+                } else {
+                    computeLyricGlowScale(currentTime, runWord.begin, runWord.end, glowLevel)
+                }
+                if (glowAlpha > 0f || textScale > 1.0001f) {
                     glowStates[runIndex] = LyricGlowState(
                         level = glowLevel,
                         alpha = glowAlpha,
@@ -1024,7 +1031,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_WORD_LIFT_DISTANCE_DP = 2f
-        const val DEFAULT_FONT_WEIGHT = 400 // Normal
+        const val DEFAULT_FONT_WEIGHT = 800 // ExtraBold
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRIC_GLOW = true

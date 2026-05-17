@@ -130,18 +130,27 @@ object LyricCustomFontStore {
         return true
     }
 
-    fun resolveSelectedFontFamily(context: Context): FontFamily? {
-        val typeface = resolveSelectedTypeface(context) ?: return null
-        return FontFamily(typeface)
-    }
-
     fun resolveSelectedTypeface(context: Context): Typeface? {
         val selectedId = getSelectedFontId(context)
-        if (selectedId == DEFAULT_FONT_ID) return null
-        val entry = loadEntries(context).firstOrNull { it.id == selectedId } ?: return null
+        return resolveTypefaceById(context, selectedId)
+    }
+
+    fun resolveTypefaceById(context: Context, fontId: String): Typeface? {
+        if (fontId == DEFAULT_FONT_ID) return null
+        val entry = loadEntries(context).firstOrNull { it.id == fontId } ?: return null
         val file = File(getCacheDir(context), entry.fileName)
         if (!file.exists()) return null
         return runCatching { Typeface.createFromFile(file) }.getOrNull()
+    }
+
+    fun resolveFontFamilyById(context: Context, fontId: String): FontFamily? {
+        val typeface = resolveTypefaceById(context, fontId) ?: return null
+        return FontFamily(typeface)
+    }
+
+    fun resolveSelectedFontFamily(context: Context): FontFamily? {
+        val typeface = resolveSelectedTypeface(context) ?: return null
+        return FontFamily(typeface)
     }
 
     private fun getCacheDir(context: Context): File {
@@ -215,4 +224,3 @@ object LyricCustomFontStore {
             .apply()
     }
 }
-
