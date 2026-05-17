@@ -362,6 +362,7 @@ private fun MusicPlayerScreen(
         NowPlayingPlaylistBottomSheet(
             queue = playbackQueueAudios,
             currentAudioPath = controller.currentAudioPath,
+            canReorder = true,
             onDismiss = { showPlaylistSheet = false },
             onMoveItem = { fromIndex, toIndex ->
                 controller.moveQueueItem(fromIndex, toIndex)
@@ -369,8 +370,8 @@ private fun MusicPlayerScreen(
             onPlayAtIndex = { index ->
                 controller.playAtQueueIndex(index)
             },
-            onRemoveAtIndex = { index ->
-                controller.removeQueueItemAt(index)
+            onRemoveByPath = { path ->
+                controller.removeQueueItemByPath(path)
             }
         )
     }

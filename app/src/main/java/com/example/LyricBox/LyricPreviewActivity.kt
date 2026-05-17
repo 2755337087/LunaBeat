@@ -2037,15 +2037,17 @@ private fun mapComposeFontWeight(weight: Int): FontWeight {
 
 private fun applyAndroidFontWeight(
     paint: android.graphics.Paint,
-    fontWeight: Int
+    fontWeight: Int,
+    baseTypeface: android.graphics.Typeface? = null
 ) {
     val safeWeight = fontWeight.coerceIn(100, 900)
+    val sourceTypeface = baseTypeface ?: android.graphics.Typeface.DEFAULT
     paint.typeface = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, safeWeight, false)
+        android.graphics.Typeface.create(sourceTypeface, safeWeight, false)
     } else {
         when {
-            safeWeight >= 600 -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            else -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+            safeWeight >= 600 -> android.graphics.Typeface.create(sourceTypeface, android.graphics.Typeface.BOLD)
+            else -> android.graphics.Typeface.create(sourceTypeface, android.graphics.Typeface.NORMAL)
         }
     }
     paint.isFakeBoldText = false
@@ -5461,10 +5463,7 @@ private fun DrawScope.drawWordWithTransliteration(
     val paint = android.graphics.Paint().apply {
         this.textSize = fontSizePx
         this.isAntiAlias = true
-        applyAndroidFontWeight(this, fontWeight)
-        if (customTypeface != null) {
-            this.typeface = customTypeface
-        }
+        applyAndroidFontWeight(this, fontWeight, customTypeface)
     }
     
     val textX = layout.startPosition
@@ -5586,10 +5585,7 @@ private fun DrawScope.drawWordWithTransliteration(
             this.textSize = with(density) { (fontSize.value / 2).sp.toPx() }
             this.isAntiAlias = true
             this.color = inactiveColor.toArgb()
-            applyAndroidFontWeight(this, fontWeight)
-            if (customTypeface != null) {
-                this.typeface = customTypeface
-            }
+            applyAndroidFontWeight(this, fontWeight, customTypeface)
         }
         
         val transFontMetrics = transliterationPaint.fontMetrics

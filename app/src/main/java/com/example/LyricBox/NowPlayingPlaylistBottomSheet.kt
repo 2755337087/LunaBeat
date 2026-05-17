@@ -3,6 +3,8 @@ package com.example.LyricBox
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,22 +38,23 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -59,15 +63,21 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.io.File
@@ -77,26 +87,156 @@ private data class QueueUiItem(
     val audio: AudioFile
 )
 
+private const val QUEUE_REMOVE_SYNC_DELAY_MS = 160L
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NowPlayingPlaylistBottomSheet(
     queue: List<AudioFile>,
     currentAudioPath: String?,
+    canReorder: Boolean,
     onDismiss: () -> Unit,
     onMoveItem: (fromIndex: Int, toIndex: Int) -> Unit,
     onPlayAtIndex: (Int) -> Unit,
-    onRemoveAtIndex: (Int) -> Unit
+    onRemoveByPath: (String) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollBlocker = rememberSheetScrollBlocker()
     val haptic = LocalHapticFeedback.current
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var idSeed by remember { mutableLongStateOf(1L) }
     var draggingItemId by remember { mutableLongStateOf(-1L) }
+    var draggingStartIndex by remember { mutableIntStateOf(-1) }
     var dragTranslationY by remember { mutableFloatStateOf(0f) }
+    var dragCenterY by remember { mutableFloatStateOf(Float.NaN) }
+    var dragItemHeight by remember { mutableFloatStateOf(92f) }
     var hasAutoLocatedCurrent by remember { mutableStateOf(false) }
+    var dragSurfaceOffsetInRoot by remember { mutableStateOf(Offset.Zero) }
+    val dragHandleBounds = remember { mutableStateMapOf<Long, Rect>() }
     var localQueue by remember {
         mutableStateOf(queue.distinctBy { it.path }.map { QueueUiItem(id = idSeed++, audio = it) })
+    }
+
+    fun finishDrag() {
+        val movedItemId = draggingItemId
+        if (movedItemId < 0L) return
+        val fromIndex = draggingStartIndex
+        val toIndex = localQueue.indexOfFirst { it.id == movedItemId }
+        if (canReorder && fromIndex >= 0 && toIndex >= 0 && fromIndex != toIndex) {
+            onMoveItem(fromIndex, toIndex)
+        }
+        draggingItemId = -1L
+        draggingStartIndex = -1
+        dragTranslationY = 0f
+        dragCenterY = Float.NaN
+    }
+
+    fun removeQueueItem(itemId: Long) {
+        if (draggingItemId >= 0L) return
+        val removeIndex = localQueue.indexOfFirst { it.id == itemId }
+        if (removeIndex >= 0) {
+            val removedPath = localQueue[removeIndex].audio.path
+            localQueue = localQueue.toMutableList().apply { removeAt(removeIndex) }
+            dragHandleBounds.remove(itemId)
+            scope.launch {
+                // Let placement animation start first, then sync playback queue in background.
+                delay(QUEUE_REMOVE_SYNC_DELAY_MS)
+                onRemoveByPath(removedPath)
+            }
+        }
+    }
+
+    fun startDragAt(startOffset: Offset) {
+        if (!canReorder || draggingItemId >= 0L) return
+        val startInRoot = dragSurfaceOffsetInRoot + startOffset
+        val visibleKeys = listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet()
+        val item = localQueue.firstOrNull {
+            it.id in visibleKeys && dragHandleBounds[it.id]?.contains(startInRoot) == true
+        } ?: return
+        draggingItemId = item.id
+        draggingStartIndex = localQueue.indexOfFirst { it.id == item.id }
+        dragTranslationY = 0f
+        val info = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.key == item.id }
+        dragItemHeight = info?.size?.toFloat() ?: 92f
+        dragCenterY = if (info != null) {
+            info.offset + info.size / 2f
+        } else {
+            Float.NaN
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    fun updateDrag(changeY: Float) {
+        if (!canReorder || draggingItemId < 0L) return
+        dragTranslationY += changeY
+        if (!dragCenterY.isNaN()) {
+            dragCenterY += changeY
+        }
+
+        val draggingInfo = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.key == draggingItemId }
+        if (draggingInfo != null && dragCenterY.isNaN()) {
+            dragItemHeight = draggingInfo.size.toFloat()
+            dragCenterY = draggingInfo.offset + draggingInfo.size / 2f + dragTranslationY
+        } else if (draggingInfo != null) {
+            dragItemHeight = draggingInfo.size.toFloat()
+        }
+        val activeCenterY = if (draggingInfo != null) {
+            draggingInfo.offset + draggingInfo.size / 2f + dragTranslationY
+        } else {
+            dragCenterY
+        }
+        if (draggingInfo != null || !dragCenterY.isNaN()) {
+            val viewportStart = listState.layoutInfo.viewportStartOffset.toFloat()
+            val viewportEnd = listState.layoutInfo.viewportEndOffset.toFloat()
+            val edgeThreshold = dragItemHeight * 0.9f
+            val scrollDelta = when {
+                activeCenterY < viewportStart + edgeThreshold -> {
+                    -((viewportStart + edgeThreshold - activeCenterY) / 7f).coerceIn(6f, 34f)
+                }
+                activeCenterY > viewportEnd - edgeThreshold -> {
+                    ((activeCenterY - (viewportEnd - edgeThreshold)) / 7f).coerceIn(6f, 34f)
+                }
+                else -> 0f
+            }
+            if (scrollDelta != 0f) {
+                val consumed = listState.dispatchRawDelta(scrollDelta)
+                dragTranslationY += consumed
+                if (!dragCenterY.isNaN()) {
+                    dragCenterY += consumed
+                }
+            }
+        }
+
+        while (true) {
+            val from = localQueue.indexOfFirst { it.id == draggingItemId }
+            if (from < 0) break
+            val currentInfo = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == draggingItemId }
+            val itemHeight = currentInfo?.size?.toFloat() ?: dragItemHeight
+            val swapThreshold = itemHeight * 0.5f
+            when {
+                dragTranslationY >= swapThreshold && from < localQueue.lastIndex -> {
+                    val to = from + 1
+                    localQueue = localQueue.toMutableList().apply {
+                        add(to, removeAt(from))
+                    }
+                    dragTranslationY -= itemHeight
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                dragTranslationY <= -swapThreshold && from > 0 -> {
+                    val to = from - 1
+                    localQueue = localQueue.toMutableList().apply {
+                        add(to, removeAt(from))
+                    }
+                    dragTranslationY += itemHeight
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                else -> break
+            }
+        }
     }
 
     LaunchedEffect(queue, draggingItemId) {
@@ -106,6 +246,15 @@ fun NowPlayingPlaylistBottomSheet(
                 incoming = queue.distinctBy { it.path },
                 nextId = { idSeed++ }
             )
+        }
+    }
+
+    LaunchedEffect(localQueue) {
+        val ids = localQueue.map { it.id }.toSet()
+        dragHandleBounds.keys.toList().forEach { id ->
+            if (id !in ids) {
+                dragHandleBounds.remove(id)
+            }
         }
     }
 
@@ -128,13 +277,13 @@ fun NowPlayingPlaylistBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.95f)
-                .padding(horizontal = 14.dp)
+                .padding(horizontal = 10.dp)
                 .padding(bottom = 10.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -164,13 +313,31 @@ fun NowPlayingPlaylistBottomSheet(
                 }
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned {
+                        dragSurfaceOffsetInRoot = it.localToRoot(Offset.Zero)
+                    }
+                    .pointerInput(canReorder) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { startDragAt(it) },
+                            onDragEnd = { finishDrag() },
+                            onDragCancel = { finishDrag() }
+                        ) { change, dragAmount ->
+                            if (draggingItemId >= 0L) {
+                                change.consume()
+                                updateDrag(dragAmount.y)
+                            }
+                        }
+                    }
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBlocker)
-                        .padding(end = 18.dp)
+                        .padding(end = 12.dp)
                 ) {
                     itemsIndexed(
                         items = localQueue,
@@ -179,127 +346,42 @@ fun NowPlayingPlaylistBottomSheet(
                         val audio = item.audio
                         val isCurrent = audio.path == currentAudioPath
                         val isDragging = item.id == draggingItemId
-                        val rowModifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                if (isDragging) {
-                                    translationY = dragTranslationY
-                                }
+                        val canDragItem = canReorder && (draggingItemId < 0L || isDragging)
+                        var itemModifier = Modifier.fillMaxWidth()
+                        if (!isDragging) {
+                            itemModifier = itemModifier.animateItem(
+                                fadeInSpec = tween(durationMillis = 110),
+                                placementSpec = spring(dampingRatio = 0.86f, stiffness = 520f),
+                                fadeOutSpec = tween(durationMillis = 90)
+                            )
+                        }
+                        val rowModifier = itemModifier
+                            .offset {
+                                IntOffset(
+                                    x = 0,
+                                    y = if (isDragging) dragTranslationY.roundToInt() else 0
+                                )
                             }
                             .zIndex(if (isDragging) 1f else 0f)
 
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { value ->
-                                if (value == SwipeToDismissBoxValue.EndToStart && draggingItemId < 0L) {
-                                    val removeIndex = localQueue.indexOfFirst { it.id == item.id }
-                                    if (removeIndex >= 0) {
-                                        localQueue = localQueue.toMutableList().apply { removeAt(removeIndex) }
-                                        onRemoveAtIndex(removeIndex)
+                        Box(modifier = rowModifier) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                QueueRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    itemId = item.id,
+                                    audio = audio,
+                                    isCurrent = isCurrent,
+                                    isDragging = isDragging,
+                                    canReorder = canDragItem,
+                                    onPlay = { onPlayAtIndex(index) },
+                                    onRemove = { removeQueueItem(item.id) },
+                                    onHandlePositioned = { id, bounds ->
+                                        dragHandleBounds[id] = bounds
                                     }
-                                    true
-                                } else {
-                                    false
-                                }
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f))
                             }
-                        )
-
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            enableDismissFromStartToEnd = false,
-                            enableDismissFromEndToStart = draggingItemId < 0L,
-                            backgroundContent = {
-                                if (draggingItemId < 0L) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(horizontal = 8.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(MaterialTheme.colorScheme.errorContainer),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
-                                        Text(
-                                            text = "删除",
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            modifier = Modifier.padding(end = 16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        ) {
-                            QueueRow(
-                                modifier = rowModifier,
-                                audio = audio,
-                                isCurrent = isCurrent,
-                                isDragging = isDragging,
-                                onPlay = { onPlayAtIndex(index) },
-                                onDrag = { changeY ->
-                                    if (draggingItemId < 0L) return@QueueRow
-                                    dragTranslationY += changeY
-
-                                    val draggingInfo = listState.layoutInfo.visibleItemsInfo
-                                        .firstOrNull { it.key == draggingItemId }
-                                    if (draggingInfo != null) {
-                                        val viewportStart = listState.layoutInfo.viewportStartOffset.toFloat()
-                                        val viewportEnd = listState.layoutInfo.viewportEndOffset.toFloat()
-                                        val centerY = draggingInfo.offset + draggingInfo.size / 2f + dragTranslationY
-                                        val edgeThreshold = draggingInfo.size * 0.9f
-                                        val scrollDelta = when {
-                                            centerY < viewportStart + edgeThreshold -> {
-                                                -((viewportStart + edgeThreshold - centerY) / 7f).coerceIn(6f, 34f)
-                                            }
-                                            centerY > viewportEnd - edgeThreshold -> {
-                                                ((centerY - (viewportEnd - edgeThreshold)) / 7f).coerceIn(6f, 34f)
-                                            }
-                                            else -> 0f
-                                        }
-                                        if (scrollDelta != 0f) {
-                                            val consumed = listState.dispatchRawDelta(scrollDelta)
-                                            dragTranslationY += consumed
-                                        }
-                                    }
-
-                                    while (true) {
-                                        val from = localQueue.indexOfFirst { it.id == draggingItemId }
-                                        if (from < 0) break
-                                        val currentInfo = listState.layoutInfo.visibleItemsInfo
-                                            .firstOrNull { it.key == draggingItemId }
-                                        val itemHeight = currentInfo?.size?.toFloat() ?: 92f
-                                        val swapThreshold = itemHeight * 0.5f
-                                        when {
-                                            dragTranslationY >= swapThreshold && from < localQueue.lastIndex -> {
-                                                val to = from + 1
-                                                localQueue = localQueue.toMutableList().apply {
-                                                    add(to, removeAt(from))
-                                                }
-                                                onMoveItem(from, to)
-                                                dragTranslationY -= itemHeight
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                            dragTranslationY <= -swapThreshold && from > 0 -> {
-                                                val to = from - 1
-                                                localQueue = localQueue.toMutableList().apply {
-                                                    add(to, removeAt(from))
-                                                }
-                                                onMoveItem(from, to)
-                                                dragTranslationY += itemHeight
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                            else -> break
-                                        }
-                                    }
-                                },
-                                onDragStart = {
-                                    draggingItemId = item.id
-                                    dragTranslationY = 0f
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                },
-                                onDragEnd = {
-                                    draggingItemId = -1L
-                                    dragTranslationY = 0f
-                                }
-                            )
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f))
                     }
                 }
 
@@ -340,13 +422,14 @@ private fun rememberSheetScrollBlocker(): NestedScrollConnection {
 @Composable
 private fun QueueRow(
     modifier: Modifier,
+    itemId: Long,
     audio: AudioFile,
     isCurrent: Boolean,
     isDragging: Boolean,
+    canReorder: Boolean,
     onPlay: () -> Unit,
-    onDrag: (deltaY: Float) -> Unit,
-    onDragStart: () -> Unit,
-    onDragEnd: () -> Unit
+    onRemove: () -> Unit,
+    onHandlePositioned: (Long, Rect) -> Unit
 ) {
     ListItem(
         modifier = modifier
@@ -376,24 +459,43 @@ private fun QueueRow(
             )
         },
         leadingContent = {
-            QueueSongLeadingCover(audio = audio, isCurrent = isCurrent)
+            Row(
+                modifier = Modifier.offset(x = (-4).dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DragIndicator,
+                    contentDescription = if (canReorder) "拖动排序" else "当前模式不可拖动排序",
+                    tint = if (canReorder) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    },
+                    modifier = Modifier
+                        .size(30.dp)
+                        .padding(end = 2.dp)
+                        .onGloballyPositioned { coordinates ->
+                            onHandlePositioned(itemId, coordinates.boundsInRoot())
+                        }
+                )
+                QueueSongLeadingCover(audio = audio, isCurrent = isCurrent)
+            }
         },
         trailingContent = {
-            Icon(
-                imageVector = Icons.Rounded.DragIndicator,
-                contentDescription = "拖动排序",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.pointerInput(audio.path) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { onDragStart() },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragEnd() }
-                    ) { change, dragAmount ->
-                        change.consume()
-                        onDrag(dragAmount.y)
-                    }
-                }
-            )
+            IconButton(
+                onClick = onRemove,
+                enabled = !isDragging,
+                modifier = Modifier
+                    .offset(x = 4.dp)
+                    .size(40.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.close),
+                    contentDescription = "删除歌曲",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     )
 }

@@ -433,6 +433,19 @@ class MusicPlaybackController(private val context: Context) {
         syncFromPlayer(player)
     }
 
+    fun removeQueueItemByPath(path: String) {
+        val targetPath = path.trim()
+        if (targetPath.isEmpty()) return
+        val player = controller ?: return
+        val index = (0 until player.mediaItemCount).firstOrNull { idx ->
+            val mediaItem = player.getMediaItemAt(idx)
+            val itemPath = mediaItem.mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
+                ?: mediaItem.mediaId.takeIf { it.isNotBlank() }
+            itemPath == targetPath
+        } ?: return
+        removeQueueItemAt(index)
+    }
+
     fun removeQueueItemAt(index: Int) {
         val player = controller ?: return
         if (index !in 0 until player.mediaItemCount) return

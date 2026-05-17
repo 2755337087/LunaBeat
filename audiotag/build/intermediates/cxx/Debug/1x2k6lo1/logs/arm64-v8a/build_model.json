@@ -153,7 +153,7 @@
         "rootBuildGradleFolder": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite",
         "sdkFolder": "D:\\Users\\B\\AppData\\AndroidSDK",
         "isBuildOnlyTargetAbiEnabled": true,
-        "ideBuildTargetAbi": "arm64-v8a",
+        "ideBuildTargetAbi": "arm64-v8a,armeabi-v7a,armeabi",
         "isCmakeBuildCohabitationEnabled": false,
         "isPrefabEnabled": false
       },
