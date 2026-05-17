@@ -2218,7 +2218,7 @@ fun SongMetadataEditScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
+                    LoadingIndicator(modifier = Modifier.size(56.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("正在加载...", fontSize = 14.sp)
                 }
@@ -3396,10 +3396,7 @@ fun SongMetadataEditScreen(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.5.dp
-                    )
+                    LoadingIndicator(modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(14.dp))
                     Text("复制中")
                 }

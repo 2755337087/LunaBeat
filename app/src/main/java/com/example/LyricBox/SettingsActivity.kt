@@ -1386,6 +1386,7 @@ fun AMTokenDialog(
     defaultUrlName: String,
     contributorUrlName: String,
     noticeContributor: String,
+    showDismissButton: Boolean = true,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -1521,11 +1522,13 @@ fun AMTokenDialog(
                 Text("确定")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+        dismissButton = if (showDismissButton) {
+            {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
             }
-        }
+        } else null
     )
 }
 

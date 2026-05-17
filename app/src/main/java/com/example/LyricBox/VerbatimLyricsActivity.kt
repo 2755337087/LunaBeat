@@ -258,9 +258,10 @@ fun VerbatimLyricsScreen(
     var showBottomSheet by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(prefs.getBoolean("showTranslation", false)) }
     var filterMetadata by remember { mutableStateOf(prefs.getBoolean("filterMetadata", true)) }
-    var keepTranslation by remember { mutableStateOf(false) }
-    var convertToSimplified by remember { mutableStateOf(true) }
+    var keepTranslation by remember { mutableStateOf(prefs.getBoolean("amKeepTranslation", true)) }
+    var convertToSimplified by remember { mutableStateOf(prefs.getBoolean("amConvertToSimplified", true)) }
     var showLineByLine by remember { mutableStateOf(prefs.getBoolean("showLineByLine", false)) }
+    var showLineEndTimestamp by remember { mutableStateOf(prefs.getBoolean("showLineEndTimestamp", true)) }
     var bottomSheetRefreshKey by remember { mutableIntStateOf(0) }
     
     var showInputDialog by remember { mutableStateOf(false) }
@@ -495,11 +496,7 @@ fun VerbatimLyricsScreen(
                     enabled = !isSearching
                 ) {
                     if (isSearching) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
+                        LoadingIndicator(modifier = Modifier.size(20.dp))
                     } else {
                         Text("搜索")
                     }
@@ -591,9 +588,6 @@ fun VerbatimLyricsScreen(
                                     SongResultItemWithSource(
                                         result = result,
                                         onClick = {
-                                            keepTranslation = false
-                                            convertToSimplified = true
-                                            
                                             if (result.lyricsResult == null && !result.isLoading) {
                                                 // 对于非 Apple Music 源，先加载歌词再显示
                                                 scope.launch {
@@ -612,21 +606,6 @@ fun VerbatimLyricsScreen(
                                                     // 2. 获取歌词
                                                     val lyricsResult = if (result.songInfo.source == Source.ITUNES) {
                                                         val (lyrics, rawTtml, error) = appleMusicApi.getLyrics(result.songInfo, context)
-                                                        
-                                                        // 检查 xml:lang 属性并设置相应选项
-                                                        rawTtml?.let { ttml ->
-                                                            val langPattern = """xml:lang="([^"]+)"""".toRegex()
-                                                            langPattern.find(ttml)?.let { match ->
-                                                                val lang = match.groupValues[1]
-                                                                if (lang == "ja") {
-                                                                    convertToSimplified = false
-                                                                }
-                                                                if (lang == "en") {
-                                                                    keepTranslation = true
-                                                                }
-                                                            }
-                                                        }
-                                                        
                                                         if (lyrics != null) {
                                                             VerbatimLyricsResult(
                                                                 source = result.songInfo.source,
@@ -664,21 +643,6 @@ fun VerbatimLyricsScreen(
                                                     showBottomSheet = true
                                                 }
                                             } else {
-                                                // 如果已经有歌词了，检查 xml:lang 属性并设置相应选项，然后显示
-                                                if (result.songInfo.source == Source.ITUNES) {
-                                                    result.lyricsResult?.rawTtml?.let { ttml ->
-                                                        val langPattern = """xml:lang="([^"]+)"""".toRegex()
-                                                        langPattern.find(ttml)?.let { match ->
-                                                            val lang = match.groupValues[1]
-                                                            if (lang == "ja") {
-                                                                convertToSimplified = false
-                                                            }
-                                                            if (lang == "en") {
-                                                                keepTranslation = true
-                                                            }
-                                                        }
-                                                    }
-                                                }
                                                 selectedSong = result
                                                 bottomSheetRefreshKey++
                                                 showBottomSheet = true
@@ -702,9 +666,6 @@ fun VerbatimLyricsScreen(
                                     SongResultItem(
                                         result = result,
                                         onClick = {
-                                            keepTranslation = false
-                                            convertToSimplified = true
-                                            
                                             if (result.lyricsResult == null && !result.isLoading) {
                                                 // 先加载歌词再显示
                                                 scope.launch {
@@ -720,21 +681,6 @@ fun VerbatimLyricsScreen(
                                                     // 2. 获取歌词
                                                     val lyricsResult = if (result.songInfo.source == Source.ITUNES) {
                                                         val (lyrics, rawTtml, error) = appleMusicApi.getLyrics(result.songInfo, context)
-                                                        
-                                                        // 检查 xml:lang 属性并设置相应选项
-                                                        rawTtml?.let { ttml ->
-                                                            val langPattern = """xml:lang="([^"]+)"""".toRegex()
-                                                            langPattern.find(ttml)?.let { match ->
-                                                                val lang = match.groupValues[1]
-                                                                if (lang == "ja") {
-                                                                    convertToSimplified = false
-                                                                }
-                                                                if (lang == "en") {
-                                                                    keepTranslation = true
-                                                                }
-                                                            }
-                                                        }
-                                                        
                                                         if (lyrics != null) {
                                                             VerbatimLyricsResult(
                                                                 source = result.songInfo.source,
@@ -771,21 +717,6 @@ fun VerbatimLyricsScreen(
                                                     showBottomSheet = true
                                                 }
                                             } else {
-                                                // 如果已经有歌词了，检查 xml:lang 属性并设置相应选项，然后显示
-                                                if (result.songInfo.source == Source.ITUNES) {
-                                                    result.lyricsResult?.rawTtml?.let { ttml ->
-                                                        val langPattern = """xml:lang="([^"]+)"""".toRegex()
-                                                        langPattern.find(ttml)?.let { match ->
-                                                            val lang = match.groupValues[1]
-                                                            if (lang == "ja") {
-                                                                convertToSimplified = false
-                                                            }
-                                                            if (lang == "en") {
-                                                                keepTranslation = true
-                                                            }
-                                                        }
-                                                    }
-                                                }
                                                 selectedSong = result
                                                 bottomSheetRefreshKey++
                                                 showBottomSheet = true
@@ -816,10 +747,7 @@ fun VerbatimLyricsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp),
-                        strokeWidth = 3.dp
-                    )
+                    LoadingIndicator(modifier = Modifier.size(32.dp))
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "正在搜索中...",
@@ -867,13 +795,24 @@ fun VerbatimLyricsScreen(
                 sheetState = sheetState,
                 onDismiss = { showBottomSheet = false },
                 keepTranslation = keepTranslation,
-                onKeepTranslationChange = { keepTranslation = it },
+                onKeepTranslationChange = {
+                    keepTranslation = it
+                    prefs.edit().putBoolean("amKeepTranslation", it).apply()
+                },
                 convertToSimplified = convertToSimplified,
-                onConvertToSimplifiedChange = { convertToSimplified = it },
+                onConvertToSimplifiedChange = {
+                    convertToSimplified = it
+                    prefs.edit().putBoolean("amConvertToSimplified", it).apply()
+                },
                 showLineByLine = showLineByLine,
                 onShowLineByLineChange = { 
                     showLineByLine = it
                     prefs.edit().putBoolean("showLineByLine", it).apply()
+                },
+                showLineEndTimestamp = showLineEndTimestamp,
+                onShowLineEndTimestampChange = {
+                    showLineEndTimestamp = it
+                    prefs.edit().putBoolean("showLineEndTimestamp", it).apply()
                 },
                 onCopy = {
                     val isAppleMusic = selectedSong?.lyricsResult?.source == Source.ITUNES
@@ -893,7 +832,7 @@ fun VerbatimLyricsScreen(
                         ttml
                     } else {
                         // 处理其他文本
-                        var text = getLyricsText(selectedSong!!, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine)
+                        var text = getLyricsText(selectedSong!!, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
                         if (convertToSimplified) {
                             text = com.example.LyricBox.utils.ChineseConverter.toSimplified(text)
                         }
@@ -931,7 +870,7 @@ fun VerbatimLyricsScreen(
                         ttml
                     } else {
                         // 处理其他文本
-                        var text = getLyricsText(selectedSong!!, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine)
+                        var text = getLyricsText(selectedSong!!, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
                         if (convertToSimplified) {
                             text = com.example.LyricBox.utils.ChineseConverter.toSimplified(text)
                         }
@@ -1091,10 +1030,7 @@ fun SongResultItemWithSource(
             
             if (result.isLoading) {
                 Spacer(modifier = Modifier.width(8.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
-                )
+                LoadingIndicator(modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -1170,10 +1106,7 @@ fun SongResultItem(
             Spacer(modifier = Modifier.width(8.dp))
             
             if (result.isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
-                )
+                LoadingIndicator(modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -1196,7 +1129,9 @@ fun LyricsBottomSheet(
     convertToSimplified: Boolean = true,
     onConvertToSimplifiedChange: (Boolean) -> Unit = {},
     showLineByLine: Boolean = false,
-    onShowLineByLineChange: (Boolean) -> Unit = {}
+    onShowLineByLineChange: (Boolean) -> Unit = {},
+    showLineEndTimestamp: Boolean = true,
+    onShowLineEndTimestampChange: (Boolean) -> Unit = {}
 ) {
     val lyricsResult = songResult.lyricsResult
     val lyrics = lyricsResult?.lyrics
@@ -1208,8 +1143,8 @@ fun LyricsBottomSheet(
     } == true
     
     // 根据选项处理歌词文本
-    val processedLyricsText = remember(showTranslation, filterMetadata, keepTranslation, convertToSimplified, showLineByLine) {
-        var text = getLyricsText(songResult, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine)
+    val processedLyricsText = remember(showTranslation, filterMetadata, keepTranslation, convertToSimplified, showLineByLine, showLineEndTimestamp) {
+        var text = getLyricsText(songResult, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
         
         // 处理繁转简
         if (convertToSimplified) {
@@ -1277,10 +1212,16 @@ fun LyricsBottomSheet(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "正在获取歌词",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            LoadingIndicator(modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "正在获取歌词",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 } else if (isAppleMusic && !processedRawTtml.isNullOrEmpty()) {
                     val scrollState = rememberScrollState()
@@ -1454,6 +1395,32 @@ fun LyricsBottomSheet(
                             )
                         }
                     }
+
+                    if (showLineByLine) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (showLineEndTimestamp)
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                    else
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable { onShowLineEndTimestampChange(!showLineEndTimestamp) }
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = "显示行结束时间戳",
+                                fontSize = 14.sp,
+                                fontWeight = if (showLineEndTimestamp) FontWeight.Bold else FontWeight.Medium,
+                                color = if (showLineEndTimestamp)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -1463,13 +1430,6 @@ fun LyricsBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("取消")
-                }
-                
                 OutlinedButton(
                     onClick = onCopy,
                     modifier = Modifier.weight(1f)
@@ -1497,7 +1457,8 @@ fun getLyricsText(
     keepTranslation: Boolean = true,
     convertToSimplified: Boolean = true,
     rawTtml: String? = null,
-    showLineByLine: Boolean = false
+    showLineByLine: Boolean = false,
+    showLineEndTimestamp: Boolean = true
 ): String {
     val lyricsResult = songResult.lyricsResult ?: return ""
     val isAppleMusic = lyricsResult.source == Source.ITUNES
@@ -1539,7 +1500,7 @@ fun getLyricsText(
             if (lineText.isNotEmpty()) {
                 sb.append("[$lineStartTime]")
                 sb.append(lineText)
-                if (lineEndTime != null) {
+                if (showLineEndTimestamp && lineEndTime != null) {
                     sb.append("[$lineEndTime]")
                 }
                 sb.append("\n")
@@ -1553,7 +1514,7 @@ fun getLyricsText(
                     if (translationText.isNotEmpty() && translationText != "//" && !translationText.matches(Regex("^/+$"))) {
                         sb.append("[$lineStartTime]")
                         sb.append(translationText)
-                        if (lineEndTime != null) {
+                        if (showLineEndTimestamp && lineEndTime != null) {
                             sb.append("[$lineEndTime]")
                         }
                         sb.append("\n")
@@ -1577,7 +1538,10 @@ fun getLyricsText(
         text = lines.subList(startIndex, lines.size)
             .filter { line ->
                 val content = timestampPattern.replace(line, "").trim()
-                content.isNotEmpty() && !content.contains(":") && !content.contains("：")
+                content.isNotEmpty() &&
+                    !content.contains(":") &&
+                    !content.contains("：") &&
+                    !content.contains("歌词翻译由")
             }
             .joinToString("\n")
     }
