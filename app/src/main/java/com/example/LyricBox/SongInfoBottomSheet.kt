@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -114,6 +115,7 @@ fun SongInfoBottomSheet(
     var showDeleteConfirmDialog by remember(audio.path) { mutableStateOf(false) }
     var renameIndicatorJob by remember(audio.path) { mutableStateOf<Job?>(null) }
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var showLyricsSourceSheet by remember(audio.path) { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { sheetState.show() }
 
@@ -145,169 +147,195 @@ fun SongInfoBottomSheet(
         showRenameSuccess = false
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    ) {
-        val scrollState = rememberScrollState()
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+    if (!showLyricsSourceSheet) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            modifier = Modifier.statusBarsPadding()
         ) {
-            Text(
-                text = "歌曲信息",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            val scrollState = rememberScrollState()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = "歌曲信息",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Row(modifier = Modifier.fillMaxWidth()) {
-                if (coverBitmap != null) {
-                    Image(
-                        bitmap = coverBitmap!!.asImageBitmap(),
-                        contentDescription = "封面",
-                        modifier = Modifier
-                            .size(74.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                    )
-                } else {
-                    androidx.compose.material3.Icon(
-                        painter = painterResource(id = android.R.drawable.ic_media_play),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(74.dp)
-                    )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    if (coverBitmap != null) {
+                        Image(
+                            bitmap = coverBitmap!!.asImageBitmap(),
+                            contentDescription = "封面",
+                            modifier = Modifier
+                                .size(74.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    } else {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(id = android.R.drawable.ic_media_play),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(74.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = infoState.title,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "${infoState.artist} - ${infoState.album}",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = infoState.title,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "${infoState.artist} - ${infoState.album}",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
 
-            Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-            SongInfoActionItem(
-                title = if (hasQueuedAsNext) "已加入下一首" else "下一首播放",
-                onClick = {
-                    if (!hasQueuedAsNext) {
-                        if (onPlayNext != null) {
-                            onPlayNext()
-                            hasQueuedAsNext = true
-                        } else if (fallbackPlaybackController != null && fallbackPlaybackController.isReady) {
-                            fallbackPlaybackController.insertNext(audio)
-                            hasQueuedAsNext = true
-                        } else {
-                            Toast.makeText(context, "播放控制器未就绪，稍后再试", Toast.LENGTH_SHORT).show()
+                SongInfoActionItem(
+                    title = if (hasQueuedAsNext) "已加入下一首" else "下一首播放",
+                    onClick = {
+                        if (!hasQueuedAsNext) {
+                            if (onPlayNext != null) {
+                                onPlayNext()
+                                hasQueuedAsNext = true
+                            } else if (fallbackPlaybackController != null && fallbackPlaybackController.isReady) {
+                                fallbackPlaybackController.insertNext(audio)
+                                hasQueuedAsNext = true
+                            } else {
+                                Toast.makeText(context, "播放控制器未就绪，稍后再试", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
-                }
-            )
-            SongInfoActionItem(title = "查看专辑、艺术家", onClick = {
-                val artists = extractAllArtistsForSheet(
-                    title = infoState.title,
-                    artist = infoState.artist
                 )
-                if (artists.isEmpty() && infoState.album.isBlank()) {
-                } else if (onViewArtists != null) {
-                    onViewArtists(infoState.album, artists)
-                } else {
-                    pendingArtists = artists
-                    showArtistSelectionSheet = true
-                }
-            })
-            SongInfoActionItem(
-                title = if (favoriteState) "取消收藏" else "收藏音乐",
-                onClick = {
-                    if (onToggleFavorite != null) {
-                        onToggleFavorite()
-                        favoriteState = !favoriteState
+                SongInfoActionItem(title = "查看专辑、艺术家", onClick = {
+                    val artists = extractAllArtistsForSheet(
+                        title = infoState.title,
+                        artist = infoState.artist
+                    )
+                    if (artists.isEmpty() && infoState.album.isBlank()) {
+                    } else if (onViewArtists != null) {
+                        onViewArtists(infoState.album, artists)
                     } else {
-                        favoriteState = toggleFavoriteForAudio(context, audio)
+                        pendingArtists = artists
+                        showArtistSelectionSheet = true
                     }
-                }
-            )
-            SongInfoActionItem(
-                title = "去打轴界面编辑歌词",
-                onClick = {
-                    scope.launch {
-                        launchLyricTimingEditorFromSongInfo(
-                            context = context,
-                            audio = audio,
-                            songInfo = infoState
-                        )
+                })
+                SongInfoActionItem(
+                    title = if (favoriteState) "取消收藏" else "收藏音乐",
+                    onClick = {
+                        if (onToggleFavorite != null) {
+                            onToggleFavorite()
+                            favoriteState = !favoriteState
+                        } else {
+                            favoriteState = toggleFavoriteForAudio(context, audio)
+                        }
+                    }
+                )
+                SongInfoActionItem(
+                    title = "去打轴界面编辑歌词",
+                    onClick = {
+                        showLyricsSourceSheet = true
+                    }
+                )
+                SongInfoActionItem(
+                    title = "去编辑歌曲元数据",
+                    onClick = {
+                        if (onEditMetadataFromSheet != null) {
+                            onEditMetadataFromSheet(audio)
+                        } else {
+                            launchSongMetadataEditorFromSongInfo(context, audio)
+                        }
                         onDismiss()
-                        onEditLyricsFromPreview?.invoke()
                     }
-                }
-            )
-            SongInfoActionItem(
-                title = "去编辑歌曲元数据",
-                onClick = {
-                    if (onEditMetadataFromSheet != null) {
-                        onEditMetadataFromSheet(audio)
+                )
+                SongInfoActionItem(
+                    title = "分享文件",
+                    onClick = {
+                        if (onShareFile != null) {
+                            onShareFile()
+                        } else {
+                            shareAudioFile(context, audio)
+                        }
+                    }
+                )
+                SongInfoActionItem(
+                    title = if (showRenameSuccess) "重命名成功" else "重命名文件",
+                    onClick = {
+                        if (onRenameFile != null) {
+                            onRenameFile()
+                        } else {
+                            renameInputValue = File(audio.path).nameWithoutExtension
+                            showRenameDialog = true
+                        }
+                    },
+                    textColor = if (showRenameSuccess) {
+                        MaterialTheme.colorScheme.primary
                     } else {
-                        launchSongMetadataEditorFromSongInfo(context, audio)
+                        MaterialTheme.colorScheme.onSurface
                     }
+                )
+                SongInfoActionItem(
+                    title = "删除文件",
+                    onClick = {
+                        if (onDeleteFile != null) {
+                            onDeleteFile()
+                        } else {
+                            showDeleteConfirmDialog = true
+                        }
+                    },
+                    textColor = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+
+    if (showLyricsSourceSheet) {
+        AudioOptionsDialog(
+            audio = audio,
+            initialCoverBitmap = coverBitmap,
+            onDismiss = {
+                showLyricsSourceSheet = false
+                onDismiss()
+            },
+            onEditLyrics = { lyricsContent, lyricsFormat ->
+                showLyricsSourceSheet = false
+                launchLyricTimingEditorFromSongInfo(
+                    context = context,
+                    audio = audio,
+                    songInfo = infoState,
+                    lyricsContent = lyricsContent,
+                    lyricsFormatLabel = lyricsFormat
+                )
+                onDismiss()
+                onEditLyricsFromPreview?.invoke()
+            },
+            onEditMetadata = onEditMetadataFromSheet?.let { editMetadata ->
+                { _: String ->
+                    showLyricsSourceSheet = false
+                    editMetadata(audio)
                     onDismiss()
                 }
-            )
-            SongInfoActionItem(
-                title = "分享文件",
-                onClick = {
-                    if (onShareFile != null) {
-                        onShareFile()
-                    } else {
-                        shareAudioFile(context, audio)
-                    }
-                }
-            )
-            SongInfoActionItem(
-                title = if (showRenameSuccess) "重命名成功" else "重命名文件",
-                onClick = {
-                    if (onRenameFile != null) {
-                        onRenameFile()
-                    } else {
-                        renameInputValue = File(audio.path).nameWithoutExtension
-                        showRenameDialog = true
-                    }
-                },
-                textColor = if (showRenameSuccess) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }
-            )
-            SongInfoActionItem(
-                title = "删除文件",
-                onClick = {
-                    if (onDeleteFile != null) {
-                        onDeleteFile()
-                    } else {
-                        showDeleteConfirmDialog = true
-                    }
-                },
-                textColor = MaterialTheme.colorScheme.error
-            )
-        }
+            },
+            showEditMetadataButton = onEditMetadataFromSheet != null
+        )
     }
 
     if (showArtistSelectionSheet) {
@@ -576,28 +604,13 @@ private fun saveFavoritePaths(context: Context, paths: Set<String>) {
     LocalPlaylistStore.saveFavorites(context, entries)
 }
 
-private suspend fun launchLyricTimingEditorFromSongInfo(
+private fun launchLyricTimingEditorFromSongInfo(
     context: Context,
     audio: AudioFile,
-    songInfo: SongInfoState
+    songInfo: SongInfoState,
+    lyricsContent: String?,
+    lyricsFormatLabel: String
 ) {
-    val (lyricsContent, lyricsFormatLabel) = withContext(Dispatchers.IO) {
-        val audioFile = File(audio.path)
-        val sameNameTtml = audioFile.parentFile?.let { parent ->
-            File(parent, "${audioFile.nameWithoutExtension}.ttml")
-        }
-        val preferredLyrics = when {
-            sameNameTtml != null -> {
-                readExternalTtmlWithFallback(context, sameNameTtml)?.takeIf { it.isNotBlank() }
-            }
-            else -> AudioMetadataReader.readLyrics(context, audio.path, audio.mediaStoreId)?.takeIf { it.isNotBlank() }
-        }
-        val formatLabel = preferredLyrics
-            ?.let { detectLyricsFormat(it).toSongInfoLyricFormatLabel() }
-            ?: 0.toSongInfoLyricFormatLabel()
-        preferredLyrics to formatLabel
-    }
-
     val intent = Intent(context, LyricTimingActivity::class.java).apply {
         putExtra("audioPath", audio.path)
         putExtra("lyricsContent", lyricsContent)

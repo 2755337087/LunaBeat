@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.icu.text.Transliterator
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -295,6 +296,45 @@ private const val EXTERNAL_AUDIO_LOG_TAG = "MusicLibraryExternal"
 private const val PREF_SONG_CLICK_ACTION_CONFIRMED = "songClickActionConfirmed"
 private const val STARTUP_APP_SETTINGS_PREFS_NAME = "AppSettings"
 private const val STARTUP_NOTICE_SNOOZE_DATE_KEY = "noticeSnoozeDate"
+private const val FILE_NAME_SORT_KEY_CACHE_SIZE = 4096
+private val FILE_NAME_SORT_KEY_SPACE_REGEX = Regex("\\s+")
+private val FILE_NAME_SORT_KEY_CACHE = LruCache<String, String>(FILE_NAME_SORT_KEY_CACHE_SIZE)
+private val FILE_NAME_SORT_KEY_LOCK = Any()
+private val FILE_NAME_SORT_TRANSLITERATOR: Transliterator? by lazy(LazyThreadSafetyMode.NONE) {
+    runCatching { Transliterator.getInstance("Any-Latin; Latin-ASCII") }
+        .onFailure { Log.w("MusicLibrarySort", "ICU Transliterator init failed: ${it.message}") }
+        .getOrNull()
+}
+
+private fun buildFileNameSortKey(value: String): String {
+    val source = value.trim()
+    if (source.isEmpty()) return "~"
+
+    synchronized(FILE_NAME_SORT_KEY_LOCK) {
+        FILE_NAME_SORT_KEY_CACHE.get(source)?.let { return it }
+    }
+
+    val transliterated = runCatching {
+        FILE_NAME_SORT_TRANSLITERATOR?.transliterate(source) ?: source
+    }.getOrDefault(source)
+
+    val normalized = FILE_NAME_SORT_KEY_SPACE_REGEX
+        .replace(transliterated.lowercase(Locale.ROOT), " ")
+        .trim()
+        .ifEmpty { source.lowercase(Locale.ROOT) }
+
+    synchronized(FILE_NAME_SORT_KEY_LOCK) {
+        FILE_NAME_SORT_KEY_CACHE.put(source, normalized)
+    }
+    return normalized
+}
+
+private fun buildFileNameSortBucket(value: String): String {
+    val firstLetter = buildFileNameSortKey(value)
+        .firstOrNull { it.isLetter() }
+        ?.uppercaseChar()
+    return firstLetter?.toString() ?: "{"
+}
 
 private fun loadRecentSearchHistory(prefs: SharedPreferences): List<String> {
     return prefs.getString(SEARCH_HISTORY_PREFS_KEY, null)
@@ -1830,7 +1870,8 @@ fun MusicLibraryScreen(
                         .toList()
                         .sortedWith(
                             compareBy<AudioFile> { resolveTrackSortValue(it) }
-                                .thenBy { it.displayTitle.lowercase() }
+                                .thenBy { buildFileNameSortKey(it.displayTitle) }
+                                .thenBy { it.displayTitle.lowercase(Locale.ROOT) }
                         )
                     displayAudioFiles.clear()
                     displayAudioFiles.addAll(resorted)
@@ -1869,7 +1910,8 @@ fun MusicLibraryScreen(
                 .filter { it.displayAlbum.contains(keyword, ignoreCase = true) }
                 .sortedWith(
                     compareBy<AudioFile> { resolveTrackSortValue(it) }
-                        .thenBy { it.displayTitle.lowercase() }
+                        .thenBy { buildFileNameSortKey(it.displayTitle) }
+                        .thenBy { it.displayTitle.lowercase(Locale.ROOT) }
                 )
         }
 
@@ -1935,7 +1977,8 @@ fun MusicLibraryScreen(
                                     .filter { it.displayAlbum.contains(keyword, ignoreCase = true) }
                                     .sortedWith(
                                         compareBy<AudioFile> { resolveTrackSortValue(it) }
-                                            .thenBy { it.displayTitle.lowercase() }
+                                            .thenBy { buildFileNameSortKey(it.displayTitle) }
+                                            .thenBy { it.displayTitle.lowercase(Locale.ROOT) }
                                     )
                             }
                         }
@@ -4166,6 +4209,7 @@ private fun MusicLibraryMiniPlayerBar(
 fun AudioOptionsDialog(
     audio: AudioFile,
     autoDetectEmbeddedLyricsType: Boolean = false,
+    initialCoverBitmap: android.graphics.Bitmap? = null,
     onDismiss: () -> Unit,
     onEditLyrics: (String?, String) -> Unit,
     onEditMetadata: ((String) -> Unit)? = null,
@@ -4182,7 +4226,7 @@ fun AudioOptionsDialog(
     var showLyricsPreview by remember { mutableStateOf(false) }
     var previewLyricsContent by remember { mutableStateOf("") }
     var previewLyricsTitle by remember { mutableStateOf("") }
-    var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var coverBitmap by remember(audio.path, initialCoverBitmap) { mutableStateOf(initialCoverBitmap) }
     
     val hasEmbedded by remember { derivedStateOf { embeddedLyrics != null } }
     val hasExternal by remember { derivedStateOf { externalLyrics != null } }
@@ -4208,14 +4252,14 @@ fun AudioOptionsDialog(
         sheetState.show()
     }
     
-    LaunchedEffect(audio.path, audio.coverCachePath) {
+    LaunchedEffect(audio.path, audio.coverCachePath, initialCoverBitmap) {
         isLoadingLyrics = true
         selectedSource = null
         selectedFormat = 0
         embeddedLyrics = null
         externalLyrics = null
         externalLyricsPath = null
-        coverBitmap = null
+        coverBitmap = initialCoverBitmap
 
         // 先显示弹窗与加载态，再并行读取封面和歌词
         kotlinx.coroutines.yield()
@@ -4227,7 +4271,7 @@ fun AudioOptionsDialog(
             mediaStoreId = audio.mediaStoreId
         )
 
-        coverBitmap = coverDeferred.await()
+        coverDeferred.await()?.let { coverBitmap = it }
         embeddedLyrics = lyricsLoadResult.embeddedLyrics
         externalLyrics = lyricsLoadResult.externalLyrics
         externalLyricsPath = lyricsLoadResult.externalLyricsPath
@@ -4246,7 +4290,8 @@ fun AudioOptionsDialog(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = modifier.statusBarsPadding()
     ) {
         val scrollState = rememberScrollState()
         
@@ -4255,6 +4300,7 @@ fun AudioOptionsDialog(
                 .fillMaxWidth()
                 .animateContentSize(animationSpec = tween(300, easing = FastOutSlowInEasing))
                 .verticalScroll(scrollState)
+                .statusBarsPadding()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
@@ -4336,7 +4382,7 @@ fun AudioOptionsDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
+                        LoadingIndicator(modifier = Modifier.size(48.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "正在读取歌词...",
@@ -4709,12 +4755,18 @@ private fun sortAudioFiles(
         }
     }
 
+    val fileNameComparator = compareBy<AudioFile>(
+        { buildFileNameSortBucket(it.displayTitle) },
+        { buildFileNameSortKey(it.displayTitle) },
+        { it.displayTitle.lowercase(Locale.ROOT) }
+    )
+
     val sorted = when (sortType) {
         SortType.FILE_NAME -> {
             if (sortOrder == SortOrder.ASC) {
-                audioFiles.sortedBy { it.displayTitle.lowercase() }
+                audioFiles.sortedWith(fileNameComparator)
             } else {
-                audioFiles.sortedByDescending { it.displayTitle.lowercase() }
+                audioFiles.sortedWith(fileNameComparator.reversed())
             }
         }
         SortType.MODIFY_TIME -> {
@@ -5636,7 +5688,8 @@ fun ExternalAudioScreen(
             onEditMetadata = { path ->
                 showAudioOptionsDialog = false
                 onEditMetadata(path, false)
-            }
+            },
+            showEditMetadataButton = false
         )
     }
 }

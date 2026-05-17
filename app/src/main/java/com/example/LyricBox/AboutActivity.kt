@@ -640,6 +640,11 @@ fun SpecialThanksBottomSheet(
             url = "https://github.com/airbnb/lottie-android",
             description = ""
         ),
+        OpenSourceProject(
+            name = "ICU Transliterator",
+            url = "https://unicode-org.github.io/icu/userguide/transforms/general/",
+            description = ""
+        ),
     )
     
     val inspirationProjects = listOf(

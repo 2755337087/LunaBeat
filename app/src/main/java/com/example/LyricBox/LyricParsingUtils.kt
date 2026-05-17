@@ -159,9 +159,19 @@ object LyricParsingUtils {
             if (i + 1 < parsedLines.size) {
                 val nextLine = parsedLines[i + 1]
                 val nextFirstTimeTag = nextLine.third
-                
-                // 如果下一行的第一个时间戳与当前行相同，则认为是翻译
-                if (firstTimeTag.isNotEmpty() && firstTimeTag == nextFirstTimeTag && nextLine.second.size == 1) {
+                val nextIsSingleUntimedLine = nextFirstTimeTag.isEmpty() &&
+                    nextLine.second.size == 1 &&
+                    nextLine.second.first().startTime == "00:00.000" &&
+                    nextLine.second.first().endTime == "00:00.000" &&
+                    nextLine.first.isNotBlank()
+
+                // 兼容两种常见双语写法：
+                // 1. [time]原文 + [time]翻译
+                // 2. [time]原文 + 下一行无时间戳翻译（继承上一行时间）
+                if (firstTimeTag.isNotEmpty() &&
+                    nextLine.second.size == 1 &&
+                    (firstTimeTag == nextFirstTimeTag || nextIsSingleUntimedLine)
+                ) {
                     translation = nextLine.first
                     i++ // 跳过翻译行
                 }

@@ -10,6 +10,7 @@ import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -123,6 +124,21 @@ private val GENRE_SPLIT_REGEX = Regex("""[;；:：、&]+""")
 private const val ACCOMPANIMENT_DIR_PATH = "/storage/emulated/0/Music/.sing"
 private const val ACCOMPANIMENT_PREFS = "AccompanimentStoragePrefs"
 private const val ACCOMPANIMENT_TREE_URI_KEY = "music_sing_tree_uri"
+
+private fun readAudioDurationMillis(audioPath: String): Long {
+    var retriever: MediaMetadataRetriever? = null
+    return try {
+        retriever = MediaMetadataRetriever().apply {
+            setDataSource(audioPath)
+        }
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+    } catch (e: Exception) {
+        Log.e(TAG, "Error reading audio duration for $audioPath", e)
+        0L
+    } finally {
+        runCatching { retriever?.release() }
+    }
+}
 
 data class BatchEditFieldValues(
     val titles: Set<String> = emptySet(),
@@ -930,6 +946,23 @@ fun SongMetadataEditScreen(
             loadMusicLibraryCache(context).firstOrNull { it.path == currentPath }
         }
     }
+    val resolvedAudioDuration by produceState(
+        initialValue = cachedLyricsDialogAudio?.duration?.takeIf { it > 0L } ?: 0L,
+        key1 = audioPath,
+        key2 = cachedLyricsDialogAudio?.duration
+    ) {
+        val cachedDuration = cachedLyricsDialogAudio?.duration?.takeIf { it > 0L } ?: 0L
+        if (cachedDuration > 0L) {
+            value = cachedDuration
+        } else {
+            val currentPath = audioPath
+            value = if (!currentPath.isNullOrBlank()) {
+                withContext(Dispatchers.IO) { readAudioDurationMillis(currentPath) }
+            } else {
+                0L
+            }
+        }
+    }
     val lyricsDialogAudio = remember(
         audioPath,
         title,
@@ -940,7 +973,8 @@ fun SongMetadataEditScreen(
         tagData?.artist,
         tagData?.album,
         tagData?.date,
-        cachedLyricsDialogAudio
+        cachedLyricsDialogAudio,
+        resolvedAudioDuration
     ) {
         audioPath?.let { currentPath ->
             val file = File(currentPath)
@@ -957,7 +991,7 @@ fun SongMetadataEditScreen(
                 title = metadataValue(title, tagData?.title, cachedLyricsDialogAudio?.title.orEmpty()),
                 artist = metadataValue(artist, tagData?.artist, cachedLyricsDialogAudio?.artist.orEmpty()),
                 album = metadataValue(album, tagData?.album, cachedLyricsDialogAudio?.album.orEmpty()),
-                duration = cachedLyricsDialogAudio?.duration ?: 0L,
+                duration = resolvedAudioDuration,
                 fileSize = cachedLyricsDialogAudio?.fileSize?.takeIf { it > 0L } ?: file.length(),
                 lastModified = cachedLyricsDialogAudio?.lastModified?.takeIf { it > 0L } ?: file.lastModified(),
                 addedTime = cachedLyricsDialogAudio?.addedTime ?: System.currentTimeMillis(),
@@ -1045,7 +1079,15 @@ fun SongMetadataEditScreen(
     }
 
     fun openLyricTimingByPreference() {
-        if (autoDetectEmbeddedLyricsType) {
+        val hasExternalTtmlLyrics = audioPath?.let { currentPath ->
+            runCatching {
+                val audioFile = File(currentPath)
+                val ttmlFile = File(audioFile.parentFile, "${audioFile.nameWithoutExtension}.ttml")
+                ttmlFile.exists() && ttmlFile.length() > 0L
+            }.getOrDefault(false)
+        } ?: false
+
+        if (autoDetectEmbeddedLyricsType && !hasExternalTtmlLyrics) {
             val lyricsContent = lyrics.takeIf { it.isNotBlank() && it != KEEP }
             val detectedFormat = detectLyricsFormat(lyricsContent ?: "")
             val formatLabel = when (detectedFormat) {
@@ -3523,6 +3565,7 @@ fun SongMetadataEditScreen(
         AudioOptionsDialog(
             audio = lyricsDialogAudio,
             autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+            initialCoverBitmap = coverBitmap,
             onDismiss = { showLyricsSelectionSheet = false },
             onEditLyrics = { lyricsContent, lyricsFormat ->
                 showLyricsSelectionSheet = false
@@ -4918,7 +4961,7 @@ fun MusicLibraryCoverSelectionSheet(
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    LoadingIndicator(modifier = Modifier.size(56.dp))
                 }
             } else if (filteredFiles.isNullOrEmpty()) {
                 // 空状态
@@ -5574,7 +5617,7 @@ fun LyricsSelectionSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
+                        LoadingIndicator(modifier = Modifier.size(48.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "正在检测歌词...",
