@@ -78,6 +78,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -1694,6 +1695,7 @@ fun MusicLibraryScreen(
     var isInitialListFadeReady by remember { mutableStateOf(false) }
     var displayUpdateJob by remember { mutableStateOf<Job?>(null) }
     var displayUpdateVersion by remember { mutableIntStateOf(0) }
+    var isUpdatingDisplayList by remember { mutableStateOf(false) }
     var hasCompletedInitialDisplayBuild by remember { mutableStateOf(false) }
     val miniPlayerReady = !isLoadingCache && isInitialListFadeReady
     val showMiniPlayer = miniPlayerVisible && miniPlayerReady
@@ -1895,85 +1897,92 @@ fun MusicLibraryScreen(
     fun updateDisplayFiles() {
         val requestVersion = ++displayUpdateVersion
         displayUpdateJob?.cancel()
+        isUpdatingDisplayList = true
         displayUpdateJob = scope.launch {
-            val querySnapshot = searchQuery
-            val allAudioSnapshot = allAudioFiles.toList()
-            val favoriteSnapshot = favoritePaths.toSet()
-            val sortTypeSnapshot = sortType.value
-            val sortOrderSnapshot = sortOrder.value
+            try {
+                val querySnapshot = searchQuery
+                val allAudioSnapshot = allAudioFiles.toList()
+                val favoriteSnapshot = favoritePaths.toSet()
+                val sortTypeSnapshot = sortType.value
+                val sortOrderSnapshot = sortOrder.value
 
-            val filtered = withContext(Dispatchers.Default) {
-                val trimmed = querySnapshot.trim()
-                val builtList = when {
-                    trimmed.isEmpty() -> allAudioSnapshot
-                    trimmed.startsWith(FAVORITE_SEARCH_TOKEN, ignoreCase = true) -> {
-                        val keyword = trimmed.removePrefix(FAVORITE_SEARCH_TOKEN).trim()
-                        val favoriteList = allAudioSnapshot.filter { it.path in favoriteSnapshot }
-                        if (keyword.isBlank()) {
-                            favoriteList
-                        } else {
-                            favoriteList.filter {
-                                it.displayTitle.contains(keyword, ignoreCase = true) ||
-                                    it.displayArtist.contains(keyword, ignoreCase = true) ||
-                                    it.displayAlbum.contains(keyword, ignoreCase = true)
+                val filtered = withContext(Dispatchers.Default) {
+                    val trimmed = querySnapshot.trim()
+                    val builtList = when {
+                        trimmed.isEmpty() -> allAudioSnapshot
+                        trimmed.startsWith(FAVORITE_SEARCH_TOKEN, ignoreCase = true) -> {
+                            val keyword = trimmed.removePrefix(FAVORITE_SEARCH_TOKEN).trim()
+                            val favoriteList = allAudioSnapshot.filter { it.path in favoriteSnapshot }
+                            if (keyword.isBlank()) {
+                                favoriteList
+                            } else {
+                                favoriteList.filter {
+                                    it.displayTitle.contains(keyword, ignoreCase = true) ||
+                                        it.displayArtist.contains(keyword, ignoreCase = true) ||
+                                        it.displayAlbum.contains(keyword, ignoreCase = true)
+                                }
+                            }
+                        }
+                        isAlbumSearchQuery(trimmed) -> {
+                            val keyword = trimmed
+                                .removePrefix(ALBUM_SEARCH_PREFIX_FULL)
+                                .removePrefix(ALBUM_SEARCH_PREFIX_ASCII)
+                                .trim()
+                            if (keyword.isBlank()) {
+                                emptyList()
+                            } else {
+                                allAudioSnapshot
+                                    .filter { it.displayAlbum.contains(keyword, ignoreCase = true) }
+                                    .sortedWith(
+                                        compareBy<AudioFile> { resolveTrackSortValue(it) }
+                                            .thenBy { it.displayTitle.lowercase() }
+                                    )
+                            }
+                        }
+                        else -> {
+                            allAudioSnapshot.filter {
+                                it.displayTitle.contains(trimmed, ignoreCase = true) ||
+                                    it.displayArtist.contains(trimmed, ignoreCase = true) ||
+                                    it.album.contains(trimmed, ignoreCase = true)
                             }
                         }
                     }
-                    isAlbumSearchQuery(trimmed) -> {
-                        val keyword = trimmed
-                            .removePrefix(ALBUM_SEARCH_PREFIX_FULL)
-                            .removePrefix(ALBUM_SEARCH_PREFIX_ASCII)
-                            .trim()
-                        if (keyword.isBlank()) {
-                            emptyList()
-                        } else {
-                            allAudioSnapshot
-                                .filter { it.displayAlbum.contains(keyword, ignoreCase = true) }
-                                .sortedWith(
-                                    compareBy<AudioFile> { resolveTrackSortValue(it) }
-                                        .thenBy { it.displayTitle.lowercase() }
-                                )
+
+                    if (isAlbumSearchQuery(trimmed)) {
+                        builtList
+                    } else {
+                        val sorted = builtList.toMutableList()
+                        sortAudioFiles(sorted, sortTypeSnapshot, sortOrderSnapshot)
+                        sorted
+                    }
+                }
+
+                if (requestVersion != displayUpdateVersion) return@launch
+                displayAudioFiles.clear()
+                if (filtered.isNotEmpty()) {
+                    val batchSize = 200
+                    var start = 0
+                    while (start < filtered.size) {
+                        if (requestVersion != displayUpdateVersion) return@launch
+                        val end = minOf(start + batchSize, filtered.size)
+                        displayAudioFiles.addAll(filtered.subList(start, end))
+                        start = end
+                        if (start < filtered.size) {
+                            kotlinx.coroutines.yield()
                         }
                     }
-                    else -> {
-                        allAudioSnapshot.filter {
-                            it.displayTitle.contains(trimmed, ignoreCase = true) ||
-                                it.displayArtist.contains(trimmed, ignoreCase = true) ||
-                                it.album.contains(trimmed, ignoreCase = true)
-                        }
-                    }
                 }
 
-                if (isAlbumSearchQuery(trimmed)) {
-                    builtList
-                } else {
-                    val sorted = builtList.toMutableList()
-                    sortAudioFiles(sorted, sortTypeSnapshot, sortOrderSnapshot)
-                    sorted
+                if (isAlbumSearchQuery(querySnapshot)) {
+                    warmupTrackSortCacheFor(querySnapshot, filtered)
                 }
-            }
-
-            if (requestVersion != displayUpdateVersion) return@launch
-            displayAudioFiles.clear()
-            if (filtered.isNotEmpty()) {
-                val batchSize = 200
-                var start = 0
-                while (start < filtered.size) {
-                    if (requestVersion != displayUpdateVersion) return@launch
-                    val end = minOf(start + batchSize, filtered.size)
-                    displayAudioFiles.addAll(filtered.subList(start, end))
-                    start = end
-                    if (start < filtered.size) {
-                        kotlinx.coroutines.yield()
-                    }
+                if (requestVersion == displayUpdateVersion) {
+                    hasCompletedInitialDisplayBuild = true
                 }
-            }
-
-            if (isAlbumSearchQuery(querySnapshot)) {
-                warmupTrackSortCacheFor(querySnapshot, filtered)
-            }
-            if (requestVersion == displayUpdateVersion) {
-                hasCompletedInitialDisplayBuild = true
+            } finally {
+                if (requestVersion == displayUpdateVersion) {
+                    isUpdatingDisplayList = false
+                }
             }
         }
     }
@@ -2607,10 +2616,17 @@ fun MusicLibraryScreen(
                                                     },
                                                     label = {
                                                         Row(
+                                                            modifier = Modifier.widthIn(max = 240.dp),
                                                             verticalAlignment = Alignment.CenterVertically,
                                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                         ) {
-                                                            Text(chipText)
+                                                            Text(
+                                                                text = chipText,
+                                                                modifier = Modifier.weight(1f, fill = false),
+                                                                maxLines = 2,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                                lineHeight = 16.sp
+                                                            )
                                                             Icon(
                                                                 imageVector = Icons.Rounded.Close,
                                                                 contentDescription = "删除历史",
@@ -2647,7 +2663,10 @@ fun MusicLibraryScreen(
                 isLoadingCache || !isInitialListFadeReady || !hasCompletedInitialDisplayBuild
             val shouldShowScanBootstrapLoading =
                 !shouldShowLibraryLoading && isScanning && displayAudioFiles.isEmpty()
-            val shouldShowMusicListLoading = shouldShowLibraryLoading || shouldShowScanBootstrapLoading
+            val shouldShowDisplayBuildLoading =
+                !shouldShowLibraryLoading && isUpdatingDisplayList && displayAudioFiles.isEmpty()
+            val shouldShowMusicListLoading =
+                shouldShowLibraryLoading || shouldShowScanBootstrapLoading || shouldShowDisplayBuildLoading
 
             if (shouldShowMusicListLoading) {
                 Box(
@@ -2663,7 +2682,7 @@ fun MusicLibraryScreen(
                 enter = fadeIn(animationSpec = tween(durationMillis = 320)),
                 exit = fadeOut(animationSpec = tween(durationMillis = 120))
             ) {
-                if (displayAudioFiles.isEmpty() && !isScanning && hasCompletedInitialDisplayBuild) {
+                if (displayAudioFiles.isEmpty() && !isScanning && hasCompletedInitialDisplayBuild && !isUpdatingDisplayList) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center

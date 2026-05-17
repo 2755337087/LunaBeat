@@ -1033,6 +1033,17 @@ fun SongMetadataEditScreen(
         }
     }
 
+    fun buildMetadataSearchKeyword(): String {
+        val normalizedTitle = title.takeIf { it.isNotBlank() && it != KEEP }
+        val normalizedArtist = artist.takeIf { it.isNotBlank() && it != KEEP }
+        if (normalizedTitle != null && normalizedArtist != null) {
+            return "$normalizedTitle $normalizedArtist"
+        }
+        return audioFileName.takeIf { it.isNotBlank() }
+            ?: audioPath?.let { File(it).nameWithoutExtension }
+            .orEmpty()
+    }
+
     fun openLyricTimingByPreference() {
         if (autoDetectEmbeddedLyricsType) {
             val lyricsContent = lyrics.takeIf { it.isNotBlank() && it != KEEP }
@@ -2145,16 +2156,7 @@ fun SongMetadataEditScreen(
                             com.example.LyricBox.ui.components.MenuItem(
                                 title = "搜索元数据",
                                 onClick = { 
-                                    val keyword = if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
-                                        "$title $artist"
-                                    } else if (title.isNotEmpty() && title != KEEP) {
-                                        title
-                                    } else if (artist.isNotEmpty() && artist != KEEP) {
-                                        artist
-                                    } else {
-                                        ""
-                                    }
-                                    onSearchMetadata(keyword, false)
+                                    onSearchMetadata(buildMetadataSearchKeyword(), false)
                                 }
                             ),
                             com.example.LyricBox.ui.components.MenuItem(
@@ -2356,16 +2358,7 @@ fun SongMetadataEditScreen(
                                                 shape = RoundedCornerShape(14.dp)
                                             )
                                             .clickable {
-                                                val keyword = if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
-                                                    "$title $artist"
-                                                } else if (title.isNotEmpty() && title != KEEP) {
-                                                    title
-                                                } else if (artist.isNotEmpty() && artist != KEEP) {
-                                                    artist
-                                                } else {
-                                                    ""
-                                                }
-                                                onSearchMetadata(keyword, true)
+                                                onSearchMetadata(buildMetadataSearchKeyword(), true)
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -2982,16 +2975,7 @@ fun SongMetadataEditScreen(
                 if (!isBatchEdit) {
                     FloatingActionButton(
                         onClick = { 
-                            val keyword = if (title.isNotEmpty() && artist.isNotEmpty() && title != KEEP && artist != KEEP) {
-                                "$title $artist"
-                            } else if (title.isNotEmpty() && title != KEEP) {
-                                title
-                            } else if (artist.isNotEmpty() && artist != KEEP) {
-                                artist
-                            } else {
-                                ""
-                            }
-                            onSearchMetadata(keyword, false)
+                            onSearchMetadata(buildMetadataSearchKeyword(), false)
                         },
                         containerColor = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
