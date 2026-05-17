@@ -166,6 +166,9 @@
 - [uCrop](https://github.com/Yalantis/uCrop)
 - [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
 - [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
+- [lottie-android](https://github.com/airbnb/lottie-android)
+- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
+
 
 ## 交流与反馈
 
