@@ -301,6 +301,14 @@ fun SettingsScreen(
             )
         )
     }
+    var dynamicCoverBackgroundEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+            )
+        )
+    }
     var lyriconStatusBarEnabled by remember {
         mutableStateOf(
             lyricPreviewPrefs.getBoolean(
@@ -882,6 +890,7 @@ fun SettingsScreen(
             supportsLyricBlur = supportsLyricBlur,
             lyricBlurEnabled = lyricBlurEnabled,
             lyricGlowEnabled = lyricGlowEnabled,
+            dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
             lyricDisplayMode = lyricDisplayMode,
@@ -914,6 +923,12 @@ fun SettingsScreen(
                 lyricGlowEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LYRIC_GLOW, it)
+                    .apply()
+            },
+            onDynamicCoverBackgroundEnabledChange = {
+                dynamicCoverBackgroundEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, it)
                     .apply()
             },
             onLyriconStatusBarEnabledChange = {

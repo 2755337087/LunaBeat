@@ -81,6 +81,7 @@ fun LyricSettingsBottomSheet(
     supportsLyricBlur: Boolean,
     lyricBlurEnabled: Boolean,
     lyricGlowEnabled: Boolean,
+    dynamicCoverBackgroundEnabled: Boolean,
     lyriconStatusBarEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
     lyricDisplayMode: Int,
@@ -95,6 +96,7 @@ fun LyricSettingsBottomSheet(
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
     onLyricGlowEnabledChange: (Boolean) -> Unit,
+    onDynamicCoverBackgroundEnabledChange: (Boolean) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
     onLyricDisplayModeChange: (Int) -> Unit,
@@ -245,6 +247,13 @@ fun LyricSettingsBottomSheet(
                         title = "歌词发光",
                         checked = lyricGlowEnabled,
                         onCheckedChange = onLyricGlowEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "封面流光背景",
+                        checked = dynamicCoverBackgroundEnabled,
+                        onCheckedChange = onDynamicCoverBackgroundEnabledChange,
                         contentColor = contentColor,
                         accentColor = accentColor
                     )

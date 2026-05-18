@@ -52,7 +52,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -103,10 +105,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -1024,6 +1029,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
         const val KEY_LYRIC_GLOW = "lyric_glow"
+        const val KEY_DYNAMIC_COVER_BACKGROUND = "dynamic_cover_background"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
         const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
@@ -1035,6 +1041,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRIC_GLOW = true
+        const val DEFAULT_DYNAMIC_COVER_BACKGROUND = false
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_SCREEN_KEEP_ON = true
         const val LYRIC_DISPLAY_MODE_DEFAULT = 0
@@ -2129,6 +2136,205 @@ private fun rememberLyricLineBlurModifier(blurRadius: Float): Modifier {
     }
 }
 
+private fun Modifier.lyricChromeEdgeFade(
+    enabled: Boolean,
+    topHiddenHeight: Dp = 0.dp,
+    topFadeHeight: Dp,
+    bottomFadeHeight: Dp
+): Modifier {
+    if (!enabled) return this
+    return this
+        .graphicsLayer {
+            compositingStrategy = CompositingStrategy.Offscreen
+        }
+        .drawWithContent {
+            drawContent()
+            if (size.height <= 0f) return@drawWithContent
+            val topHiddenStop = (topHiddenHeight.toPx() / size.height).coerceIn(0f, 0.48f)
+            val topVisibleStop = ((topHiddenHeight + topFadeHeight).toPx() / size.height)
+                .coerceIn((topHiddenStop + 0.01f).coerceAtMost(0.49f), 0.58f)
+            val bottomStop = ((size.height - bottomFadeHeight.toPx()) / size.height).coerceIn(topVisibleStop, 0.99f)
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.Transparent,
+                        topHiddenStop to Color.Transparent,
+                        topVisibleStop to Color.Black,
+                        bottomStop to Color.Black,
+                        1f to Color.Transparent
+                    )
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+}
+
+private fun createLyricFlowBackgroundBitmap(source: Bitmap): Bitmap {
+    val maxSide = 64
+    val sourceMaxSide = max(source.width, source.height).coerceAtLeast(1)
+    if (sourceMaxSide <= maxSide) return source
+    val scale = maxSide.toFloat() / sourceMaxSide.toFloat()
+    val targetWidth = (source.width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+}
+
+private fun DrawScope.drawDistortedCoverMesh(
+    bitmap: Bitmap,
+    phase: Float,
+    amplitudePx: Float,
+    overscanPx: Float,
+    alpha: Float,
+    meshWidth: Int = 18,
+    meshHeight: Int = 18
+) {
+    if (size.width <= 0f || size.height <= 0f || bitmap.width <= 0 || bitmap.height <= 0) return
+
+    val vertexCount = (meshWidth + 1) * (meshHeight + 1)
+    val verts = FloatArray(vertexCount * 2)
+    val left = -overscanPx
+    val top = -overscanPx
+    val drawWidth = size.width + overscanPx * 2f
+    val drawHeight = size.height + overscanPx * 2f
+    val twoPi = (PI * 2.0).toFloat()
+    var offset = 0
+
+    for (row in 0..meshHeight) {
+        val normalizedY = row.toFloat() / meshHeight.toFloat()
+        for (column in 0..meshWidth) {
+            val normalizedX = column.toFloat() / meshWidth.toFloat()
+            val baseX = left + drawWidth * normalizedX
+            val baseY = top + drawHeight * normalizedY
+            val centerX = normalizedX - 0.5f
+            val centerY = normalizedY - 0.5f
+            val radius = kotlin.math.sqrt(centerX * centerX + centerY * centerY)
+            val twist = sin(phase + radius * 7.2f) * amplitudePx * 0.86f
+            val waveX = sin(normalizedY * twoPi * 1.55f + phase) * amplitudePx +
+                cos((normalizedX + normalizedY) * twoPi * 0.95f - phase * 0.72f) * amplitudePx * 0.55f
+            val waveY = cos(normalizedX * twoPi * 1.35f - phase * 1.08f) * amplitudePx * 0.82f +
+                sin((normalizedX - normalizedY) * twoPi * 1.05f + phase * 0.92f) * amplitudePx * 0.48f
+            verts[offset++] = baseX + waveX - centerY * twist
+            verts[offset++] = baseY + waveY + centerX * twist
+        }
+    }
+
+    drawIntoCanvas { canvas ->
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            isFilterBitmap = true
+            this.alpha = (alpha.coerceIn(0f, 1f) * 255f).roundToInt()
+        }
+        canvas.nativeCanvas.drawBitmapMesh(
+            bitmap,
+            meshWidth,
+            meshHeight,
+            verts,
+            0,
+            null,
+            0,
+            paint
+        )
+    }
+}
+
+@Composable
+private fun DynamicLyricCoverBackground(
+    coverBitmap: Bitmap?,
+    backgroundColor: Color,
+    isDarkTheme: Boolean,
+    enabled: Boolean
+) {
+    if (!enabled || coverBitmap == null) return
+
+    var lowResCover by remember(coverBitmap) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(coverBitmap) {
+        lowResCover = withContext(Dispatchers.Default) {
+            createLyricFlowBackgroundBitmap(coverBitmap)
+        }
+    }
+
+    val flowBitmap = lowResCover ?: coverBitmap
+    val density = LocalDensity.current
+    var elapsedNanos by remember(flowBitmap) { mutableLongStateOf(0L) }
+    LaunchedEffect(flowBitmap) {
+        val startNanos = withFrameNanos { it }
+        while (true) {
+            elapsedNanos = withFrameNanos { it - startNanos }
+        }
+    }
+    val elapsedMs = elapsedNanos / 1_000_000f
+    val primaryPhase = elapsedMs / 36000f * (PI * 2.0).toFloat()
+    val secondaryPhase = elapsedMs / 52000f * (PI * 2.0).toFloat()
+    val primaryAmplitudePx = with(density) { 122.dp.toPx() }
+    val secondaryAmplitudePx = with(density) { 86.dp.toPx() }
+    val overscanPx = with(density) { 260.dp.toPx() }
+    val blurRadius = 50.dp
+    val scrimColor = if (isDarkTheme) {
+        Color.Black.copy(alpha = 0.46f)
+    } else {
+        Color.White.copy(alpha = 0.34f)
+    }
+    val depthOverlay = if (isDarkTheme) {
+        Brush.verticalGradient(
+            listOf(
+                Color.Black.copy(alpha = 0.14f),
+                backgroundColor.copy(alpha = 0.22f),
+                Color.Black.copy(alpha = 0.28f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.18f),
+                backgroundColor.copy(alpha = 0.18f),
+                Color.White.copy(alpha = 0.30f)
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundColor)
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(blurRadius)
+        ) {
+            drawDistortedCoverMesh(
+                bitmap = flowBitmap,
+                phase = primaryPhase,
+                amplitudePx = primaryAmplitudePx,
+                overscanPx = overscanPx,
+                alpha = 0.76f,
+                meshWidth = 20,
+                meshHeight = 20
+            )
+        }
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(blurRadius)
+        ) {
+            drawDistortedCoverMesh(
+                bitmap = flowBitmap,
+                phase = secondaryPhase + 1.7f,
+                amplitudePx = secondaryAmplitudePx,
+                overscanPx = overscanPx * 0.9f,
+                alpha = 0.36f,
+                meshWidth = 16,
+                meshHeight = 16
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scrimColor)
+                .background(depthOverlay)
+        )
+    }
+}
+
 // ==================== 预览界面 ====================
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -2211,6 +2417,14 @@ fun LyricPreviewScreen(
             prefs.getBoolean(
                 LyricPreviewActivity.KEY_LYRIC_GLOW,
                 LyricPreviewActivity.DEFAULT_LYRIC_GLOW
+            )
+        )
+    }
+    var dynamicCoverBackgroundEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
             )
         )
     }
@@ -2783,6 +2997,11 @@ fun LyricPreviewScreen(
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRIC_GLOW, enabled).apply()
     }
 
+    fun saveDynamicCoverBackgroundEnabled(enabled: Boolean) {
+        dynamicCoverBackgroundEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, enabled).apply()
+    }
+
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
         lyriconStatusBarEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, enabled).apply()
@@ -3151,12 +3370,34 @@ fun LyricPreviewScreen(
         fallback = blendColors(baseForegroundColor, backgroundColor, 0.45f),
         minContrast = 2.8f
     )
+    val useDynamicCoverChrome = dynamicCoverBackgroundEnabled && metadata.coverBitmap != null
+    val chromeContainerColor = if (useDynamicCoverChrome) Color.Transparent else backgroundColor
+    val edgeFadeTopBrush = Brush.verticalGradient(
+        colors = if (useDynamicCoverChrome) {
+            listOf(Color.Transparent, Color.Transparent)
+        } else {
+            listOf(backgroundColor, Color.Transparent)
+        }
+    )
+    val edgeFadeBottomBrush = Brush.verticalGradient(
+        colors = if (useDynamicCoverChrome) {
+            listOf(Color.Transparent, Color.Transparent)
+        } else {
+            listOf(Color.Transparent, backgroundColor)
+        }
+    )
     
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(backgroundColor)
     ) {
+        DynamicLyricCoverBackground(
+            coverBitmap = metadata.coverBitmap,
+            backgroundColor = backgroundColor,
+            isDarkTheme = isDarkTheme,
+            enabled = dynamicCoverBackgroundEnabled
+        )
         
         // 歌词区域放在顶层
         androidx.compose.ui.layout.LookaheadScope {
@@ -3218,6 +3459,23 @@ fun LyricPreviewScreen(
                     val hasAnyDuetLine = remember(processedLyricLines) {
                         processedLyricLines.any { !it.isInterlude && it.isDuet }
                     }
+                    val lyricTopChromeHidden = when {
+                        !useDynamicCoverChrome -> 0.dp
+                        useSidePanelLayout -> 0.dp
+                        useMiniHeader -> 52.dp
+                        else -> 150.dp
+                    }
+                    val lyricTopChromeFade = when {
+                        !useDynamicCoverChrome -> 0.dp
+                        useSidePanelLayout -> 86.dp
+                        useMiniHeader -> 58.dp
+                        else -> 86.dp
+                    }
+                    val lyricBottomChromeFade = when {
+                        !useDynamicCoverChrome -> 0.dp
+                        useSidePanelLayout -> 150.dp
+                        else -> 190.dp
+                    }
                     
                     // 使用较小的 keepAlive 区域来确保弹簧动画工作，同时不会占用过多空间
                     val keepAlivePadding = 100.dp
@@ -3253,6 +3511,12 @@ fun LyricPreviewScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clipToBounds() // 裁剪超出边界的内容
+                                .lyricChromeEdgeFade(
+                                    enabled = useDynamicCoverChrome,
+                                    topHiddenHeight = lyricTopChromeHidden,
+                                    topFadeHeight = lyricTopChromeFade,
+                                    bottomFadeHeight = lyricBottomChromeFade
+                                )
                                 .then(extendedViewportModifier), // 延长视口高度，让更多歌词行保持活跃
                             contentPadding = PaddingValues(
                                 top = topPadding + keepAlivePadding,
@@ -3565,7 +3829,8 @@ fun LyricPreviewScreen(
                             }
                         },
                         vibrantColor = coverThemeColor ?: accentColor,
-                        backgroundColor = backgroundColor
+                        backgroundColor = backgroundColor,
+                        containerColor = chromeContainerColor
                     )
                 }
             }
@@ -3580,12 +3845,13 @@ fun LyricPreviewScreen(
                         modifier = Modifier
                             .width(sidePanelWidth)
                             .fillMaxHeight()
-                            .background(backgroundColor)
+                            .background(chromeContainerColor)
                     ) {
                         LyricPreviewCompactHeader(
                             title = metadata.title,
                             artist = metadata.artist,
                             backgroundColor = backgroundColor,
+                            containerColor = chromeContainerColor,
                             onBackClick = onBack,
                             onHeaderClick = {
                                 if (enableSongInfoSheet) {
@@ -3621,7 +3887,8 @@ fun LyricPreviewScreen(
                         onBackClick = onBack,
                         onMenuClick = { menuExpanded = true },
                         menuContent = lyricSettingsMenuContent,
-                        backgroundColor = backgroundColor
+                        backgroundColor = backgroundColor,
+                        containerColor = chromeContainerColor
                     )
 
                     Box(
@@ -3648,7 +3915,8 @@ fun LyricPreviewScreen(
                         menuContent = lyricSettingsMenuContent,
                         mutedColor = accentColor,
                         isDarkTheme = isDarkTheme,
-                        backgroundColor = backgroundColor
+                        backgroundColor = backgroundColor,
+                        containerColor = chromeContainerColor
                     )
 
                     // 顶部渐变透明效果
@@ -3659,14 +3927,7 @@ fun LyricPreviewScreen(
                             .pointerInput(Unit) {
                                 detectTapGestures(onTap = { })
                             }
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        backgroundColor,
-                                        Color.Transparent
-                                    )
-                                )
-                            )
+                            .background(brush = edgeFadeTopBrush)
                     )
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -3679,14 +3940,7 @@ fun LyricPreviewScreen(
                             .pointerInput(Unit) {
                                 detectTapGestures(onTap = { })
                             }
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        backgroundColor
-                                    )
-                                )
-                            ),
+                            .background(brush = edgeFadeBottomBrush),
                         contentAlignment = Alignment.CenterEnd
                     ) {
                         if (companionAvailable) {
@@ -3724,14 +3978,7 @@ fun LyricPreviewScreen(
                         .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .height(48.dp)
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    backgroundColor,
-                                    Color.Transparent
-                                )
-                            )
-                        )
+                        .background(brush = edgeFadeTopBrush)
                 )
                 // 右侧歌词区底部 EdgeTranslucent 渐变
                 Box(
@@ -3739,14 +3986,7 @@ fun LyricPreviewScreen(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(56.dp)
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    backgroundColor
-                                )
-                            )
-                        )
+                        .background(brush = edgeFadeBottomBrush)
                 )
                 if (companionAvailable) {
                     Box(
@@ -3791,6 +4031,7 @@ fun LyricPreviewScreen(
                 supportsLyricBlur = supportsLyricBlur,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
                 lyricGlowEnabled = lyricGlowEnabled,
+                dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
                 lyricDisplayMode = lyricDisplayMode,
@@ -3805,6 +4046,7 @@ fun LyricPreviewScreen(
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
                 onLyricGlowEnabledChange = { saveLyricGlowEnabled(it) },
+                onDynamicCoverBackgroundEnabledChange = { saveDynamicCoverBackgroundEnabled(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
                 onLyricDisplayModeChange = { saveLyricDisplayMode(it) },
@@ -4497,7 +4739,8 @@ fun LyricLineView(
         candidate = blendColors(activeColor, resolvedBackground, 0.42f),
         background = resolvedBackground,
         fallback = blendColors(baseForeground, resolvedBackground, 0.45f),
-        minContrast = 2.9f
+        //minContrast = 2.9f
+        minContrast = 3.6f
     )
     val inactiveColor = overrideInactiveColor ?: defaultInactiveColor
     val translationActiveColor = ensureReadableColor(
@@ -5717,7 +5960,8 @@ fun PlaybackControls(
     isSkipNextEnabled: Boolean = true,
     onSeek: (Long) -> Unit,
     vibrantColor: Color? = null,
-    backgroundColor: Color? = null
+    backgroundColor: Color? = null,
+    containerColor: Color? = null
 ) {
     val safeDuration = duration.coerceAtLeast(0L)
     val seekStart = 0L
@@ -5733,6 +5977,7 @@ fun PlaybackControls(
     }
     
     val controlBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
+    val controlContainer = containerColor ?: controlBackground
     val controlAccentBase = vibrantColor ?: MaterialTheme.colorScheme.primary
     val controlAccentColor = if (isDarkTheme) {
         blendColorForUi(controlAccentBase, Color.White, 0.7f)
@@ -5752,7 +5997,7 @@ fun PlaybackControls(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(controlBackground)
+            .background(controlContainer)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -6087,6 +6332,7 @@ fun LyricPreviewCompactHeader(
     title: String,
     artist: String,
     backgroundColor: Color,
+    containerColor: Color = backgroundColor,
     onBackClick: () -> Unit = {},
     onHeaderClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
@@ -6110,7 +6356,7 @@ fun LyricPreviewCompactHeader(
             .fillMaxWidth()
             .statusBarsPadding()
             .heightIn(min = 64.dp)
-            .background(backgroundColor)
+            .background(containerColor)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -6182,6 +6428,7 @@ fun LyricPreviewCompactHeader(
 fun LyricPreviewMiniHeader(
     title: String,
     backgroundColor: Color,
+    containerColor: Color = backgroundColor,
     onHeaderClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
@@ -6197,7 +6444,7 @@ fun LyricPreviewMiniHeader(
             .fillMaxWidth()
             .statusBarsPadding()
             .height(52.dp)
-            .background(backgroundColor)
+            .background(containerColor)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -6355,9 +6602,11 @@ fun LyricPreviewHeader(
     menuContent: @Composable (menuButtonPosition: MenuAnchorPosition?) -> Unit = {},
     mutedColor: Color? = null,
     isDarkTheme: Boolean = false,
-    backgroundColor: Color? = null
+    backgroundColor: Color? = null,
+    containerColor: Color? = backgroundColor
 ) {
     val headerBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
+    val headerContainer = containerColor ?: headerBackground
     val textColor = getHighContrastBlackOrWhite(headerBackground)
     val artistColor = ensureReadableColor(
         candidate = textColor.copy(alpha = 0.76f),
@@ -6374,7 +6623,7 @@ fun LyricPreviewHeader(
         modifier = Modifier
             .fillMaxWidth()
             .height(headerHeight)
-            .background(headerBackground)
+            .background(headerContainer)
             .statusBarsPadding()
     ) {
         Row(

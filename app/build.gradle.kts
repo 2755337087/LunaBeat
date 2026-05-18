@@ -21,8 +21,8 @@ android {
         applicationId = "com.example.LyricBox"
         minSdk = 24
         targetSdk = 36
-        versionCode = 27
-        versionName = "2.0.1"
+        versionCode = 28
+        versionName = "2.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
