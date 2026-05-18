@@ -2269,9 +2269,9 @@ private fun DynamicLyricCoverBackground(
     val overscanPx = with(density) { 260.dp.toPx() }
     val blurRadius = 100.dp
     val scrimColor = if (isDarkTheme) {
-        Color.Black.copy(alpha = 0.30f)
+        Color.Black.copy(alpha = 0.60f)
     } else {
-        Color.White.copy(alpha = 0.30f)
+        Color.White.copy(alpha = 0.50f)
     }
     val depthOverlay = if (isDarkTheme) {
         Brush.verticalGradient(
