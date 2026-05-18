@@ -192,6 +192,7 @@ fun SettingsScreen(
         context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE)
     }
     val supportsLyricBlur = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
+    val supportsDynamicCoverBackground = supportsLyricBlur
     
     val savedDarkModeType = remember {
         try {
@@ -303,10 +304,11 @@ fun SettingsScreen(
     }
     var dynamicCoverBackgroundEnabled by remember {
         mutableStateOf(
-            lyricPreviewPrefs.getBoolean(
-                LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
-                LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
-            )
+            supportsDynamicCoverBackground &&
+                lyricPreviewPrefs.getBoolean(
+                    LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                    LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+                )
         )
     }
     var lyriconStatusBarEnabled by remember {
@@ -888,6 +890,7 @@ fun SettingsScreen(
             showTranslation = lyricShowTranslation,
             showTransliteration = lyricShowTransliteration,
             supportsLyricBlur = supportsLyricBlur,
+            supportsDynamicCoverBackground = supportsDynamicCoverBackground,
             lyricBlurEnabled = lyricBlurEnabled,
             lyricGlowEnabled = lyricGlowEnabled,
             dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
@@ -926,9 +929,10 @@ fun SettingsScreen(
                     .apply()
             },
             onDynamicCoverBackgroundEnabledChange = {
-                dynamicCoverBackgroundEnabled = it
+                val normalized = it && supportsDynamicCoverBackground
+                dynamicCoverBackgroundEnabled = normalized
                 lyricPreviewPrefs.edit()
-                    .putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, it)
+                    .putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, normalized)
                     .apply()
             },
             onLyriconStatusBarEnabledChange = {

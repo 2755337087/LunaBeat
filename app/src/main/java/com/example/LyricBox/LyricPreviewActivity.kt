@@ -2267,11 +2267,11 @@ private fun DynamicLyricCoverBackground(
     val primaryAmplitudePx = with(density) { 122.dp.toPx() }
     val secondaryAmplitudePx = with(density) { 86.dp.toPx() }
     val overscanPx = with(density) { 260.dp.toPx() }
-    val blurRadius = 50.dp
+    val blurRadius = 100.dp
     val scrimColor = if (isDarkTheme) {
-        Color.Black.copy(alpha = 0.46f)
+        Color.Black.copy(alpha = 0.30f)
     } else {
-        Color.White.copy(alpha = 0.34f)
+        Color.White.copy(alpha = 0.30f)
     }
     val depthOverlay = if (isDarkTheme) {
         Brush.verticalGradient(
@@ -2379,6 +2379,7 @@ fun LyricPreviewScreen(
     val prefs = remember { context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE) }
     val appPrefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
     val supportsLyricBlur = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
+    val supportsDynamicCoverBackground = supportsLyricBlur
     
     var isPlaying by remember(initialIsPlaying) { mutableStateOf(initialIsPlaying) }
     var currentTime by remember { mutableStateOf(initialPosition) }
@@ -2422,10 +2423,11 @@ fun LyricPreviewScreen(
     }
     var dynamicCoverBackgroundEnabled by remember {
         mutableStateOf(
-            prefs.getBoolean(
-                LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
-                LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
-            )
+            supportsDynamicCoverBackground &&
+                prefs.getBoolean(
+                    LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                    LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+                )
         )
     }
     var lyriconStatusBarEnabled by remember {
@@ -2998,8 +3000,9 @@ fun LyricPreviewScreen(
     }
 
     fun saveDynamicCoverBackgroundEnabled(enabled: Boolean) {
-        dynamicCoverBackgroundEnabled = enabled
-        prefs.edit().putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, enabled).apply()
+        val normalized = enabled && supportsDynamicCoverBackground
+        dynamicCoverBackgroundEnabled = normalized
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, normalized).apply()
     }
 
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
@@ -3370,7 +3373,7 @@ fun LyricPreviewScreen(
         fallback = blendColors(baseForegroundColor, backgroundColor, 0.45f),
         minContrast = 2.8f
     )
-    val useDynamicCoverChrome = dynamicCoverBackgroundEnabled && metadata.coverBitmap != null
+    val useDynamicCoverChrome = supportsDynamicCoverBackground && dynamicCoverBackgroundEnabled && metadata.coverBitmap != null
     val chromeContainerColor = if (useDynamicCoverChrome) Color.Transparent else backgroundColor
     val edgeFadeTopBrush = Brush.verticalGradient(
         colors = if (useDynamicCoverChrome) {
@@ -3396,7 +3399,7 @@ fun LyricPreviewScreen(
             coverBitmap = metadata.coverBitmap,
             backgroundColor = backgroundColor,
             isDarkTheme = isDarkTheme,
-            enabled = dynamicCoverBackgroundEnabled
+            enabled = useDynamicCoverChrome
         )
         
         // 歌词区域放在顶层
@@ -4029,6 +4032,7 @@ fun LyricPreviewScreen(
                 showTranslation = showTranslation,
                 showTransliteration = showTransliteration,
                 supportsLyricBlur = supportsLyricBlur,
+                supportsDynamicCoverBackground = supportsDynamicCoverBackground,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
                 lyricGlowEnabled = lyricGlowEnabled,
                 dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,

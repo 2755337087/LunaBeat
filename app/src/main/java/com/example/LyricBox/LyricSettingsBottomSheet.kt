@@ -79,6 +79,7 @@ fun LyricSettingsBottomSheet(
     showTranslation: Boolean,
     showTransliteration: Boolean,
     supportsLyricBlur: Boolean,
+    supportsDynamicCoverBackground: Boolean,
     lyricBlurEnabled: Boolean,
     lyricGlowEnabled: Boolean,
     dynamicCoverBackgroundEnabled: Boolean,
@@ -250,13 +251,15 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
-                    LyricSettingsSwitchRow(
-                        title = "封面流光背景",
-                        checked = dynamicCoverBackgroundEnabled,
-                        onCheckedChange = onDynamicCoverBackgroundEnabledChange,
-                        contentColor = contentColor,
-                        accentColor = accentColor
-                    )
+                    if (supportsDynamicCoverBackground) {
+                        LyricSettingsSwitchRow(
+                            title = "封面流光背景",
+                            checked = dynamicCoverBackgroundEnabled,
+                            onCheckedChange = onDynamicCoverBackgroundEnabledChange,
+                            contentColor = contentColor,
+                            accentColor = accentColor
+                        )
+                    }
                     if (supportsLyricBlur) {
                         LyricSettingsSwitchRow(
                             title = "歌词模糊",
