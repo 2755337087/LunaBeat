@@ -42,8 +42,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.runtime.*
@@ -79,6 +84,10 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.draw.clipToBounds
@@ -1436,6 +1445,7 @@ class LyricPreviewActivity : ComponentActivity() {
                     companionAvailable = companionAudioPathState.value != null,
                     companionSelected = resolvedCompanionSelected,
                     companionBusy = companionSwitchingState.value,
+                    playbackController = if (useTrackSkipControls) sharedPlaybackController else null,
                     onCompanionToggle = { enabled ->
                         Log.d(
                             COMPANION_AUDIO_LOG_TAG,
@@ -2337,7 +2347,11 @@ private fun DynamicLyricCoverBackground(
 
 // ==================== 预览界面 ====================
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalSharedTransitionApi::class
+)
 @Composable
 fun LyricPreviewScreen(
     title: String,
@@ -2363,6 +2377,7 @@ fun LyricPreviewScreen(
     companionAvailable: Boolean = false,
     companionSelected: Boolean = false,
     companionBusy: Boolean = false,
+    playbackController: MusicPlaybackController? = null,
     onCompanionToggle: (Boolean) -> Unit = {},
     enableSongInfoSheet: Boolean = true,
     playbackCompleted: Boolean = false,
@@ -2478,6 +2493,7 @@ fun LyricPreviewScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showPlaylistSheet by remember { mutableStateOf(false) }
     var customFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
     var selectedCustomFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
     var lyricFontFamily by remember { mutableStateOf<FontFamily?>(null) }
@@ -2530,6 +2546,29 @@ fun LyricPreviewScreen(
     val isLandscape = screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val useSidePanelLayout = showChrome && isLandscape && !isWatchLikeSmallScreen
     val useMiniHeader = showChrome && isWatchLikeSmallScreen
+    val usePortraitPlaybackLayout = showChrome && !isLandscape && !isWatchLikeSmallScreen
+    var portraitLyricDisplaySelected by remember { mutableStateOf(false) }
+    val lyricDisplaySelected = !usePortraitPlaybackLayout || portraitLyricDisplaySelected
+    val isPortraitCoverMode = usePortraitPlaybackLayout && !portraitLyricDisplaySelected
+    val portraitNextTrackTitle = playbackController?.nextTrackTitle.orEmpty()
+    val portraitPlaybackMode = playbackController?.playbackMode
+    var showPortraitNextTrackHint by remember(portraitNextTrackTitle) { mutableStateOf(false) }
+    var portraitTitleSwitchToken by remember(portraitNextTrackTitle, portraitPlaybackMode) { mutableIntStateOf(0) }
+    LaunchedEffect(portraitNextTrackTitle, portraitPlaybackMode) {
+        showPortraitNextTrackHint = false
+    }
+    LaunchedEffect(portraitNextTrackTitle, portraitPlaybackMode, portraitTitleSwitchToken, isPortraitCoverMode) {
+        if (!isPortraitCoverMode || portraitNextTrackTitle.isBlank()) return@LaunchedEffect
+        while (true) {
+            delay(5000)
+            showPortraitNextTrackHint = !showPortraitNextTrackHint
+        }
+    }
+    val portraitTopTitleText = if (showPortraitNextTrackHint && portraitNextTrackTitle.isNotBlank()) {
+        "下一首：$portraitNextTrackTitle"
+    } else {
+        "正在播放"
+    }
     val landscapeOuterHorizontalPadding = 16.dp
     val landscapePaneSpacing = 12.dp
     val landscapeRightPaneHorizontalPadding = 16.dp
@@ -3403,8 +3442,14 @@ fun LyricPreviewScreen(
         )
         
         // 歌词区域放在顶层
-        androidx.compose.ui.layout.LookaheadScope {
-            Box(modifier = Modifier
+        AnimatedVisibility(
+            visible = !isPortraitCoverMode,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(animationSpec = tween(durationMillis = 260)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 220))
+        ) {
+            androidx.compose.ui.layout.LookaheadScope {
+                Box(modifier = Modifier
                 .fillMaxSize()
                 .padding(
                     start = 16.dp + if (useSidePanelLayout) sidePanelWidth + 12.dp else 0.dp,
@@ -3764,6 +3809,7 @@ fun LyricPreviewScreen(
                 }
             }
         }
+        }
         
         if (showChrome) {
             val lyricSettingsMenuContent: @Composable (MenuAnchorPosition?) -> Unit = { menuButtonPosition ->
@@ -3791,6 +3837,7 @@ fun LyricPreviewScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = if (useSidePanelLayout) 0.dp else 18.dp)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -3833,7 +3880,30 @@ fun LyricPreviewScreen(
                         },
                         vibrantColor = coverThemeColor ?: accentColor,
                         backgroundColor = backgroundColor,
-                        containerColor = chromeContainerColor
+                        containerColor = chromeContainerColor,
+                        trackTitle = metadata.title,
+                        trackArtist = metadata.artist,
+                        showTrackInfo = isPortraitCoverMode,
+                        onTrackInfoClick = if (enableSongInfoSheet) {
+                            { showSongInfoSheet = true }
+                        } else {
+                            null
+                        },
+                        playbackMode = playbackController?.playbackMode,
+                        onPlaybackModeClick = playbackController?.let { controller ->
+                            { controller.cyclePlaybackMode() }
+                        },
+                        onLyricDisplayClick = {
+                            if (usePortraitPlaybackLayout) {
+                                portraitLyricDisplaySelected = !portraitLyricDisplaySelected
+                            } else {
+                                showLyricSettingsSheet = true
+                            }
+                        },
+                        lyricDisplaySelected = lyricDisplaySelected,
+                        onShowPlaylistClick = playbackController?.let {
+                            { showPlaylistSheet = true }
+                        }
                     )
                 }
             }
@@ -3903,62 +3973,132 @@ fun LyricPreviewScreen(
                 }
             } else {
                 // Headbar 和播放控制放在上层，遮挡额外歌词区域
-                Column(modifier = Modifier.fillMaxSize()) {
-                    LyricPreviewHeader(
-                        title = metadata.title,
-                        artist = metadata.artist,
-                        coverBitmap = metadata.coverBitmap,
-                        onBackClick = onBack,
-                        onHeaderClick = {
-                            if (enableSongInfoSheet) {
-                                showSongInfoSheet = true
-                            }
-                        },
-                        onMenuClick = { menuExpanded = true },
-                        menuContent = lyricSettingsMenuContent,
-                        mutedColor = accentColor,
-                        isDarkTheme = isDarkTheme,
-                        backgroundColor = backgroundColor,
-                        containerColor = chromeContainerColor
-                    )
-
-                    // 顶部渐变透明效果
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { })
-                            }
-                            .background(brush = edgeFadeTopBrush)
-                    )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // 底部渐变透明效果
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { })
-                            }
-                            .background(brush = edgeFadeBottomBrush),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
-                        if (companionAvailable) {
-                            CompanionToggleButton(
-                                checked = companionSelected,
-                                enabled = !companionBusy,
-                                accentColor = coverThemeColor ?: accentColor,
+                SharedTransitionLayout {
+                    val portraitSharedTransitionScope = this
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isPortraitCoverMode,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 160))
+                        ) {
+                            LyricPreviewPlaybackTopLabel(
+                                titleText = portraitTopTitleText,
                                 backgroundColor = backgroundColor,
-                                onToggle = { onCompanionToggle(!companionSelected) },
-                                modifier = Modifier.padding(end = 16.dp)
+                                onBackClick = onBack,
+                                hasNextTrack = portraitNextTrackTitle.isNotBlank(),
+                                onTitleClick = {
+                                    if (portraitNextTrackTitle.isNotBlank()) {
+                                        showPortraitNextTrackHint = !showPortraitNextTrackHint
+                                        portraitTitleSwitchToken += 1
+                                    }
+                                }
                             )
                         }
-                    }
 
-                    playbackControlsPanel()
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = lyricDisplaySelected,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 260)) +
+                                slideInVertically(animationSpec = tween(durationMillis = 300)) { -it / 2 } +
+                                expandVertically(animationSpec = tween(durationMillis = 300), expandFrom = Alignment.Top),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 180)) +
+                                slideOutVertically(animationSpec = tween(durationMillis = 220)) { -it / 2 } +
+                                shrinkVertically(animationSpec = tween(durationMillis = 220), shrinkTowards = Alignment.Top)
+                        ) {
+                            val headerCoverVisibilityScope = this
+                            LyricPreviewHeader(
+                                title = metadata.title,
+                                artist = metadata.artist,
+                                coverBitmap = metadata.coverBitmap,
+                                onBackClick = onBack,
+                                onHeaderClick = {
+                                    if (enableSongInfoSheet) {
+                                        showSongInfoSheet = true
+                                    }
+                                },
+                                onMenuClick = { menuExpanded = true },
+                                menuContent = lyricSettingsMenuContent,
+                                mutedColor = accentColor,
+                                isDarkTheme = isDarkTheme,
+                                backgroundColor = backgroundColor,
+                                containerColor = chromeContainerColor,
+                                sharedTransitionScope = portraitSharedTransitionScope,
+                                sharedCoverAnimatedVisibilityScope = headerCoverVisibilityScope
+                            )
+                        }
+
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = lyricDisplaySelected,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+                        ) {
+                            // 顶部渐变透明效果
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(onTap = { })
+                                    }
+                                    .background(brush = edgeFadeTopBrush)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = isPortraitCoverMode,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 160)),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                val centerCoverVisibilityScope = this
+                                LyricPreviewSideCover(
+                                    modifier = Modifier.fillMaxSize(),
+                                    coverBitmap = metadata.coverBitmap,
+                                    accentColor = accentColor,
+                                    backgroundColor = backgroundColor,
+                                    isPlaying = isPlaying,
+                                    sharedTransitionScope = portraitSharedTransitionScope,
+                                    sharedCoverAnimatedVisibilityScope = centerCoverVisibilityScope
+                                )
+                            }
+                        }
+
+                        // 底部渐变透明效果
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = lyricDisplaySelected || companionAvailable,
+                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(onTap = { })
+                                    }
+                                    .background(brush = if (lyricDisplaySelected) edgeFadeBottomBrush else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                if (companionAvailable) {
+                                    CompanionToggleButton(
+                                        checked = companionSelected,
+                                        enabled = !companionBusy,
+                                        accentColor = coverThemeColor ?: accentColor,
+                                        backgroundColor = backgroundColor,
+                                        onToggle = { onCompanionToggle(!companionSelected) },
+                                        modifier = Modifier.padding(end = 16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        playbackControlsPanel()
+                    }
                 }
             }
         }
@@ -4007,6 +4147,43 @@ fun LyricPreviewScreen(
                         )
                     }
                 }
+            }
+        }
+
+        val activePlaybackController = playbackController
+        val playbackQueuePaths = activePlaybackController?.queueAudioPaths ?: emptyList()
+        val cachedQueueEntries = remember(playbackQueuePaths) {
+            LocalPlaylistStore.loadPlaybackQueueEntries(context)
+        }
+        val cachedQueueEntryByPath = remember(cachedQueueEntries) {
+            cachedQueueEntries
+                .groupBy { it.path }
+                .mapValues { (_, entries) -> entries.first() }
+        }
+        val playbackQueueAudios = remember(
+            playbackQueuePaths,
+            activePlaybackController?.currentAudioPath,
+            activePlaybackController?.currentTitle,
+            activePlaybackController?.currentArtist,
+            activePlaybackController?.currentAlbum,
+            activePlaybackController?.currentCoverCachePath,
+            activePlaybackController?.durationMs,
+            metadata.title,
+            metadata.artist,
+            cachedQueueEntryByPath
+        ) {
+            playbackQueuePaths.map { path ->
+                buildLyricPreviewQueueAudioFile(
+                    context = context,
+                    path = path,
+                    currentAudioPath = activePlaybackController?.currentAudioPath,
+                    currentTitle = activePlaybackController?.currentTitle.orEmpty().ifBlank { metadata.title },
+                    currentArtist = activePlaybackController?.currentArtist.orEmpty().ifBlank { metadata.artist },
+                    currentAlbum = activePlaybackController?.currentAlbum.orEmpty(),
+                    currentCoverCachePath = activePlaybackController?.currentCoverCachePath,
+                    currentDuration = activePlaybackController?.durationMs ?: 0L,
+                    cachedEntry = cachedQueueEntryByPath[path]
+                )
             }
         }
 
@@ -4081,6 +4258,24 @@ fun LyricPreviewScreen(
                 containerColor = dialogContainerColor,
                 contentColor = dialogContentColor,
                 accentColor = dialogAccentColor
+            )
+        }
+
+        if (showPlaylistSheet && activePlaybackController != null) {
+            NowPlayingPlaylistBottomSheet(
+                queue = playbackQueueAudios,
+                currentAudioPath = activePlaybackController.currentAudioPath,
+                canReorder = true,
+                onDismiss = { showPlaylistSheet = false },
+                onMoveItem = { fromIndex, toIndex ->
+                    activePlaybackController.moveQueueItem(fromIndex, toIndex)
+                },
+                onPlayAtIndex = { index ->
+                    activePlaybackController.playAtQueueIndex(index)
+                },
+                onRemoveByPath = { path ->
+                    activePlaybackController.removeQueueItemByPath(path)
+                }
             )
         }
 
@@ -5965,7 +6160,16 @@ fun PlaybackControls(
     onSeek: (Long) -> Unit,
     vibrantColor: Color? = null,
     backgroundColor: Color? = null,
-    containerColor: Color? = null
+    containerColor: Color? = null,
+    trackTitle: String = "",
+    trackArtist: String = "",
+    showTrackInfo: Boolean = false,
+    onTrackInfoClick: (() -> Unit)? = null,
+    playbackMode: PlaybackMode? = null,
+    onPlaybackModeClick: (() -> Unit)? = null,
+    onLyricDisplayClick: (() -> Unit)? = null,
+    lyricDisplaySelected: Boolean = false,
+    onShowPlaylistClick: (() -> Unit)? = null
 ) {
     val safeDuration = duration.coerceAtLeast(0L)
     val seekStart = 0L
@@ -5997,10 +6201,12 @@ fun PlaybackControls(
     val onOppositeControlColor = if (colorLuminance(oppositeControlColor) > 0.52f) Color(0xFF101010) else Color.White
     val progressColor = controlAccentColor
     val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
+    val panelTextColor = getHighContrastBlackOrWhite(controlBackground)
     
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
             .background(controlContainer)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -6010,6 +6216,55 @@ fun PlaybackControls(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        AnimatedVisibility(
+            visible = showTrackInfo,
+            enter = fadeIn(animationSpec = tween(durationMillis = 220)) +
+                expandVertically(animationSpec = tween(durationMillis = 260)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 160)) +
+                shrinkVertically(animationSpec = tween(durationMillis = 200))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        enabled = onTrackInfoClick != null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        onTrackInfoClick?.invoke()
+                    },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = trackTitle.ifBlank { "未选择歌曲" },
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = panelTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = trackArtist.ifBlank { "未知艺术家" },
+                        fontSize = 15.sp,
+                        color = panelTextColor.copy(alpha = 0.78f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (onTrackInfoClick != null) {
+                    IconButton(onClick = onTrackInfoClick) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "更多",
+                            tint = panelTextColor
+                        )
+                    }
+                }
+            }
+        }
+
         // 进度条（上行）
         Box(
             modifier = Modifier
@@ -6137,6 +6392,99 @@ fun PlaybackControls(
                 )
             }
         }
+
+        val hasBottomActions = onPlaybackModeClick != null || onLyricDisplayClick != null || onShowPlaylistClick != null
+        if (hasBottomActions) {
+            val actionIconSize = 20.dp
+            val actionButtonRadius = 16.dp
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val modeIcon = when (playbackMode) {
+                    PlaybackMode.SHUFFLE -> Icons.Rounded.Shuffle
+                    PlaybackMode.SINGLE_REPEAT -> Icons.Rounded.RepeatOne
+                    else -> Icons.Rounded.Repeat
+                }
+                LyricPreviewBottomActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = modeIcon,
+                    tint = controlAccentColor,
+                    enabled = onPlaybackModeClick != null,
+                    onClick = { onPlaybackModeClick?.invoke() },
+                    contentDescription = "播放模式",
+                    iconSize = actionIconSize,
+                    cornerRadius = actionButtonRadius
+                )
+                LyricPreviewBottomActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Rounded.Lyrics,
+                    tint = controlAccentColor,
+                    enabled = onLyricDisplayClick != null,
+                    selected = lyricDisplaySelected,
+                    onClick = { onLyricDisplayClick?.invoke() },
+                    contentDescription = "歌词显示",
+                    iconSize = actionIconSize,
+                    cornerRadius = actionButtonRadius
+                )
+                LyricPreviewBottomActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                    tint = controlAccentColor,
+                    enabled = onShowPlaylistClick != null,
+                    onClick = { onShowPlaylistClick?.invoke() },
+                    contentDescription = "播放列表",
+                    iconSize = actionIconSize,
+                    cornerRadius = actionButtonRadius
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricPreviewBottomActionButton(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    enabled: Boolean,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+    contentDescription: String,
+    iconSize: Dp = 20.dp,
+    cornerRadius: Dp = 16.dp
+) {
+    val shape = RoundedCornerShape(cornerRadius)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(
+                tint.copy(
+                    alpha = when {
+                        !enabled -> 0.08f
+                        selected -> 0.32f
+                        else -> 0.18f
+                    }
+                )
+            )
+            .border(
+                width = if (selected) 1.dp else 0.dp,
+                color = tint.copy(alpha = if (selected) 0.44f else 0f),
+                shape = shape
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint.copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(iconSize)
+        )
     }
 }
 
@@ -6504,12 +6852,92 @@ fun LyricPreviewMiniHeader(
 }
 
 @Composable
+private fun LyricPreviewPlaybackTopLabel(
+    titleText: String,
+    backgroundColor: Color,
+    onBackClick: () -> Unit,
+    hasNextTrack: Boolean,
+    onTitleClick: () -> Unit
+) {
+    val foregroundColor = getHighContrastBlackOrWhite(backgroundColor)
+    val headerSideSize = 40.dp
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 8.dp)
+            .height(40.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            modifier = Modifier.size(headerSideSize),
+            onClick = onBackClick
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.down),
+                contentDescription = "返回",
+                tint = foregroundColor.copy(alpha = 0.88f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Crossfade(
+            targetState = titleText,
+            animationSpec = tween(durationMillis = 260),
+            modifier = Modifier
+                .weight(1f)
+                .clickable(
+                    enabled = hasNextTrack,
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    onTitleClick()
+                },
+            label = "previewPlaybackTopTitle"
+        ) { text ->
+            Text(
+                text = text,
+                fontSize = 14.sp,
+                color = foregroundColor.copy(alpha = 0.88f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+        Spacer(modifier = Modifier.width(headerSideSize))
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun Modifier.lyricPreviewSharedCoverElement(
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    sharedCoverKey: Any
+): Modifier {
+    if (sharedTransitionScope == null || animatedVisibilityScope == null) return this
+    val sharedContentState = with(sharedTransitionScope) {
+        rememberSharedContentState(key = sharedCoverKey)
+    }
+    return with(sharedTransitionScope) {
+        this@lyricPreviewSharedCoverElement.sharedElement(
+            sharedContentState = sharedContentState,
+            animatedVisibilityScope = animatedVisibilityScope
+        )
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
 fun LyricPreviewSideCover(
     modifier: Modifier,
     coverBitmap: Bitmap?,
     accentColor: Color,
     backgroundColor: Color,
-    isPlaying: Boolean
+    isPlaying: Boolean,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    sharedCoverAnimatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedCoverKey: Any = "lyricPreviewCover"
 ) {
     val placeholderColor = blendColors(backgroundColor, accentColor, 0.22f)
     val screenConfig = LocalConfiguration.current
@@ -6564,6 +6992,11 @@ fun LyricPreviewSideCover(
                 modifier = Modifier
                     .width(coverWidth)
                     .height(coverHeight)
+                    .lyricPreviewSharedCoverElement(
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                        sharedCoverKey = sharedCoverKey
+                    )
                     .graphicsLayer(
                         scaleX = coverScale,
                         scaleY = coverScale
@@ -6575,6 +7008,11 @@ fun LyricPreviewSideCover(
                 modifier = Modifier
                     .width(coverWidth.coerceAtLeast(120.dp))
                     .height(coverHeight.coerceAtLeast(120.dp))
+                    .lyricPreviewSharedCoverElement(
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                        sharedCoverKey = sharedCoverKey
+                    )
                     .graphicsLayer(
                         scaleX = coverScale,
                         scaleY = coverScale
@@ -6594,7 +7032,7 @@ fun LyricPreviewSideCover(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun LyricPreviewHeader(
     title: String,
@@ -6607,7 +7045,10 @@ fun LyricPreviewHeader(
     mutedColor: Color? = null,
     isDarkTheme: Boolean = false,
     backgroundColor: Color? = null,
-    containerColor: Color? = backgroundColor
+    containerColor: Color? = backgroundColor,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    sharedCoverAnimatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedCoverKey: Any = "lyricPreviewCover"
 ) {
     val headerBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
     val headerContainer = containerColor ?: headerBackground
@@ -6694,12 +7135,22 @@ fun LyricPreviewHeader(
                         modifier = Modifier
                             .width(coverWidth)
                             .height(coverHeight)
+                            .lyricPreviewSharedCoverElement(
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                                sharedCoverKey = sharedCoverKey
+                            )
                             .clip(RoundedCornerShape(12.dp))
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .size(75.dp)
+                            .lyricPreviewSharedCoverElement(
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                                sharedCoverKey = sharedCoverKey
+                            )
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.primaryContainer)
                     ) {
@@ -6778,6 +7229,49 @@ data class PreviewAudioMetadata(
     val artist: String,
     val coverBitmap: Bitmap?
 )
+
+private fun buildLyricPreviewQueueAudioFile(
+    context: Context,
+    path: String,
+    currentAudioPath: String?,
+    currentTitle: String,
+    currentArtist: String,
+    currentAlbum: String,
+    currentCoverCachePath: String?,
+    currentDuration: Long,
+    cachedEntry: LocalPlaylistEntry?
+): AudioFile {
+    val file = File(path)
+    val isCurrent = path == currentAudioPath
+    val title = if (isCurrent) {
+        currentTitle
+    } else {
+        cachedEntry?.title.orEmpty()
+    }.ifBlank { file.nameWithoutExtension }
+    val artist = if (isCurrent) currentArtist else cachedEntry?.artist.orEmpty()
+    val coverCachePath = if (isCurrent) {
+        currentCoverCachePath ?: resolveLyricPreviewCoverCachePath(context, path)
+    } else {
+        resolveLyricPreviewCoverCachePath(context, path)
+    }
+    return AudioFile(
+        path = path,
+        title = title,
+        artist = artist,
+        album = if (isCurrent) currentAlbum else "",
+        duration = if (isCurrent) currentDuration.coerceAtLeast(0L) else 0L,
+        fileSize = if (file.exists()) file.length() else 0L,
+        lastModified = if (file.exists()) file.lastModified() else 0L,
+        addedTime = if (file.exists()) file.lastModified() else System.currentTimeMillis(),
+        coverCachePath = coverCachePath
+    )
+}
+
+private fun resolveLyricPreviewCoverCachePath(context: Context, audioPath: String): String? {
+    if (audioPath.isBlank()) return null
+    val cacheFile = File(File(context.cacheDir, "covers"), "${audioPath.hashCode()}.jpg")
+    return cacheFile.absolutePath.takeIf { cacheFile.exists() }
+}
 
 private fun resolveMediaStoreAudioUri(
     context: Context,
