@@ -1,5 +1,6 @@
 package com.example.LyricBox
 
+import android.content.res.Configuration
 import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,6 +53,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,6 +87,7 @@ fun LyricSettingsBottomSheet(
     dynamicCoverBackgroundEnabled: Boolean,
     lyriconStatusBarEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
+    autoHidePlaybackControlsEnabled: Boolean,
     lyricDisplayMode: Int,
     lyricDisplayPosition: Int,
     fontSize: Float,
@@ -100,6 +103,7 @@ fun LyricSettingsBottomSheet(
     onDynamicCoverBackgroundEnabledChange: (Boolean) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
+    onAutoHidePlaybackControlsEnabledChange: (Boolean) -> Unit,
     onLyricDisplayModeChange: (Int) -> Unit,
     onLyricDisplayPositionChange: (Int) -> Unit,
     onFontSizeChange: (Float) -> Unit,
@@ -114,6 +118,7 @@ fun LyricSettingsBottomSheet(
     accentColor: Color
 ) {
     val context = LocalContext.current
+    val isPortraitMode = LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
     val blockSheetDragFromList = remember {
@@ -288,6 +293,15 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
+                    if (isPortraitMode) {
+                        LyricSettingsSwitchRow(
+                            title = "自动隐藏播放组件",
+                            checked = autoHidePlaybackControlsEnabled,
+                            onCheckedChange = onAutoHidePlaybackControlsEnabledChange,
+                            contentColor = contentColor,
+                            accentColor = accentColor
+                        )
+                    }
                 }
 
                 LyricSettingsPage.LYRIC_DISPLAY_MODE -> {

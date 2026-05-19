@@ -111,6 +111,7 @@
         <activity
             android:name=".LyricPreviewActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:theme="@style/Theme.歌词转换" />
         <activity
             android:name=".DeveloperTestActivity"

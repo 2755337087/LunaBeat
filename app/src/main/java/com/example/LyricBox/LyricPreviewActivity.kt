@@ -1014,6 +1014,7 @@ class LyricPreviewActivity : ComponentActivity() {
     private var previewLastKnownDuration by mutableLongStateOf(0L)
     private var previewConvertedAudioPath: String? = null
     private var isFallbackTranscoding by mutableStateOf(false)
+    private var forceLyricDisplayOffToken by mutableIntStateOf(0)
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
@@ -1027,6 +1028,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val EXTRA_USE_SHARED_PLAYBACK = "use_shared_playback"
         const val EXTRA_SHARED_PLAYBACK_USED = "shared_playback_used"
         const val EXTRA_PREVIEW_ENTRY_SOURCE = "preview_entry_source"
+        const val EXTRA_FORCE_LYRIC_DISPLAY_OFF = "force_lyric_display_off"
         const val PREVIEW_ENTRY_SOURCE_DEFAULT = 0
         const val PREVIEW_ENTRY_SOURCE_TIMING = 1
         const val PREFS_NAME = "LyricPreviewSettings"
@@ -1041,6 +1043,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_DYNAMIC_COVER_BACKGROUND = "dynamic_cover_background"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
+        const val KEY_AUTO_HIDE_PLAYBACK_CONTROLS = "auto_hide_playback_controls"
         const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
         const val KEY_LYRIC_DISPLAY_MODE = "lyric_display_mode"
         const val DEFAULT_FONT_SIZE = 32f
@@ -1053,6 +1056,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_DYNAMIC_COVER_BACKGROUND = false
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_SCREEN_KEEP_ON = true
+        const val DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS = false
         const val LYRIC_DISPLAY_MODE_DEFAULT = 0
         const val LYRIC_DISPLAY_MODE_FORCE_WORD = 1
         const val LYRIC_DISPLAY_MODE_FORCE_LINE = 2
@@ -1175,6 +1179,9 @@ class LyricPreviewActivity : ComponentActivity() {
         val intentInitialPosition = intent.getLongExtra(EXTRA_INITIAL_POSITION, 0L)
         useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, false)
         val previewEntrySource = intent.getIntExtra(EXTRA_PREVIEW_ENTRY_SOURCE, PREVIEW_ENTRY_SOURCE_DEFAULT)
+        if (intent.getBooleanExtra(EXTRA_FORCE_LYRIC_DISPLAY_OFF, false)) {
+            forceLyricDisplayOffToken += 1
+        }
         val isTimingPreviewEntry = previewEntrySource == PREVIEW_ENTRY_SOURCE_TIMING
         val restoredPosition = savedInstanceState?.getLong(STATE_PLAYBACK_POSITION, intentInitialPosition) ?: intentInitialPosition
         val restorePlaying = savedInstanceState?.getBoolean(STATE_IS_PLAYING, false) ?: false
@@ -1259,13 +1266,38 @@ class LyricPreviewActivity : ComponentActivity() {
         
         // 重新组织歌词，在主句上下插入背景歌词
         val reorganizedLines = reorganizeLyricsWithBackground(lines)
-        val previewAudioPathState = mutableStateOf(audioPath)
-        val previewSourceAudioPathState = mutableStateOf(sourceAudioPath)
-        val previewMediaStoreIdState = mutableLongStateOf(sourceMediaStoreId)
-        val previewTitleState = mutableStateOf(title)
+        val initialSharedSnapshot = sharedPlaybackController?.takeIf { useSharedPlayback && it.isReady }?.also {
+            it.refreshProgress()
+        }
+        val initialSharedPath = initialSharedSnapshot?.currentAudioPath.orEmpty()
+        val initialSharedMediaStoreId = initialSharedSnapshot?.currentMediaStoreId ?: -1L
+        val initialSharedTitle = initialSharedSnapshot?.currentTitle.orEmpty()
+
+        // Shared 播放模式下：
+        // - 首次进入（savedInstanceState == null）优先使用 intent 数据，保证首屏封面/背景即时可见；
+        // - 重建恢复时优先使用共享播放快照，避免先闪回旧 intent 歌曲封面/背景。
+        val preferSharedBootstrap = useSharedPlayback && savedInstanceState != null
+        val previewAudioPathState = mutableStateOf(
+            if (preferSharedBootstrap) initialSharedPath else audioPath
+        )
+        val previewSourceAudioPathState = mutableStateOf(
+            if (preferSharedBootstrap) initialSharedPath else sourceAudioPath
+        )
+        val previewMediaStoreIdState = mutableLongStateOf(
+            if (preferSharedBootstrap) initialSharedMediaStoreId else sourceMediaStoreId
+        )
+        val previewTitleState = mutableStateOf(
+            if (preferSharedBootstrap) {
+                initialSharedTitle.ifBlank { "歌词预览" }
+            } else {
+                title
+            }
+        )
         val previewCreatorsState = mutableStateOf(creators)
-        val previewLyricLinesState = mutableStateOf(reorganizedLines)
-        val previewLyricsLoadingState = mutableStateOf(useSharedPlayback && reorganizedLines.isEmpty())
+        val previewLyricLinesState = mutableStateOf(
+            if (preferSharedBootstrap) emptyList() else reorganizedLines
+        )
+        val previewLyricsLoadingState = mutableStateOf(preferSharedBootstrap)
         val companionAudioPathState = mutableStateOf<String?>(null)
         Log.d(
             COMPANION_AUDIO_LOG_TAG,
@@ -1453,6 +1485,7 @@ class LyricPreviewActivity : ComponentActivity() {
                     companionSelected = resolvedCompanionSelected,
                     companionBusy = companionSwitchingState.value,
                     playbackController = if (useTrackSkipControls) sharedPlaybackController else null,
+                    lyricDisplayResetToken = forceLyricDisplayOffToken,
                     onCompanionToggle = { enabled ->
                         Log.d(
                             COMPANION_AUDIO_LOG_TAG,
@@ -1502,6 +1535,15 @@ class LyricPreviewActivity : ComponentActivity() {
                     onPlaybackCompletedHandled = { playbackCompleted = false }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        useSharedPlayback = intent.getBooleanExtra(EXTRA_USE_SHARED_PLAYBACK, useSharedPlayback)
+        if (intent.getBooleanExtra(EXTRA_FORCE_LYRIC_DISPLAY_OFF, false)) {
+            forceLyricDisplayOffToken += 1
         }
     }
     
@@ -2435,6 +2477,7 @@ fun LyricPreviewScreen(
     companionSelected: Boolean = false,
     companionBusy: Boolean = false,
     playbackController: MusicPlaybackController? = null,
+    lyricDisplayResetToken: Int = 0,
     onCompanionToggle: (Boolean) -> Unit = {},
     enableSongInfoSheet: Boolean = true,
     playbackCompleted: Boolean = false,
@@ -2513,6 +2556,14 @@ fun LyricPreviewScreen(
             )
         )
     }
+    var autoHidePlaybackControlsEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_AUTO_HIDE_PLAYBACK_CONTROLS,
+                LyricPreviewActivity.DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS
+            )
+        )
+    }
     var lyricDisplayPosition by remember {
         mutableIntStateOf(
             prefs.getInt(
@@ -2546,6 +2597,7 @@ fun LyricPreviewScreen(
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+    var pendingResetLyricDisplayOnResume by remember { mutableStateOf(false) }
     var customFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
     var selectedCustomFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
     var lyricFontFamily by remember { mutableStateOf<FontFamily?>(null) }
@@ -2602,7 +2654,40 @@ fun LyricPreviewScreen(
     var portraitLyricDisplaySelected by remember { mutableStateOf(false) }
     var portraitLyricLayoutSelected by remember { mutableStateOf(false) }
     var portraitLyricLayerVisible by remember { mutableStateOf(false) }
-    var landscapeLyricDisplaySelected by remember { mutableStateOf(true) }
+    var landscapeLyricDisplaySelected by remember { mutableStateOf(false) }
+    val lyricDisplayLayoutMode = when {
+        usePortraitPlaybackLayout -> 0
+        useSidePanelLayout -> 1
+        else -> 2
+    }
+    var lyricDisplaySelectionMemory by remember { mutableStateOf(false) }
+    var previousLyricDisplayLayoutMode by remember { mutableIntStateOf(lyricDisplayLayoutMode) }
+    LaunchedEffect(lyricDisplayLayoutMode) {
+        if (lyricDisplayLayoutMode == previousLyricDisplayLayoutMode) return@LaunchedEffect
+        val rememberedSelection = when (previousLyricDisplayLayoutMode) {
+            0 -> portraitLyricDisplaySelected
+            1 -> landscapeLyricDisplaySelected
+            else -> lyricDisplaySelectionMemory
+        }
+        lyricDisplaySelectionMemory = rememberedSelection
+        when (lyricDisplayLayoutMode) {
+            0 -> portraitLyricDisplaySelected = rememberedSelection
+            1 -> landscapeLyricDisplaySelected = rememberedSelection
+        }
+        previousLyricDisplayLayoutMode = lyricDisplayLayoutMode
+    }
+    LaunchedEffect(
+        usePortraitPlaybackLayout,
+        useSidePanelLayout,
+        portraitLyricDisplaySelected,
+        landscapeLyricDisplaySelected
+    ) {
+        lyricDisplaySelectionMemory = when {
+            usePortraitPlaybackLayout -> portraitLyricDisplaySelected
+            useSidePanelLayout -> landscapeLyricDisplaySelected
+            else -> lyricDisplaySelectionMemory
+        }
+    }
     val lyricDisplaySelected = when {
         usePortraitPlaybackLayout -> portraitLyricDisplaySelected
         useSidePanelLayout -> landscapeLyricDisplaySelected
@@ -2618,7 +2703,10 @@ fun LyricPreviewScreen(
         useSidePanelLayout -> landscapeLyricDisplaySelected
         else -> true
     }
-    val portraitControlsCanAutoHide = usePortraitPlaybackLayout && portraitLyricDisplaySelected
+    val portraitControlsCanAutoHide =
+        usePortraitPlaybackLayout &&
+            portraitLyricDisplaySelected &&
+            autoHidePlaybackControlsEnabled
     val isPortraitCoverMode = usePortraitPlaybackLayout && !portraitLyricLayoutSelected
     var portraitControlsVisible by remember { mutableStateOf(true) }
     var portraitCompanionReadyVisible by remember { mutableStateOf(false) }
@@ -2631,6 +2719,7 @@ fun LyricPreviewScreen(
             portraitControlsVisible = true
         }
     }
+
     LaunchedEffect(usePortraitPlaybackLayout) {
         if (!usePortraitPlaybackLayout) {
             portraitLyricLayoutSelected = false
@@ -2682,6 +2771,16 @@ fun LyricPreviewScreen(
         } else {
             onBack()
         }
+    }
+    LaunchedEffect(lyricDisplayResetToken) {
+        if (lyricDisplayResetToken <= 0) return@LaunchedEffect
+        portraitLyricDisplaySelected = false
+        landscapeLyricDisplaySelected = false
+        portraitLyricLayoutSelected = false
+        portraitLyricLayerVisible = false
+        portraitControlsVisible = true
+        portraitControlsAutoHideJob?.cancel()
+        portraitControlsAutoHideJob = null
     }
     // 使用 BackHandler 拦截系统返回事件
     androidx.activity.compose.BackHandler(enabled = enableBackHandler) {
@@ -2874,6 +2973,16 @@ fun LyricPreviewScreen(
                     appWentBackground = true
                 }
                 Lifecycle.Event.ON_RESUME -> {
+                    if (pendingResetLyricDisplayOnResume) {
+                        pendingResetLyricDisplayOnResume = false
+                        portraitLyricDisplaySelected = false
+                        landscapeLyricDisplaySelected = false
+                        portraitLyricLayoutSelected = false
+                        portraitLyricLayerVisible = false
+                        portraitControlsVisible = true
+                        portraitControlsAutoHideJob?.cancel()
+                        portraitControlsAutoHideJob = null
+                    }
                     if (appWentBackground) {
                         appWentBackground = false
                         resumeRebuildRequest += 1
@@ -3229,6 +3338,11 @@ fun LyricPreviewScreen(
     fun saveKeepScreenOnEnabled(enabled: Boolean) {
         keepScreenOnEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_SCREEN_KEEP_ON, enabled).apply()
+    }
+
+    fun saveAutoHidePlaybackControlsEnabled(enabled: Boolean) {
+        autoHidePlaybackControlsEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_AUTO_HIDE_PLAYBACK_CONTROLS, enabled).apply()
     }
 
     fun saveLyricDisplayPosition(position: Int) {
@@ -4541,6 +4655,7 @@ fun LyricPreviewScreen(
                 dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
+                autoHidePlaybackControlsEnabled = autoHidePlaybackControlsEnabled,
                 lyricDisplayMode = lyricDisplayMode,
                 lyricDisplayPosition = lyricDisplayPosition,
                 fontSize = fontSize,
@@ -4556,6 +4671,7 @@ fun LyricPreviewScreen(
                 onDynamicCoverBackgroundEnabledChange = { saveDynamicCoverBackgroundEnabled(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
+                onAutoHidePlaybackControlsEnabledChange = { saveAutoHidePlaybackControlsEnabled(it) },
                 onLyricDisplayModeChange = { saveLyricDisplayMode(it) },
                 onLyricDisplayPositionChange = { saveLyricDisplayPosition(it) },
                 onFontSizeChange = { saveFontSize(it) },
@@ -4611,15 +4727,17 @@ fun LyricPreviewScreen(
                 isFavorite = previewSongInfoIsFavorite,
                 renameSuccessSignal = 0L,
                 onDismiss = { showSongInfoSheet = false },
-                onEditLyricsFromPreview = { (context as? android.app.Activity)?.let { it.finish() } },
+                onEditLyricsFromPreview = {
+                    pendingResetLyricDisplayOnResume = true
+                },
                 onEditMetadataFromSheet = { audioToEdit ->
                     val activity = context as? android.app.Activity ?: return@SongInfoBottomSheet
+                    pendingResetLyricDisplayOnResume = true
                     val editIntent = Intent(activity, SongMetadataEditActivity::class.java).apply {
                         putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, audioToEdit.path)
                         putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audioToEdit.mediaStoreId)
                     }
                     activity.startActivity(editIntent)
-                    activity.finish()
                 }
             )
         }

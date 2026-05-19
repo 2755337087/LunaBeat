@@ -327,6 +327,14 @@ fun SettingsScreen(
             )
         )
     }
+    var lyricAutoHidePlaybackControlsEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_AUTO_HIDE_PLAYBACK_CONTROLS,
+                LyricPreviewActivity.DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS
+            )
+        )
+    }
     var lyricFontSize by remember {
         mutableFloatStateOf(
             lyricPreviewPrefs.getFloat(
@@ -896,6 +904,7 @@ fun SettingsScreen(
             dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
+            autoHidePlaybackControlsEnabled = lyricAutoHidePlaybackControlsEnabled,
             lyricDisplayMode = lyricDisplayMode,
             lyricDisplayPosition = lyricDisplayPosition,
             fontSize = lyricFontSize,
@@ -945,6 +954,12 @@ fun SettingsScreen(
                 lyricKeepScreenOnEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_SCREEN_KEEP_ON, it)
+                    .apply()
+            },
+            onAutoHidePlaybackControlsEnabledChange = {
+                lyricAutoHidePlaybackControlsEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_AUTO_HIDE_PLAYBACK_CONTROLS, it)
                     .apply()
             },
             onLyricDisplayModeChange = {
