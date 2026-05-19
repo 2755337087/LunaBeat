@@ -132,7 +132,7 @@ private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
 private const val ENABLE_LYRIC_AUTOSCROLL_DEBUG_LOG = false
 private const val ENABLE_CREATOR_SYNC_TRACE = false
-private const val PLAYED_LINE_BLUR_RADIUS = 3f
+private const val PLAYED_LINE_BLUR_RADIUS = 2f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
 private const val COMPANION_AUDIO_LOG_TAG = "LyricPreviewCompanion"
@@ -2142,14 +2142,21 @@ private fun computeLyricLineBlurRadius(
 
 @Composable
 private fun rememberLyricLineBlurModifier(blurRadius: Float): Modifier {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || blurRadius <= 0f) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         return Modifier
     }
 
     val safeBlur = blurRadius.coerceIn(0f, UPCOMING_LINE_MAX_BLUR_RADIUS)
-    val blurEffect = remember(safeBlur) {
+    val animatedBlur by animateFloatAsState(
+        targetValue = safeBlur,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "lyricLineBlurTransition"
+    )
+    if (animatedBlur <= 0.01f) return Modifier
+
+    val blurEffect = remember(animatedBlur) {
         android.graphics.RenderEffect
-            .createBlurEffect(safeBlur, safeBlur, android.graphics.Shader.TileMode.CLAMP)
+            .createBlurEffect(animatedBlur, animatedBlur, android.graphics.Shader.TileMode.CLAMP)
             .asComposeRenderEffect()
     }
 
@@ -2165,6 +2172,7 @@ private fun Modifier.lyricChromeEdgeFade(
     enabled: Boolean,
     topHiddenHeight: Dp = 0.dp,
     topFadeHeight: Dp,
+    bottomHiddenHeight: Dp = 0.dp,
     bottomFadeHeight: Dp
 ): Modifier {
     if (!enabled) return this
@@ -2178,15 +2186,49 @@ private fun Modifier.lyricChromeEdgeFade(
             val topHiddenStop = (topHiddenHeight.toPx() / size.height).coerceIn(0f, 0.48f)
             val topVisibleStop = ((topHiddenHeight + topFadeHeight).toPx() / size.height)
                 .coerceIn((topHiddenStop + 0.01f).coerceAtMost(0.49f), 0.58f)
-            val bottomStop = ((size.height - bottomFadeHeight.toPx()) / size.height).coerceIn(topVisibleStop, 0.99f)
+            val bottomTransparentStop = ((size.height - bottomHiddenHeight.toPx()) / size.height)
+                .coerceIn(topVisibleStop, 1f)
+            val bottomVisibleStopMax = (bottomTransparentStop - 0.01f).coerceAtLeast(topVisibleStop)
+            val bottomVisibleStop = (
+                (size.height - bottomHiddenHeight.toPx() - bottomFadeHeight.toPx()) / size.height
+            ).coerceIn(topVisibleStop, bottomVisibleStopMax)
             drawRect(
                 brush = Brush.verticalGradient(
                     colorStops = arrayOf(
                         0f to Color.Transparent,
                         topHiddenStop to Color.Transparent,
                         topVisibleStop to Color.Black,
-                        bottomStop to Color.Black,
+                        bottomVisibleStop to Color.Black,
+                        bottomTransparentStop to Color.Transparent,
                         1f to Color.Transparent
+                    )
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+}
+
+private fun Modifier.lyricBottomOpacityFade(
+    enabled: Boolean,
+    bottomAlpha: Float = 0.45f,
+    fullyOpaqueFromRatio: Float = 0.5f
+): Modifier {
+    if (!enabled) return this
+    val safeBottomAlpha = bottomAlpha.coerceIn(0f, 1f)
+    val safeOpaqueStop = fullyOpaqueFromRatio.coerceIn(0f, 1f)
+    return this
+        .graphicsLayer {
+            compositingStrategy = CompositingStrategy.Offscreen
+        }
+        .drawWithContent {
+            drawContent()
+            if (size.height <= 0f) return@drawWithContent
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.Black,
+                        safeOpaqueStop to Color.Black,
+                        1f to Color.Black.copy(alpha = safeBottomAlpha)
                     )
                 ),
                 blendMode = BlendMode.DstIn
@@ -2400,11 +2442,6 @@ fun LyricPreviewScreen(
     showChrome: Boolean = true,
     enableBackHandler: Boolean = true
 ) {
-    // 使用 BackHandler 拦截系统返回事件
-    androidx.activity.compose.BackHandler(enabled = enableBackHandler) {
-        onBack()
-    }
-    
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE) }
     val appPrefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
@@ -2566,7 +2603,6 @@ fun LyricPreviewScreen(
     var portraitLyricLayoutSelected by remember { mutableStateOf(false) }
     var portraitLyricLayerVisible by remember { mutableStateOf(false) }
     var landscapeLyricDisplaySelected by remember { mutableStateOf(true) }
-    val portraitLayoutSwitchDurationMs = 320L
     val lyricDisplaySelected = when {
         usePortraitPlaybackLayout -> portraitLyricDisplaySelected
         useSidePanelLayout -> landscapeLyricDisplaySelected
@@ -2582,28 +2618,74 @@ fun LyricPreviewScreen(
         useSidePanelLayout -> landscapeLyricDisplaySelected
         else -> true
     }
+    val portraitControlsCanAutoHide = usePortraitPlaybackLayout && portraitLyricDisplaySelected
     val isPortraitCoverMode = usePortraitPlaybackLayout && !portraitLyricLayoutSelected
+    var portraitControlsVisible by remember { mutableStateOf(true) }
+    var portraitCompanionReadyVisible by remember { mutableStateOf(false) }
+    var portraitControlsAutoHideJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var portraitControlsPanelHeightPx by remember { mutableIntStateOf(0) }
+    val registerPortraitControlsInteraction: () -> Unit = {
+        if (usePortraitPlaybackLayout) {
+            portraitControlsAutoHideJob?.cancel()
+            portraitControlsAutoHideJob = null
+            portraitControlsVisible = true
+        }
+    }
     LaunchedEffect(usePortraitPlaybackLayout) {
         if (!usePortraitPlaybackLayout) {
             portraitLyricLayoutSelected = false
             portraitLyricLayerVisible = true
+            portraitControlsVisible = true
+            portraitCompanionReadyVisible = false
+            portraitControlsAutoHideJob?.cancel()
+            portraitControlsAutoHideJob = null
         } else {
             portraitLyricLayoutSelected = portraitLyricDisplaySelected
             portraitLyricLayerVisible = portraitLyricDisplaySelected
+            portraitControlsVisible = true
+            portraitControlsAutoHideJob?.cancel()
+            portraitControlsAutoHideJob = null
         }
     }
     LaunchedEffect(usePortraitPlaybackLayout, portraitLyricDisplaySelected) {
         if (!usePortraitPlaybackLayout) return@LaunchedEffect
         if (portraitLyricDisplaySelected) {
-            portraitLyricLayerVisible = false
+            // 进入歌词显示时，让歌词淡入和封面共享元素过渡同时启动。
             portraitLyricLayoutSelected = true
-            delay(portraitLayoutSwitchDurationMs)
             portraitLyricLayerVisible = true
         } else {
             // 退回大封面时，让歌词淡出和封面共享元素过渡同时启动。
             portraitLyricLayerVisible = false
             portraitLyricLayoutSelected = false
         }
+        portraitControlsVisible = true
+        portraitControlsAutoHideJob?.cancel()
+        portraitControlsAutoHideJob = null
+    }
+    LaunchedEffect(usePortraitPlaybackLayout, portraitLyricDisplaySelected, portraitLyricLayoutSelected) {
+        if (!usePortraitPlaybackLayout || !portraitLyricDisplaySelected || !portraitLyricLayoutSelected) {
+            portraitCompanionReadyVisible = false
+            return@LaunchedEffect
+        }
+        portraitCompanionReadyVisible = false
+        delay(740L)
+        if (usePortraitPlaybackLayout && portraitLyricDisplaySelected && portraitLyricLayoutSelected) {
+            portraitCompanionReadyVisible = true
+        }
+    }
+    val handleBackRequest: () -> Unit = {
+        if (usePortraitPlaybackLayout && portraitLyricDisplaySelected) {
+            portraitLyricDisplaySelected = false
+            portraitControlsVisible = true
+            portraitControlsAutoHideJob?.cancel()
+            portraitControlsAutoHideJob = null
+        } else {
+            onBack()
+        }
+    }
+    // 使用 BackHandler 拦截系统返回事件
+    androidx.activity.compose.BackHandler(enabled = enableBackHandler) {
+        handleBackRequest()
     }
     val portraitNextTrackTitle = playbackController?.nextTrackTitle.orEmpty()
     val portraitPlaybackMode = playbackController?.playbackMode
@@ -2763,6 +2845,28 @@ fun LyricPreviewScreen(
         }
     }
 
+    fun schedulePortraitControlsAutoHideFromAutoScroll() {
+        if (!portraitControlsCanAutoHide || !lyricLayerVisible) return
+        portraitControlsAutoHideJob?.cancel()
+        portraitControlsAutoHideJob = coroutineScope.launch {
+            delay(3000L)
+            if (portraitControlsCanAutoHide && lyricLayerVisible && !isUserScrolling) {
+                portraitControlsVisible = false
+            }
+            portraitControlsAutoHideJob = null
+        }
+    }
+
+    LaunchedEffect(usePortraitPlaybackLayout, portraitControlsCanAutoHide, lyricLayerVisible) {
+        if (!usePortraitPlaybackLayout || !portraitControlsCanAutoHide || !lyricLayerVisible) {
+            portraitControlsAutoHideJob?.cancel()
+            portraitControlsAutoHideJob = null
+            if (usePortraitPlaybackLayout) {
+                portraitControlsVisible = true
+            }
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -2835,6 +2939,7 @@ fun LyricPreviewScreen(
                     }
                     lastAutoScrollWallTime = now
                     logAutoScroll("complete target=$nextTarget visible=${lazyListState.firstVisibleItemIndex}")
+                    schedulePortraitControlsAutoHideFromAutoScroll()
 
                     val pending = pendingAutoScrollIndex
                     if (pending >= 0 && pending != nextTarget) {
@@ -2930,9 +3035,19 @@ fun LyricPreviewScreen(
     LaunchedEffect(lazyListState.interactionSource) {
         lazyListState.interactionSource.interactions.collect { interaction ->
             when (interaction) {
-                is PressInteraction.Press, is DragInteraction.Start -> {
+                is PressInteraction.Press -> {
+                    registerPortraitControlsInteraction()
                     isUserScrolling = true
-                    if (interaction is DragInteraction.Start && lyricBlurPreferenceEnabled && isLyricBlurEnabled) {
+                    scrollJob?.cancel()
+                    autoScrollJob?.cancel()
+                    pendingAutoScrollIndex = -1
+                    autoScrollRunningTarget = -1
+                    logAutoScroll("user touch started; cancel auto-scroll queue")
+                }
+                is DragInteraction.Start -> {
+                    registerPortraitControlsInteraction()
+                    isUserScrolling = true
+                    if (lyricBlurPreferenceEnabled && isLyricBlurEnabled) {
                         isLyricBlurEnabled = false
                         logAutoScroll("disable lyric blur while user dragging list")
                     }
@@ -2942,7 +3057,14 @@ fun LyricPreviewScreen(
                     autoScrollRunningTarget = -1
                     logAutoScroll("user scroll started; cancel auto-scroll queue")
                 }
-                is PressInteraction.Release, is DragInteraction.Stop, is DragInteraction.Cancel -> {
+                is PressInteraction.Release -> {
+                    registerPortraitControlsInteraction()
+                    scrollJob = coroutineScope.launch {
+                        delay(3000)
+                        isUserScrolling = false
+                    }
+                }
+                is DragInteraction.Stop, is DragInteraction.Cancel -> {
                     scrollJob = coroutineScope.launch {
                         delay(3000)
                         isUserScrolling = false
@@ -3563,21 +3685,26 @@ fun LyricPreviewScreen(
                         processedLyricLines.any { !it.isInterlude && it.isDuet }
                     }
                     val lyricTopChromeHidden = when {
-                        !useDynamicCoverChrome -> 0.dp
                         useSidePanelLayout -> 0.dp
                         useMiniHeader -> 52.dp
                         else -> 150.dp
                     }
                     val lyricTopChromeFade = when {
-                        !useDynamicCoverChrome -> 0.dp
                         useSidePanelLayout -> 86.dp
                         useMiniHeader -> 58.dp
                         else -> 86.dp
                     }
-                    val lyricBottomChromeFade = when {
-                        !useDynamicCoverChrome -> 0.dp
-                        useSidePanelLayout -> 150.dp
+                    val lyricBottomChromeHidden = when {
+                        useSidePanelLayout -> 0.dp
+                        useMiniHeader -> 150.dp
+                        usePortraitPlaybackLayout && !portraitControlsVisible -> 0.dp
                         else -> 190.dp
+                    }
+                    val lyricBottomChromeFade = when {
+                        useSidePanelLayout -> 150.dp
+                        useMiniHeader -> 72.dp
+                        usePortraitPlaybackLayout && !portraitControlsVisible -> 72.dp
+                        else -> 86.dp
                     }
                     
                     // 使用较小的 keepAlive 区域来确保弹簧动画工作，同时不会占用过多空间
@@ -3615,10 +3742,16 @@ fun LyricPreviewScreen(
                                 .fillMaxSize()
                                 .clipToBounds() // 裁剪超出边界的内容
                                 .lyricChromeEdgeFade(
-                                    enabled = useDynamicCoverChrome,
+                                    enabled = showChrome,
                                     topHiddenHeight = lyricTopChromeHidden,
                                     topFadeHeight = lyricTopChromeFade,
+                                    bottomHiddenHeight = lyricBottomChromeHidden,
                                     bottomFadeHeight = lyricBottomChromeFade
+                                )
+                                .lyricBottomOpacityFade(
+                                    enabled = usePortraitPlaybackLayout && portraitLyricDisplaySelected,
+                                    bottomAlpha = 0.45f,
+                                    fullyOpaqueFromRatio = 0.5f
                                 )
                                 .then(extendedViewportModifier), // 延长视口高度，让更多歌词行保持活跃
                             contentPadding = PaddingValues(
@@ -3896,7 +4029,9 @@ fun LyricPreviewScreen(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
-                        ) {}
+                        ) {
+                            registerPortraitControlsInteraction()
+                        }
                 ) {
                     PlaybackControls(
                         currentTime = currentTime,
@@ -3906,6 +4041,7 @@ fun LyricPreviewScreen(
                         seekTimeMs = seekTimeMs,
                         seekTimeSeconds = seekTimeSeconds,
                         onPlayPauseClick = {
+                            registerPortraitControlsInteraction()
                             onPlayPause(!isPlaying)
                         },
                         onSkipPreviousClick = onSkipPreviousTrack,
@@ -3949,6 +4085,7 @@ fun LyricPreviewScreen(
                             { controller.cyclePlaybackMode() }
                         },
                         onLyricDisplayClick = {
+                            registerPortraitControlsInteraction()
                             if (usePortraitPlaybackLayout) {
                                 portraitLyricDisplaySelected = !portraitLyricDisplaySelected
                             } else if (useSidePanelLayout) {
@@ -3961,6 +4098,7 @@ fun LyricPreviewScreen(
                         onShowPlaylistClick = playbackController?.let {
                             { showPlaylistSheet = true }
                         },
+                        stabilizeTrackInfoSlot = false,
                         sharedTransitionScope = sharedUiTransitionScope,
                         enableSharedTrackInfoTransition = false,
                         enableSharedMenuTransition = false,
@@ -3995,7 +4133,7 @@ fun LyricPreviewScreen(
                                 artist = metadata.artist,
                                 backgroundColor = backgroundColor,
                                 containerColor = chromeContainerColor,
-                                onBackClick = onBack,
+                                onBackClick = handleBackRequest,
                                 onHeaderClick = {
                                     if (enableSongInfoSheet) {
                                         showSongInfoSheet = true
@@ -4036,7 +4174,7 @@ fun LyricPreviewScreen(
                                 artist = metadata.artist,
                                 backgroundColor = backgroundColor,
                                 containerColor = chromeContainerColor,
-                                onBackClick = onBack,
+                                onBackClick = handleBackRequest,
                                 onHeaderClick = {
                                     if (enableSongInfoSheet) {
                                         showSongInfoSheet = true
@@ -4086,7 +4224,7 @@ fun LyricPreviewScreen(
                                 showSongInfoSheet = true
                             }
                         },
-                        onBackClick = onBack,
+                        onBackClick = handleBackRequest,
                         onMenuClick = { menuExpanded = true },
                         menuContent = lyricSettingsMenuContent,
                         backgroundColor = backgroundColor,
@@ -4111,134 +4249,179 @@ fun LyricPreviewScreen(
                             .asPaddingValues()
                             .calculateTopPadding() + 56.dp
                     }
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(portraitTopChromeHeight)
-                        ) {
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = isPortraitCoverMode,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = 160))
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(portraitTopChromeHeight)
                             ) {
-                                LyricPreviewPlaybackTopLabel(
-                                    titleText = portraitTopTitleText,
-                                    backgroundColor = backgroundColor,
-                                    onBackClick = onBack,
-                                    hasNextTrack = portraitNextTrackTitle.isNotBlank(),
-                                    onTitleClick = {
-                                        if (portraitNextTrackTitle.isNotBlank()) {
-                                            showPortraitNextTrackHint = !showPortraitNextTrackHint
-                                            portraitTitleSwitchToken += 1
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = isPortraitCoverMode,
+                                    enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                                    exit = fadeOut(animationSpec = tween(durationMillis = 160))
+                                ) {
+                                    LyricPreviewPlaybackTopLabel(
+                                        titleText = portraitTopTitleText,
+                                        backgroundColor = backgroundColor,
+                                        onBackClick = handleBackRequest,
+                                        hasNextTrack = portraitNextTrackTitle.isNotBlank(),
+                                        onTitleClick = {
+                                            if (portraitNextTrackTitle.isNotBlank()) {
+                                                showPortraitNextTrackHint = !showPortraitNextTrackHint
+                                                portraitTitleSwitchToken += 1
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
 
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = lyricLayoutSelected,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 240)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = 160))
+                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 180))
                             ) {
-                                val headerCoverVisibilityScope = this
-                                LyricPreviewHeader(
-                                    title = metadata.title,
-                                    artist = metadata.artist,
-                                    coverBitmap = metadata.coverBitmap,
-                                    onBackClick = onBack,
-                                    onHeaderClick = {
-                                        if (enableSongInfoSheet) {
-                                            showSongInfoSheet = true
+                                // 顶部渐变透明效果
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(onTap = { })
                                         }
-                                    },
-                                    onMenuClick = { menuExpanded = true },
-                                    menuContent = lyricSettingsMenuContent,
-                                    mutedColor = accentColor,
-                                    isDarkTheme = isDarkTheme,
-                                    backgroundColor = backgroundColor,
-                                    containerColor = chromeContainerColor,
-                                    sharedTransitionScope = portraitSharedTransitionScope,
-                                    sharedCoverAnimatedVisibilityScope = headerCoverVisibilityScope,
-                                    sharedHeaderAnimatedVisibilityScope = headerCoverVisibilityScope,
-                                    enableSharedTrackInfoTransition = false,
-                                    enableSharedMenuTransition = false
+                                        .background(brush = edgeFadeTopBrush)
                                 )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = isPortraitCoverMode,
+                                    enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                                    exit = fadeOut(animationSpec = tween(durationMillis = 160)),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    val centerCoverVisibilityScope = this
+                                    LyricPreviewSideCover(
+                                        modifier = Modifier.fillMaxSize(),
+                                        coverBitmap = metadata.coverBitmap,
+                                        accentColor = accentColor,
+                                        backgroundColor = backgroundColor,
+                                        isPlaying = isPlaying,
+                                        sharedTransitionScope = portraitSharedTransitionScope,
+                                        sharedCoverAnimatedVisibilityScope = centerCoverVisibilityScope
+                                    )
+                                }
+                            }
+
+                            // 底部渐变透明效果
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = lyricLayoutSelected && portraitControlsVisible && portraitCompanionReadyVisible,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 180))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(onTap = { })
+                                        }
+                                        .background(brush = edgeFadeBottomBrush),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    if (companionAvailable && lyricDisplaySelected) {
+                                        CompanionToggleButton(
+                                            checked = companionSelected,
+                                            enabled = !companionBusy,
+                                            accentColor = coverThemeColor ?: accentColor,
+                                            backgroundColor = backgroundColor,
+                                            onToggle = { onCompanionToggle(!companionSelected) },
+                                            modifier = Modifier.padding(end = 16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = portraitControlsVisible,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 240)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 220))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onSizeChanged { size ->
+                                            if (size.height > 0) {
+                                                portraitControlsPanelHeightPx = size.height
+                                            }
+                                        }
+                                ) {
+                                    playbackControlsPanel(portraitSharedTransitionScope, Modifier, false)
+                                }
                             }
                         }
 
                         androidx.compose.animation.AnimatedVisibility(
                             visible = lyricLayoutSelected,
-                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+                            enter = fadeIn(animationSpec = tween(durationMillis = 240)),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 160)),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .height(150.dp)
                         ) {
-                            // 顶部渐变透明效果
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(onTap = { })
+                            val headerCoverVisibilityScope = this
+                            LyricPreviewHeader(
+                                title = metadata.title,
+                                artist = metadata.artist,
+                                coverBitmap = metadata.coverBitmap,
+                                onBackClick = handleBackRequest,
+                                onHeaderClick = {
+                                    if (enableSongInfoSheet) {
+                                        showSongInfoSheet = true
                                     }
-                                    .background(brush = edgeFadeTopBrush)
+                                },
+                                onMenuClick = { menuExpanded = true },
+                                menuContent = lyricSettingsMenuContent,
+                                mutedColor = accentColor,
+                                isDarkTheme = isDarkTheme,
+                                backgroundColor = backgroundColor,
+                                containerColor = chromeContainerColor,
+                                sharedTransitionScope = portraitSharedTransitionScope,
+                                sharedCoverAnimatedVisibilityScope = headerCoverVisibilityScope,
+                                sharedHeaderAnimatedVisibilityScope = headerCoverVisibilityScope,
+                                enableSharedTrackInfoTransition = false,
+                                enableSharedMenuTransition = false
                             )
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = isPortraitCoverMode,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                                exit = fadeOut(animationSpec = tween(durationMillis = 160)),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                val centerCoverVisibilityScope = this
-                                LyricPreviewSideCover(
-                                    modifier = Modifier.fillMaxSize(),
-                                    coverBitmap = metadata.coverBitmap,
-                                    accentColor = accentColor,
-                                    backgroundColor = backgroundColor,
-                                    isPlaying = isPlaying,
-                                    sharedTransitionScope = portraitSharedTransitionScope,
-                                    sharedCoverAnimatedVisibilityScope = centerCoverVisibilityScope
-                                )
-                            }
-                        }
-
-                        // 底部渐变透明效果
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = lyricLayoutSelected || companionAvailable,
-                            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
-                            exit = fadeOut(animationSpec = tween(durationMillis = 180))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(onTap = { })
-                                    }
-                                    .background(brush = if (lyricLayoutSelected) edgeFadeBottomBrush else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
-                                if (companionAvailable) {
-                                    CompanionToggleButton(
-                                        checked = companionSelected,
-                                        enabled = !companionBusy,
-                                        accentColor = coverThemeColor ?: accentColor,
-                                        backgroundColor = backgroundColor,
-                                        onToggle = { onCompanionToggle(!companionSelected) },
-                                        modifier = Modifier.padding(end = 16.dp)
-                                    )
+                        if (portraitControlsCanAutoHide && !portraitControlsVisible) {
+                            val portraitControlsWakeAreaHeight = with(density) {
+                                if (portraitControlsPanelHeightPx > 0) {
+                                    portraitControlsPanelHeightPx.toDp()
+                                } else {
+                                    228.dp
                                 }
                             }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(portraitControlsWakeAreaHeight)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onTap = {
+                                                registerPortraitControlsInteraction()
+                                            }
+                                        )
+                                    }
+                            )
                         }
-
-                        playbackControlsPanel(portraitSharedTransitionScope, Modifier, false)
                     }
                 }
             }
@@ -6313,6 +6496,7 @@ fun PlaybackControls(
     onLyricDisplayClick: (() -> Unit)? = null,
     lyricDisplaySelected: Boolean = false,
     onShowPlaylistClick: (() -> Unit)? = null,
+    stabilizeTrackInfoSlot: Boolean = false,
     sharedTransitionScope: SharedTransitionScope? = null,
     enableSharedTrackInfoTransition: Boolean = false,
     sharedTrackInfoKey: Any = "lyricPreviewTrackInfo",
@@ -6366,19 +6550,13 @@ fun PlaybackControls(
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
-        AnimatedVisibility(
-            visible = showTrackInfo,
-            enter = fadeIn(animationSpec = tween(durationMillis = 220)) +
-                expandVertically(animationSpec = tween(durationMillis = 260)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 160)) +
-                shrinkVertically(animationSpec = tween(durationMillis = 200))
-        ) {
-            val trackInfoVisibilityScope = this
+        @Composable
+        fun TrackInfoRow(trackInfoVisibilityScope: AnimatedVisibilityScope) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(
-                        enabled = onTrackInfoClick != null,
+                        enabled = showTrackInfo && onTrackInfoClick != null,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
@@ -6421,6 +6599,7 @@ fun PlaybackControls(
                 if (onTrackInfoClick != null) {
                     IconButton(
                         onClick = onTrackInfoClick,
+                        enabled = showTrackInfo,
                         modifier = Modifier.then(
                             if (enableSharedMenuTransition) {
                                 Modifier.lyricPreviewSharedElement(
@@ -6440,6 +6619,32 @@ fun PlaybackControls(
                         )
                     }
                 }
+            }
+        }
+
+        if (stabilizeTrackInfoSlot) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(74.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showTrackInfo,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 200)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TrackInfoRow(this)
+                }
+            }
+        } else {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showTrackInfo,
+                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 200))
+            ) {
+                TrackInfoRow(this)
             }
         }
 

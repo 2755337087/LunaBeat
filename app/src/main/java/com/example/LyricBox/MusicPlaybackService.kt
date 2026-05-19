@@ -93,8 +93,10 @@ class MusicPlaybackService : MediaSessionService() {
         }
         setMediaNotificationProvider(notificationProvider)
 
-        val sessionActivityIntent = Intent(this, MusicPlayerActivity::class.java).apply {
+        val sessionActivityIntent = Intent(this, LyricPreviewActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(LyricPreviewActivity.EXTRA_USE_SHARED_PLAYBACK, true)
+            putExtra(LyricPreviewActivity.EXTRA_PREVIEW_ENTRY_SOURCE, LyricPreviewActivity.PREVIEW_ENTRY_SOURCE_DEFAULT)
         }
         val sessionPendingIntent = PendingIntent.getActivity(
             this,
