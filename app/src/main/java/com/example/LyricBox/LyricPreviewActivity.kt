@@ -31,6 +31,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
@@ -134,6 +135,9 @@ import androidx.media3.exoplayer.ExoPlayer
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
 private const val ENABLE_LYRIC_AUTOSCROLL_DEBUG_LOG = false
+private const val ENABLE_INTERLUDE_SCROLL_DIAGNOSTIC_LOG = true
+private const val DEBUG_KEEP_INTERLUDE_PLACEHOLDER_AFTER_END = false
+private const val DEBUG_INTERLUDE_PLACEHOLDER_HOLD_MS = 420L
 private const val ENABLE_CREATOR_SYNC_TRACE = false
 private const val PLAYED_LINE_BLUR_RADIUS = 2f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
@@ -3030,6 +3034,9 @@ fun LyricPreviewScreen(
     var lyricsContentReady by remember(processedLyricLines, isLyricLoading) {
         mutableStateOf(processedLyricLines.isEmpty() && !isLyricLoading)
     }
+    var previousVisibleInterludeIndices by remember(processedLyricLines) {
+        mutableStateOf(emptySet<Int>())
+    }
     var appWentBackground by remember { mutableStateOf(false) }
     var resumeRebuildRequest by remember { mutableIntStateOf(0) }
     var lyricSettingsReloadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -3039,6 +3046,11 @@ fun LyricPreviewScreen(
     fun logAutoScroll(message: String) {
         if (ENABLE_LYRIC_AUTOSCROLL_DEBUG_LOG) {
             Log.d(AUTO_SCROLL_LOG_TAG, message)
+        }
+    }
+    fun logInterludeDiagnostic(message: String) {
+        if (ENABLE_INTERLUDE_SCROLL_DIAGNOSTIC_LOG) {
+            Log.d(AUTO_SCROLL_LOG_TAG, "[InterludeDiag] $message")
         }
     }
 
@@ -3099,16 +3111,23 @@ fun LyricPreviewScreen(
     val landscapeLeadingPlaceholderCount = if (useSidePanelLayout) 1 else 0
     fun toLyricListIndex(lyricLineIndex: Int): Int = lyricLineIndex + landscapeLeadingPlaceholderCount
 
-    fun requestAutoScroll(targetIndex: Int, forceAnimate: Boolean = false) {
+    fun requestAutoScroll(targetIndex: Int, forceAnimate: Boolean = false, source: String = "auto") {
         if (targetIndex < 0 || targetIndex >= processedLyricLines.size) return
+        val targetLine = processedLyricLines[targetIndex]
         if (lyricBlurPreferenceEnabled && !isLyricBlurEnabled) {
             isLyricBlurEnabled = true
             logAutoScroll("restore lyric blur at auto-scroll target=$targetIndex")
         }
         logAutoScroll(
-            "request target=$targetIndex currentVisible=${lazyListState.firstVisibleItemIndex}" +
+            "request source=$source target=$targetIndex currentVisible=${lazyListState.firstVisibleItemIndex}" +
                 " running=$autoScrollRunningTarget pending=$pendingAutoScrollIndex activeJob=${autoScrollJob?.isActive == true}"
         )
+        if (targetLine.isInterlude) {
+            logInterludeDiagnostic(
+                "requestAutoScroll source=$source target=$targetIndex interlude begin=${targetLine.begin} end=${targetLine.end} " +
+                    "time=$currentTime firstVisible=${lazyListState.firstVisibleItemIndex} offset=${lazyListState.firstVisibleItemScrollOffset}"
+            )
+        }
 
         if (targetIndex == autoScrollRunningTarget || targetIndex == pendingAutoScrollIndex) {
             logAutoScroll("ignore duplicated target=$targetIndex")
@@ -3130,7 +3149,7 @@ fun LyricPreviewScreen(
                     val isRapidAutoScroll = (now - lastAutoScrollWallTime) < autoScrollMinIntervalMs
                     val useInstantScroll = !forceAnimateForCurrent && isRapidAutoScroll
                     logAutoScroll(
-                        "execute target=$nextTarget mode=${if (useInstantScroll) "instant" else "animate"} " +
+                        "execute source=$source target=$nextTarget mode=${if (useInstantScroll) "instant" else "animate"} " +
                             "deltaSinceLast=${now - lastAutoScrollWallTime}ms forceAnimate=$forceAnimateForCurrent"
                     )
                     if (useInstantScroll) {
@@ -3146,6 +3165,13 @@ fun LyricPreviewScreen(
                     }
                     lastAutoScrollWallTime = now
                     logAutoScroll("complete target=$nextTarget visible=${lazyListState.firstVisibleItemIndex}")
+                    val executedLine = processedLyricLines.getOrNull(nextTarget)
+                    if (executedLine?.isInterlude == true) {
+                        logInterludeDiagnostic(
+                            "executeComplete source=$source target=$nextTarget interlude begin=${executedLine.begin} end=${executedLine.end} " +
+                                "time=$currentTime firstVisible=${lazyListState.firstVisibleItemIndex} offset=${lazyListState.firstVisibleItemScrollOffset}"
+                        )
+                    }
                     schedulePortraitControlsAutoHideFromAutoScroll()
 
                     val pending = pendingAutoScrollIndex
@@ -3496,6 +3522,59 @@ fun LyricPreviewScreen(
 
     val autoScrollLeadMs = 400L
     val autoScrollConflictWindowMs = 1000L
+    val densityForInterludeCompensation = LocalDensity.current
+    val interludePlaceholderCompensationPx = with(densityForInterludeCompensation) {
+        ((fontSize.sp.toDp() * 2) + 8.dp).toPx()
+    }
+
+    LaunchedEffect(currentTime, lyricsContentReady, processedLyricLines, fontSize, isUserScrolling) {
+        if (!lyricsContentReady || processedLyricLines.isEmpty()) {
+            previousVisibleInterludeIndices = emptySet()
+            return@LaunchedEffect
+        }
+        val currentVisibleInterlude = buildSet {
+            processedLyricLines.forEachIndexed { index, line ->
+                if (!line.isInterlude) return@forEachIndexed
+                val baseVisible = if (line.begin <= 0L) {
+                    currentTime >= 0L && currentTime < line.end
+                } else {
+                    currentTime >= line.begin && currentTime < line.end
+                }
+                val debugHoldVisible =
+                    DEBUG_KEEP_INTERLUDE_PLACEHOLDER_AFTER_END &&
+                        currentTime >= line.end &&
+                        currentTime < (line.end + DEBUG_INTERLUDE_PLACEHOLDER_HOLD_MS)
+                if (baseVisible || debugHoldVisible) {
+                    add(index)
+                }
+            }
+        }
+        val endedInterludeIndices = previousVisibleInterludeIndices - currentVisibleInterlude
+        if (endedInterludeIndices.isNotEmpty()) {
+            val firstVisibleIndex = lazyListState.firstVisibleItemIndex - landscapeLeadingPlaceholderCount
+            val endedBeforeOrAtViewport = endedInterludeIndices.count { it <= firstVisibleIndex }
+            if (!isUserScrolling && endedBeforeOrAtViewport > 0 && interludePlaceholderCompensationPx > 0f) {
+                // 间奏占位收起会把后续歌词整体“向上顶”，这里反向补偿把视图拉回去
+                val compensation = -interludePlaceholderCompensationPx * endedBeforeOrAtViewport
+                val beforeIndex = lazyListState.firstVisibleItemIndex
+                val beforeOffset = lazyListState.firstVisibleItemScrollOffset
+                lazyListState.scrollBy(compensation)
+                val afterIndex = lazyListState.firstVisibleItemIndex
+                val afterOffset = lazyListState.firstVisibleItemScrollOffset
+                logInterludeDiagnostic(
+                    "applyCollapseCompensation ended=${endedInterludeIndices.sorted()} " +
+                        "firstVisible=$firstVisibleIndex count=$endedBeforeOrAtViewport px=$compensation " +
+                        "before=($beforeIndex,$beforeOffset) after=($afterIndex,$afterOffset)"
+                )
+            } else {
+                logInterludeDiagnostic(
+                    "skipCollapseCompensation ended=${endedInterludeIndices.sorted()} " +
+                        "firstVisible=$firstVisibleIndex userScrolling=$isUserScrolling count=$endedBeforeOrAtViewport"
+                )
+            }
+        }
+        previousVisibleInterludeIndices = currentVisibleInterlude
+    }
 
     fun shouldSkipAutoScrollDueToCloseNextTrigger(currentMainIndex: Int, referenceTimeMs: Long): Boolean {
         val currentLine = processedLyricLines.getOrNull(currentMainIndex) ?: return false
@@ -3625,9 +3704,9 @@ fun LyricPreviewScreen(
                 var shouldScroll = true
                 var skipBecauseCloseNextTrigger = false
                 
-                // 情况一：间奏行不触发；背景歌词仅上方背景可触发，下方背景不触发
+                // 情况一：间奏行在“开始时”触发一次；背景歌词仅上方背景可触发，下方背景不触发
                 if (targetLine.isInterlude) {
-                    shouldScroll = false
+                    shouldScroll = currentTime >= targetLine.begin
                 } else if (targetLine.isBackground) {
                     val isUpperBackground = targetLine.backgroundPlacement < 0
                     if (!isUpperBackground) {
@@ -3638,7 +3717,7 @@ fun LyricPreviewScreen(
                 // 情况二：上一句主句歌词结束时间减去当前行开始时间差大于1.55秒 → 不触发
                 // 注意：若主句存在背景歌词，仍按主句原始时间（words）判断，不按背景延长后的时间判断
                 var hasLargeTimeDiff = false
-                if (shouldScroll && currentLineIndex > 0) {
+                if (shouldScroll && !targetLine.isInterlude && currentLineIndex > 0) {
                     // 找到上一句主句歌词（跳过背景歌词）
                     var prevMainLineIndex = currentLineIndex - 1
                     while (prevMainLineIndex >= 0 && (processedLyricLines[prevMainLineIndex].isBackground || processedLyricLines[prevMainLineIndex].isInterlude)) {
@@ -3663,7 +3742,7 @@ fun LyricPreviewScreen(
                 }
 
                 // 情况三：如果下一次自动滚动触发间隔 < 1000ms，跳过当前行，仅让下一次触发生效
-                if (shouldScroll && shouldSkipAutoScrollDueToCloseNextTrigger(currentLineIndex, currentTime)) {
+                if (shouldScroll && !targetLine.isInterlude && shouldSkipAutoScrollDueToCloseNextTrigger(currentLineIndex, currentTime)) {
                     if (closeNextSkipStreak >= maxCloseNextConsecutiveSkips) {
                         logAutoScroll("force scroll current=$currentLineIndex after close-next skip streak=$closeNextSkipStreak")
                         closeNextSkipStreak = 0
@@ -3679,7 +3758,7 @@ fun LyricPreviewScreen(
                     closeNextSkipStreak = 0
                     lastAutoScrolledIndex = currentLineIndex
                     lastSkippedScrollIndex = -1
-                    requestAutoScroll(currentLineIndex)
+                    requestAutoScroll(currentLineIndex, source = "auto-main")
                 } else {
                     if (targetLine.isInterlude) {
                         // 间奏行不参与补滚动，否则会在间奏淡出后额外触发一次上滚
@@ -3749,7 +3828,7 @@ fun LyricPreviewScreen(
                             lastAutoScrolledIndex = skippedLineIndex
                             lastSkippedScrollIndex = -1
                             logAutoScroll("trigger 补滚动 index=$skippedLineIndex at=$currentTime")
-                            requestAutoScroll(skippedLineIndex)
+                            requestAutoScroll(skippedLineIndex, source = "auto-recovery")
                         }
                     }
                 }
@@ -4129,7 +4208,7 @@ fun LyricPreviewScreen(
                                         closeNextSkipStreak = 0
                                         coroutineScope.launch {
                                             withFrameNanos { }
-                                            requestAutoScroll(index, forceAnimate = true)
+                                            requestAutoScroll(index, forceAnimate = true, source = "manual-tap")
                                         }
                                     }
                                 )
@@ -5632,15 +5711,34 @@ fun LyricLineView(
         val interludeLyricColor = backgroundColor?.let { bg ->
             getHighContrastBlackOrWhite(bg)
         } ?: if (isDarkTheme) Color.White else Color.Black
-        val shouldShowPlaceholder = if (line.begin <= 0L) {
-            // 首行间奏：从开头到下一句开始前显示占位
+        val baseVisualVisible = if (line.begin <= 0L) {
             currentTime >= 0L && currentTime < line.end
         } else {
-            // 普通间奏：上一句结束后显示，下一句开始后隐藏
             currentTime >= line.begin && currentTime < line.end
         }
+        val debugHoldVisualActive =
+            DEBUG_KEEP_INTERLUDE_PLACEHOLDER_AFTER_END &&
+                currentTime >= line.end &&
+                currentTime < (line.end + DEBUG_INTERLUDE_PLACEHOLDER_HOLD_MS)
+        val shouldShowInterludeVisual = baseVisualVisible || debugHoldVisualActive
+        var lastInterludeVisualVisible by remember(line.begin, line.end) {
+            mutableStateOf<Boolean?>(null)
+        }
+        LaunchedEffect(shouldShowInterludeVisual, currentTime) {
+            if (!ENABLE_INTERLUDE_SCROLL_DIAGNOSTIC_LOG) return@LaunchedEffect
+            val previous = lastInterludeVisualVisible
+            if (previous == null || previous != shouldShowInterludeVisual) {
+                Log.d(
+                    AUTO_SCROLL_LOG_TAG,
+                    "[InterludeDiag] visualVisibility lineBegin=${line.begin} lineEnd=${line.end} " +
+                        "time=$currentTime visible=$shouldShowInterludeVisual baseVisible=$baseVisualVisible " +
+                        "debugHoldActive=$debugHoldVisualActive"
+                )
+                lastInterludeVisualVisible = shouldShowInterludeVisual
+            }
+        }
         AnimatedVisibility(
-            visible = shouldShowPlaceholder,
+            visible = shouldShowInterludeVisual,
             enter = fadeIn(animationSpec = tween(180)),
             exit = fadeOut(animationSpec = tween(180))
         ) {
