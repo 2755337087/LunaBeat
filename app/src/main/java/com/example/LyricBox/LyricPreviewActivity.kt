@@ -101,6 +101,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.airbnb.lottie.compose.*
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
@@ -2594,8 +2597,12 @@ fun LyricPreviewScreen(
         )
     }
     var menuExpanded by remember { mutableStateOf(false) }
+    var playbackControlsMenuExpanded by remember { mutableStateOf(false) }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showArtistSelectionSheet by remember { mutableStateOf(false) }
+    var pendingArtistSheetAlbum by remember { mutableStateOf("") }
+    var pendingArtistSheetArtists by remember { mutableStateOf(listOf<String>()) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var pendingResetLyricDisplayOnResume by remember { mutableStateOf(false) }
     var customFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
@@ -2604,7 +2611,17 @@ fun LyricPreviewScreen(
     var lyricTypeface by remember { mutableStateOf<Typeface?>(null) }
     var isFontSwitchReloading by remember { mutableStateOf(false) }
     var hasFontInitialized by remember { mutableStateOf(false) }
-    var metadata by remember { mutableStateOf(PreviewAudioMetadata(title, "未知艺术家", null)) }
+    var metadata by remember {
+        mutableStateOf(
+            PreviewAudioMetadata(
+                title = title,
+                artist = "未知艺术家",
+                album = "",
+                comment = "",
+                coverBitmap = null
+            )
+        )
+    }
     var coverThemeColor by remember { mutableStateOf<Color?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -2640,6 +2657,7 @@ fun LyricPreviewScreen(
             android.content.res.Configuration.UI_MODE_TYPE_MASK
         ) == android.content.res.Configuration.UI_MODE_TYPE_WATCH
     val isRoundScreen = context.resources.configuration.isScreenRound
+    val isLargeScreenDevice = screenConfig.smallestScreenWidthDp >= 600 || screenConfig.screenWidthDp >= 900
     val isWatchLikeSmallScreen = (
         isWatchFeatureDevice ||
             isWatchUiMode ||
@@ -2649,6 +2667,7 @@ fun LyricPreviewScreen(
         )
     val isLandscape = screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val useSidePanelLayout = showChrome && isLandscape && !isWatchLikeSmallScreen
+    val shouldHideSystemBarsForLandscapePhone = useSidePanelLayout && !isLargeScreenDevice
     val useMiniHeader = showChrome && isWatchLikeSmallScreen
     val usePortraitPlaybackLayout = showChrome && !isLandscape && !isWatchLikeSmallScreen
     var portraitLyricDisplaySelected by remember { mutableStateOf(false) }
@@ -2721,6 +2740,24 @@ fun LyricPreviewScreen(
             portraitControlsVisible = true
         }
     }
+    DisposableEffect(shouldHideSystemBarsForLandscapePhone) {
+        val activity = context as? ComponentActivity
+        val controller = activity?.window?.let { window ->
+            WindowCompat.getInsetsController(window, window.decorView)
+        }
+        if (shouldHideSystemBarsForLandscapePhone) {
+            controller?.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            if (shouldHideSystemBarsForLandscapePhone) {
+                controller?.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
     val triggerLandscapeTemporaryControls: () -> Unit = {
         if (useSidePanelLayout && landscapeLyricDisplaySelected) {
             landscapeTemporaryControlsVisible = true
@@ -2780,6 +2817,10 @@ fun LyricPreviewScreen(
         landscapeTemporaryControlsVisible = false
         landscapeTemporaryControlsJob?.cancel()
         landscapeTemporaryControlsJob = null
+        if (useSidePanelLayout) {
+            menuExpanded = false
+        }
+        playbackControlsMenuExpanded = false
     }
     val handleBackRequest: () -> Unit = {
         if (usePortraitPlaybackLayout && portraitLyricDisplaySelected) {
@@ -2823,10 +2864,19 @@ fun LyricPreviewScreen(
             showPortraitNextTrackHint = !showPortraitNextTrackHint
         }
     }
+    val playbackComment = metadata.comment.trim()
+    val shouldShowPlaybackComment = playbackComment.isNotBlank() &&
+        !playbackComment.contains("163 key", ignoreCase = true) &&
+        !playbackComment.contains("163key", ignoreCase = true)
+    val nowPlayingTopText = if (shouldShowPlaybackComment) {
+        "正在播放：$playbackComment"
+    } else {
+        "正在播放"
+    }
     val portraitTopTitleText = if (showPortraitNextTrackHint && portraitNextTrackTitle.isNotBlank()) {
         "下一首：$portraitNextTrackTitle"
     } else {
-        "正在播放"
+        nowPlayingTopText
     }
     val landscapeOuterHorizontalPadding = 16.dp
     val landscapePaneSpacing = 12.dp
@@ -2838,6 +2888,28 @@ fun LyricPreviewScreen(
     val landscapeSafeAreaInsets = WindowInsets.safeDrawing.only(
         WindowInsetsSides.Horizontal + WindowInsetsSides.Vertical
     )
+    val openMusicLibrarySearch: (String) -> Unit = { query ->
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isNotBlank()) {
+            val intent = Intent(context, MusicLibraryActivity::class.java).apply {
+                putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, normalizedQuery)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (context !is android.app.Activity) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            context.startActivity(intent)
+        }
+    }
+    val showArtistInfoSheet: () -> Unit = {
+        val artists = extractLyricPreviewArtistsForSheet(metadata.title, metadata.artist)
+        if (artists.isNotEmpty()) {
+            pendingArtistSheetAlbum = metadata.album
+            pendingArtistSheetArtists = artists
+            showArtistSelectionSheet = true
+        }
+    }
 
     val customFontPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -3768,9 +3840,27 @@ fun LyricPreviewScreen(
             androidx.compose.ui.layout.LookaheadScope {
                 Box(modifier = Modifier
                 .fillMaxSize()
+                .then(
+                    if (useSidePanelLayout) {
+                        Modifier.windowInsetsPadding(landscapeSafeAreaInsets)
+                    } else {
+                        Modifier
+                    }
+                )
                 .padding(
-                    start = 16.dp + if (useSidePanelLayout) sidePanelWidth + 12.dp else 0.dp,
-                    end = 16.dp
+                    start = if (useSidePanelLayout) {
+                        landscapeOuterHorizontalPadding +
+                            sidePanelWidth +
+                            landscapePaneSpacing +
+                            landscapeRightPaneHorizontalPadding
+                    } else {
+                        16.dp
+                    },
+                    end = if (useSidePanelLayout) {
+                        landscapeRightPaneHorizontalPadding
+                    } else {
+                        16.dp
+                    }
                 )
             ) {
                 val showLoadingOverlay = isLyricLoading || !lyricsContentReady || isFontSwitchReloading
@@ -4160,6 +4250,40 @@ fun LyricPreviewScreen(
                     borderColor = menuBorderColor
                 )
             }
+            val playbackControlsMenuContent: @Composable (MenuAnchorPosition?) -> Unit = { menuButtonPosition ->
+                val items = buildList {
+                    if (enableSongInfoSheet) {
+                        add(
+                            MenuItem(
+                                title = "歌曲信息",
+                                onClick = {
+                                    playbackControlsMenuExpanded = false
+                                    showSongInfoSheet = true
+                                }
+                            )
+                        )
+                    }
+                    add(
+                        MenuItem(
+                            title = "歌词设置",
+                            onClick = {
+                                playbackControlsMenuExpanded = false
+                                showLyricSettingsSheet = true
+                            }
+                        )
+                    )
+                }
+                CustomDropdownMenu(
+                    expanded = playbackControlsMenuExpanded,
+                    onDismissRequest = { playbackControlsMenuExpanded = false },
+                    items = items,
+                    anchorPosition = menuButtonPosition ?: MenuAnchorPosition(0f, 0f),
+                    containerColor = menuSurfaceColor,
+                    contentColor = menuContentColor,
+                    pressColor = menuPressedColor,
+                    borderColor = menuBorderColor
+                )
+            }
 
             val playbackControlsPanel: @Composable (SharedTransitionScope?, Modifier, Boolean, Boolean) -> Unit = {
                     sharedUiTransitionScope,
@@ -4219,11 +4343,25 @@ fun LyricPreviewScreen(
                         trackTitle = metadata.title,
                         trackArtist = metadata.artist,
                         showTrackInfo = showTrackInfoInPanel,
-                        onTrackInfoClick = if (showTrackInfoInPanel && enableSongInfoSheet) {
-                            { showSongInfoSheet = true }
+                        onTrackInfoClick = if (showTrackInfoInPanel) {
+                            { showArtistInfoSheet() }
                         } else {
                             null
                         },
+                        onTrackInfoMenuClick = if (showTrackInfoInPanel) {
+                            {
+                                if (useSidePanelLayout && !landscapeLyricDisplaySelected) {
+                                    if (enableSongInfoSheet) {
+                                        showSongInfoSheet = true
+                                    }
+                                } else {
+                                    playbackControlsMenuExpanded = true
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        trackInfoMenuContent = playbackControlsMenuContent,
                         playbackMode = playbackController?.playbackMode,
                         onPlaybackModeClick = playbackController?.let { controller ->
                             { controller.cyclePlaybackMode() }
@@ -4257,8 +4395,22 @@ fun LyricPreviewScreen(
             }
 
             if (useSidePanelLayout) {
+                val density = LocalDensity.current
+                val usePersistentLeftControlsForLargeScreen =
+                    landscapeLyricDisplaySelected && isLargeScreenDevice
                 val leftPanelShowsControls =
-                    landscapeLyricDisplaySelected && landscapeTemporaryControlsVisible
+                    landscapeLyricDisplaySelected &&
+                        !usePersistentLeftControlsForLargeScreen &&
+                        landscapeTemporaryControlsVisible
+                val largeLeftPanelShift by animateDpAsState(
+                    targetValue = if (isLargeScreenDevice && !landscapeLyricDisplaySelected) {
+                        (sidePanelWidth + landscapePaneSpacing) / 2f
+                    } else {
+                        0.dp
+                    },
+                    animationSpec = tween(durationMillis = 360),
+                    label = "landscapeLargeLeftPanelShift"
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -4270,98 +4422,145 @@ fun LyricPreviewScreen(
                         modifier = Modifier
                             .width(sidePanelWidth)
                             .fillMaxHeight()
+                            .graphicsLayer {
+                                if (isLargeScreenDevice) {
+                                    translationX = with(density) { largeLeftPanelShift.toPx() }
+                                }
+                            }
                             .background(chromeContainerColor)
                     ) {
-                        val density = LocalDensity.current
-                        val iconTint = getHighContrastBlackOrWhite(backgroundColor).copy(alpha = 0.88f)
-                        var landscapeMenuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
-                        Box(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            LyricPreviewPlaybackTopLabel(
-                                titleText = portraitTopTitleText,
-                                backgroundColor = backgroundColor,
-                                onBackClick = handleBackRequest,
-                                hasNextTrack = portraitNextTrackTitle.isNotBlank(),
-                                onTitleClick = {
-                                    if (portraitNextTrackTitle.isNotBlank()) {
-                                        showPortraitNextTrackHint = !showPortraitNextTrackHint
-                                    }
-                                }
-                            )
-                            IconButton(
-                                onClick = { menuExpanded = true },
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .padding(end = 18.dp)
-                                    .size(36.dp)
-                                    .onGloballyPositioned { coordinates ->
-                                        val bounds = coordinates.boundsInRoot()
-                                        landscapeMenuButtonPosition = MenuAnchorPosition(
-                                            x = with(density) { bounds.center.x.toDp().value },
-                                            y = with(density) { bounds.center.y.toDp().value }
-                                        )
-                                    }
+                        if (isLargeScreenDevice) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                                    contentDescription = "菜单",
-                                    tint = iconTint,
-                                    modifier = Modifier.size(20.dp)
+                                LyricPreviewPlaybackTopLabel(
+                                    titleText = portraitTopTitleText,
+                                    backgroundColor = backgroundColor,
+                                    onBackClick = handleBackRequest,
+                                    hasNextTrack = portraitNextTrackTitle.isNotBlank(),
+                                    onTitleClick = {
+                                        if (portraitNextTrackTitle.isNotBlank()) {
+                                            showPortraitNextTrackHint = !showPortraitNextTrackHint
+                                        }
+                                    }
                                 )
                             }
-                            lyricSettingsMenuContent(landscapeMenuButtonPosition)
+                            Spacer(modifier = Modifier.height(4.dp))
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                        ) {
-                            AnimatedContent(
-                                targetState = leftPanelShowsControls,
-                                transitionSpec = {
-                                    fadeIn(animationSpec = tween(durationMillis = 240)) togetherWith
-                                        fadeOut(animationSpec = tween(durationMillis = 200))
-                                },
-                                label = "landscapeCoverControlsSwap",
-                                modifier = Modifier.fillMaxSize()
-                            ) { showControls ->
-                                if (showControls) {
-                                    playbackControlsPanel(
-                                        null,
-                                        Modifier.fillMaxSize(),
-                                        true,
-                                        true
-                                    )
-                                } else {
-                                    Box(
+                        if (isLargeScreenDevice) {
+                            val coverVerticalShift by animateDpAsState(
+                                targetValue = if (landscapeLyricDisplaySelected) (-8).dp else 0.dp,
+                                animationSpec = tween(durationMillis = 320),
+                                label = "landscapeLargeCoverShift"
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .animateContentSize(animationSpec = tween(durationMillis = 320))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    LyricPreviewSideCover(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .then(
-                                                if (landscapeLyricDisplaySelected) {
-                                                    Modifier.pointerInput(Unit) {
-                                                        detectTapGestures(
-                                                            onTap = { triggerLandscapeTemporaryControls() }
-                                                        )
-                                                    }
-                                                } else {
-                                                    Modifier
-                                                }
-                                            )
-                                    ) {
-                                        LyricPreviewSideCover(
-                                            modifier = Modifier.fillMaxSize(),
-                                            coverBitmap = metadata.coverBitmap,
-                                            accentColor = accentColor,
-                                            backgroundColor = backgroundColor,
-                                            isPlaying = isPlaying,
-                                            coverWidthFraction = 0.98f,
-                                            coverHeightFraction = 0.96f,
-                                            coverMaxSizeOverride = 560.dp
+                                            .graphicsLayer {
+                                                translationY = with(density) { coverVerticalShift.toPx() }
+                                            },
+                                        coverBitmap = metadata.coverBitmap,
+                                        accentColor = accentColor,
+                                        backgroundColor = backgroundColor,
+                                        isPlaying = isPlaying,
+                                        coverWidthFraction = 0.98f,
+                                        coverHeightFraction = 0.96f,
+                                        coverMaxSizeOverride = 560.dp
+                                    )
+                                }
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    playbackControlsPanel(
+                                        null,
+                                        Modifier.fillMaxWidth(),
+                                        false,
+                                        true
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                AnimatedContent(
+                                    targetState = leftPanelShowsControls,
+                                    transitionSpec = {
+                                        fadeIn(animationSpec = tween(durationMillis = 240)) togetherWith
+                                            fadeOut(animationSpec = tween(durationMillis = 200))
+                                    },
+                                    label = "landscapeCoverControlsSwap",
+                                    modifier = Modifier.fillMaxSize()
+                                ) { showControls ->
+                                    if (showControls) {
+                                        playbackControlsPanel(
+                                            null,
+                                            Modifier.fillMaxSize(),
+                                            true,
+                                            true
                                         )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .then(
+                                                    if (landscapeLyricDisplaySelected) {
+                                                        Modifier.pointerInput(Unit) {
+                                                            detectTapGestures(
+                                                                onTap = { triggerLandscapeTemporaryControls() }
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            LyricPreviewSideCover(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(top = 13.dp),//封面与正在播放文字的间距
+                                                coverBitmap = metadata.coverBitmap,
+                                                accentColor = accentColor,
+                                                backgroundColor = backgroundColor,
+                                                isPlaying = isPlaying,
+                                                coverWidthFraction = 0.82f,
+                                                coverHeightFraction = 0.78f,
+                                                coverMaxSizeOverride = 560.dp
+                                            )
+                                        }
                                     }
                                 }
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopCenter)
+                                        .fillMaxWidth()
+                                ) {
+                                LyricPreviewPlaybackTopLabel(
+                                    titleText = portraitTopTitleText,
+                                    backgroundColor = backgroundColor,
+                                    onBackClick = handleBackRequest,
+                                    hasNextTrack = portraitNextTrackTitle.isNotBlank(),
+                                    onTitleClick = {
+                                        if (portraitNextTrackTitle.isNotBlank()) {
+                                            showPortraitNextTrackHint = !showPortraitNextTrackHint
+                                        }
+                                    }
+                                )
+                            }
                             }
                         }
                     }
@@ -4369,19 +4568,37 @@ fun LyricPreviewScreen(
                         modifier = Modifier
                             .width(sidePanelWidth)
                             .fillMaxHeight()
-                            .background(chromeContainerColor)
-                    ) {
-                        if (landscapeLyricDisplaySelected) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        } else {
-                            playbackControlsPanel(
-                                null,
-                                Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth(),
-                                true,
-                                true
+                            .background(
+                                if (landscapeLyricDisplaySelected) {
+                                    Color.Transparent
+                                } else {
+                                    chromeContainerColor
+                                }
                             )
+                    ) {
+                        if (isLargeScreenDevice) {
+                            Spacer(modifier = Modifier.fillMaxSize())
+                        } else {
+                            AnimatedContent(
+                                targetState = landscapeLyricDisplaySelected,
+                                transitionSpec = {
+                                    fadeIn(animationSpec = tween(durationMillis = 240)) togetherWith
+                                        fadeOut(animationSpec = tween(durationMillis = 200))
+                                },
+                                label = "landscapeRightPaneSwitch",
+                                modifier = Modifier.fillMaxSize()
+                            ) { showLyrics ->
+                                if (showLyrics) {
+                                    Spacer(modifier = Modifier.fillMaxSize())
+                                } else {
+                                    playbackControlsPanel(
+                                        null,
+                                        Modifier.fillMaxSize(),
+                                        true,
+                                        true
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -4615,24 +4832,6 @@ fun LyricPreviewScreen(
                         end = landscapeRightPaneHorizontalPadding
                     )
             ) {
-                if (landscapeLyricDisplaySelected) {
-                    // 右侧歌词区顶部 EdgeTranslucent 渐变
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .background(brush = edgeFadeTopBrush)
-                    )
-                    // 右侧歌词区底部 EdgeTranslucent 渐变
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .background(brush = edgeFadeBottomBrush)
-                    )
-                }
                 if (landscapeLyricDisplaySelected && companionAvailable) {
                     Box(
                         modifier = Modifier
@@ -4695,7 +4894,7 @@ fun LyricPreviewScreen(
                 path = audioPath,
                 title = metadata.title,
                 artist = metadata.artist,
-                album = "",
+                album = metadata.album,
                 duration = audioDuration.coerceAtLeast(0L),
                 fileSize = if (file.exists()) file.length() else 0L,
                 lastModified = if (file.exists()) file.lastModified() else 0L
@@ -4803,7 +5002,46 @@ fun LyricPreviewScreen(
                 }
             )
         }
+
+        if (showArtistSelectionSheet) {
+            ArtistSelectionBottomSheet(
+                albumName = pendingArtistSheetAlbum,
+                artists = pendingArtistSheetArtists,
+                onDismiss = { showArtistSelectionSheet = false },
+                onSelectAlbum = { albumName ->
+                    showArtistSelectionSheet = false
+                    openMusicLibrarySearch("#专辑：$albumName")
+                },
+                onSelectArtist = { artist ->
+                    showArtistSelectionSheet = false
+                    openMusicLibrarySearch(artist)
+                }
+            )
+        }
     }
+}
+
+private fun extractLyricPreviewArtistsForSheet(title: String, artist: String): List<String> {
+    fun splitArtists(raw: String): List<String> {
+        return raw
+            .replace("／", "/")
+            .replace("；", ";")
+            .replace("，", ",")
+            .split("/", "&", ";", ",", "、")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    val base = splitArtists(artist)
+    val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
+    val titleArtists = featPattern.findAll(title)
+        .flatMap { match -> splitArtists(match.groupValues.getOrElse(1) { "" }).asSequence() }
+        .toList()
+
+    return (base + titleArtists)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
 }
 
 // 获取字体粗细标签
@@ -6671,6 +6909,8 @@ fun PlaybackControls(
     trackArtist: String = "",
     showTrackInfo: Boolean = false,
     onTrackInfoClick: (() -> Unit)? = null,
+    onTrackInfoMenuClick: (() -> Unit)? = null,
+    trackInfoMenuContent: (@Composable (MenuAnchorPosition?) -> Unit)? = null,
     playbackMode: PlaybackMode? = null,
     onPlaybackModeClick: (() -> Unit)? = null,
     onLyricDisplayClick: (() -> Unit)? = null,
@@ -6716,6 +6956,8 @@ fun PlaybackControls(
     val progressColor = controlAccentColor
     val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
     val panelTextColor = getHighContrastBlackOrWhite(controlBackground)
+    val density = LocalDensity.current
+    var trackInfoMenuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     
     Column(
         modifier = modifier
@@ -6776,21 +7018,29 @@ fun PlaybackControls(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (onTrackInfoClick != null) {
+                if (onTrackInfoClick != null || onTrackInfoMenuClick != null) {
                     IconButton(
-                        onClick = onTrackInfoClick,
+                        onClick = { onTrackInfoMenuClick?.invoke() },
                         enabled = showTrackInfo,
-                        modifier = Modifier.then(
-                            if (enableSharedMenuTransition) {
-                                Modifier.lyricPreviewSharedElement(
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = trackInfoVisibilityScope,
-                                    sharedElementKey = sharedMenuIconKey
+                        modifier = Modifier
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInRoot()
+                                trackInfoMenuButtonPosition = MenuAnchorPosition(
+                                    x = with(density) { bounds.center.x.toDp().value },
+                                    y = with(density) { bounds.center.y.toDp().value }
                                 )
-                            } else {
-                                Modifier
                             }
-                        )
+                            .then(
+                                if (enableSharedMenuTransition) {
+                                    Modifier.lyricPreviewSharedElement(
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = trackInfoVisibilityScope,
+                                        sharedElementKey = sharedMenuIconKey
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -6798,6 +7048,7 @@ fun PlaybackControls(
                             tint = panelTextColor
                         )
                     }
+                    trackInfoMenuContent?.invoke(trackInfoMenuButtonPosition)
                 }
             }
         }
@@ -7833,6 +8084,8 @@ fun LyricPreviewHeader(
 data class PreviewAudioMetadata(
     val title: String,
     val artist: String,
+    val album: String,
+    val comment: String,
     val coverBitmap: Bitmap?
 )
 
@@ -7955,14 +8208,16 @@ suspend fun loadAudioMetadata(
             )
             val title = metadata.title.takeIf { it.isNotBlank() } ?: fallbackTitle
             val artist = metadata.artist.takeIf { it.isNotBlank() } ?: "未知艺术家"
+            val album = metadata.album
+            val comment = metadata.comment
             val coverBitmap = metadata.cover?.let { bytes ->
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             }
 
-            PreviewAudioMetadata(title, artist, coverBitmap)
+            PreviewAudioMetadata(title, artist, album, comment, coverBitmap)
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to load metadata", e)
-            PreviewAudioMetadata(fallbackTitle, "未知艺术家", null)
+            PreviewAudioMetadata(fallbackTitle, "未知艺术家", "", "", null)
         }
     }
 }
