@@ -3681,7 +3681,12 @@ fun LyricPreviewScreen(
                     lastSkippedScrollIndex = -1
                     requestAutoScroll(currentLineIndex)
                 } else {
-                    if (skipBecauseCloseNextTrigger) {
+                    if (targetLine.isInterlude) {
+                        // 间奏行不参与补滚动，否则会在间奏淡出后额外触发一次上滚
+                        lastSkippedScrollIndex = -1
+                        closeNextSkipStreak = 0
+                        logAutoScroll("drop current=$currentLineIndex because interlude line should never enqueue补滚动")
+                    } else if (skipBecauseCloseNextTrigger) {
                         // 间隔过短时，明确丢弃当前次触发，避免补滚动把它拉回来
                         lastSkippedScrollIndex = -1
                         logAutoScroll("drop current=$currentLineIndex due close-next window")
@@ -3699,6 +3704,13 @@ fun LyricPreviewScreen(
             // 检查是否有跳过的行需要补滚动
             if (lastSkippedScrollIndex >= 0 && lastSkippedScrollIndex != lastAutoScrolledIndex) {
                 val skippedLineIndex = lastSkippedScrollIndex
+                val skippedLine = processedLyricLines.getOrNull(skippedLineIndex)
+                if (skippedLine?.isInterlude == true) {
+                    // 防御：历史状态里残留的间奏索引直接丢弃
+                    lastSkippedScrollIndex = -1
+                    logAutoScroll("drop stale interlude skipped index=$skippedLineIndex")
+                    return@LaunchedEffect
+                }
                 if (lastAutoScrolledIndex >= 0 && skippedLineIndex < lastAutoScrolledIndex) {
                     logAutoScroll(
                         "drop backward 补滚动 skipped=$skippedLineIndex last=$lastAutoScrolledIndex"
@@ -4569,7 +4581,7 @@ fun LyricPreviewScreen(
                             .width(sidePanelWidth)
                             .fillMaxHeight()
                             .background(
-                                if (landscapeLyricDisplaySelected) {
+                                if (isLargeScreenDevice || landscapeLyricDisplaySelected) {
                                     Color.Transparent
                                 } else {
                                     chromeContainerColor
