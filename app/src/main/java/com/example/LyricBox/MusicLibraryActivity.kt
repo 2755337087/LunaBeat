@@ -3223,7 +3223,27 @@ fun MusicLibraryScreen(
         ) {
             GlobalMiniPlayerBar(
                 controller = playbackController,
-                onExpand = { MusicPlayerActivity.start(context) }
+                onExpand = {
+                    val currentPath = playbackController.currentAudioPath
+                    if (currentPath.isNullOrBlank()) {
+                        MusicPlayerActivity.start(context)
+                    } else {
+                        playbackController.refreshProgress()
+                        LyricPreviewActivity.start(
+                            context = context,
+                            audioPath = currentPath,
+                            lyricLines = emptyList(),
+                            title = playbackController.currentTitle
+                                .ifBlank { File(currentPath).nameWithoutExtension }
+                                .ifBlank { "歌词预览" },
+                            initialPosition = playbackController.positionMs.coerceAtLeast(0L),
+                            sourceAudioPath = currentPath,
+                            mediaStoreId = playbackController.currentMediaStoreId,
+                            useSharedPlayback = true,
+                            useBottomSlideTransition = true
+                        )
+                    }
+                }
             )
         }
     }
