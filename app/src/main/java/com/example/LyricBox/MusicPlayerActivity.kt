@@ -82,6 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.example.LyricBox.utils.AudioMetadataReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -136,7 +137,7 @@ private fun MusicPlayerScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val controller = rememberMusicPlaybackController()
-    var coverThemeColor by remember { mutableStateOf<Color?>(null) }
+    var coverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
     var showArtistSheet by remember { mutableStateOf(false) }
     var pendingAlbum by remember { mutableStateOf("") }
     var pendingArtists by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -212,31 +213,82 @@ private fun MusicPlayerScreen(
         }
     }
 
-    val rawCoverBitmap = remember(controller.currentArtworkData) {
-        val artwork = controller.currentArtworkData
-        if (artwork != null) BitmapFactory.decodeByteArray(artwork, 0, artwork.size) else null
-    }
+    var resolvedCoverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var resolvedCoverKey by remember { mutableStateOf<String?>(null) }
     var displayCoverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var displayThemeColor by remember { mutableStateOf<Color?>(null) }
+    var coverLoadRequestVersion by remember { mutableStateOf(0) }
+    var themeResolveRequestVersion by remember { mutableStateOf(0) }
+    val playerCoverThemeKey = remember(
+        controller.currentMediaStoreId,
+        controller.currentAudioPath
+    ) {
+        buildCoverThemeCacheKey(
+            coverCachePath = null,
+            mediaId = controller.currentMediaStoreId
+                .takeIf { it > 0L }
+                ?.toString(),
+            audioPath = controller.currentAudioPath
+        )
+    }
     val isDarkTheme = colorLuminance(MaterialTheme.colorScheme.background) < 0.5f
+    val coverThemeColor = if (isDarkTheme) coverThemePair?.darkColor else coverThemePair?.lightColor
 
-    LaunchedEffect(rawCoverBitmap, isDarkTheme) {
-        if (rawCoverBitmap == null) return@LaunchedEffect
-        val pendingColor = withContext(Dispatchers.IO) {
-            extractMutedCoverColor(rawCoverBitmap, preferDark = isDarkTheme)
+    LaunchedEffect(
+        playerCoverThemeKey,
+        controller.currentAudioPath,
+        controller.currentMediaStoreId,
+        controller.currentCoverCachePath,
+        controller.currentArtworkData
+    ) {
+        val requestVersion = coverLoadRequestVersion + 1
+        coverLoadRequestVersion = requestVersion
+        val requestKey = playerCoverThemeKey
+        val requestAudioPath = controller.currentAudioPath
+        val requestMediaStoreId = controller.currentMediaStoreId
+        val requestCoverCachePath = controller.currentCoverCachePath
+        val requestArtworkData = controller.currentArtworkData
+        coverThemePair = null
+        resolvedCoverKey = null
+        val loadedCover = withContext(Dispatchers.IO) {
+            loadPlayerCoverBitmap(
+                context = context,
+                audioPath = requestAudioPath,
+                mediaStoreId = requestMediaStoreId,
+                coverCachePath = requestCoverCachePath,
+                artworkData = requestArtworkData
+            )
         }
-        // 封面与主题色同时切换，避免“先糊图后原图”的突兀感。
-        displayCoverBitmap = rawCoverBitmap
-        displayThemeColor = pendingColor
+        if (coverLoadRequestVersion != requestVersion) return@LaunchedEffect
+        resolvedCoverBitmap = loadedCover
+        resolvedCoverKey = requestKey
+        if (loadedCover == null) {
+            displayCoverBitmap = null
+            coverThemePair = null
+            return@LaunchedEffect
+        }
+        displayCoverBitmap = loadedCover
     }
 
-    LaunchedEffect(displayCoverBitmap, isDarkTheme) {
-        coverThemeColor = withContext(Dispatchers.IO) {
-            displayCoverBitmap?.let { extractMutedCoverColor(it, preferDark = isDarkTheme) }
+    LaunchedEffect(resolvedCoverBitmap, resolvedCoverKey, playerCoverThemeKey) {
+        val cover = resolvedCoverBitmap
+        if (resolvedCoverKey != playerCoverThemeKey || cover == null) {
+            coverThemePair = null
+            return@LaunchedEffect
         }
+        val requestVersion = themeResolveRequestVersion + 1
+        themeResolveRequestVersion = requestVersion
+        val pendingPair = withContext(Dispatchers.IO) {
+            resolveCachedCoverThemePair(
+                context = context,
+                cacheKey = playerCoverThemeKey,
+                cover = cover
+            )
+        }
+        if (themeResolveRequestVersion != requestVersion) return@LaunchedEffect
+        coverThemePair = pendingPair
     }
 
-    val targetBackgroundColorRaw = displayThemeColor ?: coverThemeColor ?: MaterialTheme.colorScheme.surface
+    val targetBackgroundColorRaw = coverThemeColor ?: MaterialTheme.colorScheme.surface
     val targetBackgroundColor = normalizeCoverThemeBackground(targetBackgroundColorRaw, isDarkTheme)
     val backgroundColor by animateColorAsState(
         targetValue = targetBackgroundColor,
@@ -252,7 +304,7 @@ private fun MusicPlayerScreen(
         blendColorForUi(backgroundColor, Color.Black, 0.42f)
     }
     val onAccentColor = if (colorLuminance(accentColor) > 0.52f) Color(0xFF101010) else Color.White
-    val controlAccentBase = displayThemeColor ?: coverThemeColor ?: accentColor
+    val controlAccentBase = coverThemeColor ?: accentColor
     val controlAccentColor = if (isDarkTheme) {
         blendColorForUi(controlAccentBase, Color.White, 0.7f)
     } else {
@@ -1116,6 +1168,92 @@ private fun resolveCoverCachePathForAudio(context: Context, audioPath: String): 
     if (audioPath.isBlank()) return null
     val cacheFile = File(File(context.cacheDir, "covers"), "${audioPath.hashCode()}.jpg")
     return cacheFile.absolutePath.takeIf { cacheFile.exists() }
+}
+
+private const val PLAYER_COVER_REQUEST_SIZE_PX = 1200
+
+private fun loadPlayerCoverBitmap(
+    context: Context,
+    audioPath: String?,
+    mediaStoreId: Long,
+    coverCachePath: String?,
+    artworkData: ByteArray?
+): android.graphics.Bitmap? {
+    val sourceCoverBytes = runCatching {
+        val sourcePath = audioPath?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        AudioMetadataReader.readMetadata(
+            context = context,
+            filePath = sourcePath,
+            mediaStoreId = mediaStoreId,
+            includeCover = true
+        ).cover
+    }.getOrNull()
+
+    val fromSourceCover = decodePlayerCoverBitmapFromBytes(
+        sourceCoverBytes,
+        reqWidth = PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = PLAYER_COVER_REQUEST_SIZE_PX
+    )
+    if (fromSourceCover != null) return fromSourceCover
+
+    val fromCache = decodePlayerCoverBitmapFromCache(
+        coverCachePath,
+        reqWidth = PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = PLAYER_COVER_REQUEST_SIZE_PX
+    )
+    if (fromCache != null) return fromCache
+
+    return decodePlayerCoverBitmapFromBytes(
+        artworkData,
+        reqWidth = PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = PLAYER_COVER_REQUEST_SIZE_PX
+    )
+}
+
+private fun decodePlayerCoverBitmapFromCache(
+    cachePath: String?,
+    reqWidth: Int,
+    reqHeight: Int
+): android.graphics.Bitmap? {
+    if (cachePath.isNullOrBlank()) return null
+    val cacheFile = File(cachePath)
+    if (!cacheFile.exists()) return null
+    return decodePlayerCoverBitmapFromBytes(cacheFile.readBytes(), reqWidth, reqHeight)
+}
+
+private fun decodePlayerCoverBitmapFromBytes(
+    bytes: ByteArray?,
+    reqWidth: Int,
+    reqHeight: Int
+): android.graphics.Bitmap? {
+    val rawBytes = bytes ?: return null
+    if (rawBytes.isEmpty()) return null
+
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+    if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+    options.inJustDecodeBounds = false
+    options.inSampleSize = calculatePlayerCoverInSampleSize(options, reqWidth, reqHeight)
+    return BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+}
+
+private fun calculatePlayerCoverInSampleSize(
+    options: BitmapFactory.Options,
+    reqWidth: Int,
+    reqHeight: Int
+): Int {
+    val height = options.outHeight
+    val width = options.outWidth
+    var inSampleSize = 1
+    if (height > reqHeight || width > reqWidth) {
+        var halfHeight = height / 2
+        var halfWidth = width / 2
+        while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
+            inSampleSize *= 2
+        }
+    }
+    return inSampleSize.coerceAtLeast(1)
 }
 
 private fun formatPlaybackTime(ms: Long): String {

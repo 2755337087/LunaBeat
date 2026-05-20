@@ -9,6 +9,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,18 +40,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.MusicPlaybackController
-import com.example.LyricBox.blendColorForUi
+import com.example.LyricBox.buildCoverThemeCacheKey
 import com.example.LyricBox.colorLuminance
-import com.example.LyricBox.extractMutedCoverColor
+import com.example.LyricBox.CoverThemeColorPair
 import com.example.LyricBox.normalizeCoverThemeBackground
+import com.example.LyricBox.resolveCachedCoverThemePair
+import com.example.LyricBox.utils.AudioMetadataReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -59,68 +66,143 @@ import java.io.File
 fun GlobalMiniPlayerBar(
     controller: MusicPlaybackController,
     onExpand: () -> Unit,
+    onExpandTouchDown: (() -> Unit)? = null,
+    expandProgress: Float = 0f,
+    onExpandDragDelta: ((Float) -> Unit)? = null,
+    onExpandDragEnd: (() -> Unit)? = null,
+    onExpandDragCancel: (() -> Unit)? = null,
+    sharedCoverId: String = "music_cover",
+    coverAlpha: Float = 1f,
+    onBarBoundsChanged: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
+    onCoverBoundsChanged: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
+    onCoverBitmapChanged: ((Bitmap?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var coverThemeColor by remember { mutableStateOf<Color?>(null) }
+    var coverBitmapKey by remember { mutableStateOf<String?>(null) }
+    var coverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
+    var displayedCoverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
+    var coverLoadRequestVersion by remember { mutableStateOf(0) }
+    var themeResolveRequestVersion by remember { mutableStateOf(0) }
     var dragOffsetY by remember { mutableStateOf(0f) }
     val isDarkTheme = colorLuminance(MaterialTheme.colorScheme.background) < 0.5f
-    val coverThemeCacheKey = remember(controller.currentCoverCachePath, controller.currentMediaId) {
-        buildMiniPlayerColorCacheKey(controller.currentCoverCachePath, controller.currentMediaId)
+    val coverThemeCacheKey = remember(
+        controller.currentMediaStoreId,
+        controller.currentAudioPath
+    ) {
+        buildCoverThemeCacheKey(
+            coverCachePath = null,
+            mediaId = controller.currentMediaStoreId
+                .takeIf { it > 0L }
+                ?.toString(),
+            audioPath = controller.currentAudioPath
+        )
     }
 
-    LaunchedEffect(controller.currentCoverCachePath, controller.currentArtworkData) {
-        coverBitmap = withContext(Dispatchers.IO) {
-            decodeCoverBitmapFromCache(controller.currentCoverCachePath, reqWidth = 112, reqHeight = 112)
-                ?: decodeCoverBitmapFromBytes(controller.currentArtworkData, reqWidth = 112, reqHeight = 112)
+    LaunchedEffect(
+        controller.currentMediaId,
+        controller.currentAudioPath,
+        controller.currentMediaStoreId,
+        controller.currentArtworkData,
+        controller.currentCoverCachePath
+    ) {
+        val requestVersion = coverLoadRequestVersion + 1
+        coverLoadRequestVersion = requestVersion
+        val requestKey = coverThemeCacheKey
+        val requestAudioPath = controller.currentAudioPath
+        val requestMediaStoreId = controller.currentMediaStoreId
+        val requestArtworkData = controller.currentArtworkData
+        val requestCoverCachePath = controller.currentCoverCachePath
+        coverBitmapKey = null
+        val loadedCover = withContext(Dispatchers.IO) {
+            loadMiniPlayerCoverBitmap(
+                context = context,
+                audioPath = requestAudioPath,
+                mediaStoreId = requestMediaStoreId,
+                artworkData = requestArtworkData,
+                coverCachePath = requestCoverCachePath
+            )
+        }
+        if (coverLoadRequestVersion != requestVersion) return@LaunchedEffect
+        coverBitmap = loadedCover
+        coverBitmapKey = requestKey
+    }
+    LaunchedEffect(coverBitmap) {
+        onCoverBitmapChanged?.invoke(coverBitmap)
+    }
+    LaunchedEffect(coverThemeCacheKey, coverBitmap) {
+        if (coverBitmapKey != coverThemeCacheKey || coverBitmap == null) {
+            return@LaunchedEffect
+        }
+        val requestVersion = themeResolveRequestVersion + 1
+        themeResolveRequestVersion = requestVersion
+        val resolvedPair = withContext(Dispatchers.IO) {
+            resolveCachedCoverThemePair(
+                context = context,
+                cacheKey = coverThemeCacheKey,
+                cover = coverBitmap
+            )
+        }
+        if (themeResolveRequestVersion != requestVersion) return@LaunchedEffect
+        coverThemePair = resolvedPair
+        if (resolvedPair != null) {
+            displayedCoverThemePair = resolvedPair
+        } else if (displayedCoverThemePair == null) {
+            displayedCoverThemePair = null
         }
     }
-    LaunchedEffect(coverThemeCacheKey) {
-        coverThemeColor = readMiniPlayerThemeColorCache(context, coverThemeCacheKey)
-    }
-    LaunchedEffect(coverBitmap, isDarkTheme, coverThemeCacheKey) {
-        val computedColor = withContext(Dispatchers.IO) {
-            coverBitmap?.let { extractMutedCoverColor(it, preferDark = isDarkTheme) }
-        }
-        if (computedColor != null) {
-            coverThemeColor = computedColor
-            writeMiniPlayerThemeColorCache(context, coverThemeCacheKey, computedColor)
-        }
-    }
+    val coverThemeColor = if (isDarkTheme) displayedCoverThemePair?.darkColor else displayedCoverThemePair?.lightColor
 
-    val fallbackColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.96f)
-    val rawColor = coverThemeColor ?: fallbackColor
-    val normalizedColor = normalizeCoverThemeBackground(rawColor, isDarkTheme)
-    val targetPanelColor = blendColorForUi(
-        normalizedColor,
-        if (isDarkTheme) Color.Black else Color.White,
-        if (isDarkTheme) 0.12f else 0.12f
-    )
+    val rawColor = coverThemeColor ?: MaterialTheme.colorScheme.background
+    val targetPanelColor = normalizeCoverThemeBackground(rawColor, isDarkTheme)
     val panelColor by animateColorAsState(
         targetValue = targetPanelColor,
         animationSpec = tween(durationMillis = 360),
         label = "globalMiniPlayerPanelColor"
     )
     val onPanelColor = if (colorLuminance(panelColor) > 0.52f) Color(0xFF151515) else Color.White
+    val normalizedExpandProgress = expandProgress.coerceIn(0f, 1f)
+    val coverScale = 1f + (1.9f - 1f) * normalizedExpandProgress
+    val coverCornerRadius = lerp(12.dp, 4.dp, normalizedExpandProgress)
+    val miniContentAlpha = (1f - normalizedExpandProgress).coerceIn(0f, 1f)
+    val normalizedCoverAlpha = coverAlpha.coerceIn(0f, 1f)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(panelColor)
+            .onGloballyPositioned { coordinates ->
+                onBarBoundsChanged?.invoke(coordinates.boundsInRoot())
+            }
+            .pointerInput(controller.currentMediaId) {
+                detectTapGestures(
+                    onPress = {
+                        onExpandTouchDown?.invoke()
+                        tryAwaitRelease()
+                    }
+                )
+            }
             .pointerInput(controller.currentMediaId) {
                 detectDragGestures(
                     onDragEnd = {
-                        if (dragOffsetY < -56f) {
+                        val handledByParent = onExpandDragEnd != null
+                        if (handledByParent) {
+                            onExpandDragEnd?.invoke()
+                        } else if (dragOffsetY < -56f) {
                             onExpand()
                         }
                         dragOffsetY = 0f
                     },
-                    onDragCancel = { dragOffsetY = 0f }
+                    onDragCancel = {
+                        onExpandDragCancel?.invoke()
+                        dragOffsetY = 0f
+                    }
                 ) { change, dragAmount ->
                     change.consume()
                     dragOffsetY += dragAmount.y
+                    onExpandDragDelta?.invoke(dragAmount.y)
                 }
             }
             .clickable { onExpand() }
@@ -133,21 +215,42 @@ fun GlobalMiniPlayerBar(
                 contentDescription = "当前歌曲封面",
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(coverCornerRadius))
+                    .testTag(sharedCoverId)
+                    .onGloballyPositioned { coordinates ->
+                        onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                    }
+                    .graphicsLayer {
+                        scaleX = coverScale
+                        scaleY = coverScale
+                        alpha = normalizedCoverAlpha
+                    }
             )
         } else {
             Icon(
                 painter = painterResource(id = android.R.drawable.ic_media_play),
                 contentDescription = null,
                 tint = onPanelColor,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier
+                    .size(44.dp)
+                    .testTag(sharedCoverId)
+                    .onGloballyPositioned { coordinates ->
+                        onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                    }
+                    .graphicsLayer {
+                        scaleX = coverScale
+                        scaleY = coverScale
+                        alpha = normalizedCoverAlpha
+                    }
             )
         }
 
         Spacer(modifier = Modifier.width(12.dp))
 
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .graphicsLayer(alpha = miniContentAlpha),
             verticalArrangement = Arrangement.Center
         ) {
             Text(
@@ -170,7 +273,9 @@ fun GlobalMiniPlayerBar(
 
         IconButton(
             onClick = { controller.skipToPrevious() },
-            modifier = Modifier.size(40.dp)
+            modifier = Modifier
+                .size(40.dp)
+                .graphicsLayer(alpha = miniContentAlpha)
         ) {
             Icon(
                 imageVector = Icons.Rounded.SkipPrevious,
@@ -181,7 +286,9 @@ fun GlobalMiniPlayerBar(
         }
         IconButton(
             onClick = { controller.togglePlayPause() },
-            modifier = Modifier.size(42.dp)
+            modifier = Modifier
+                .size(42.dp)
+                .graphicsLayer(alpha = miniContentAlpha)
         ) {
             Icon(
                 imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -192,7 +299,9 @@ fun GlobalMiniPlayerBar(
         }
         IconButton(
             onClick = { controller.skipToNext() },
-            modifier = Modifier.size(40.dp)
+            modifier = Modifier
+                .size(40.dp)
+                .graphicsLayer(alpha = miniContentAlpha)
         ) {
             Icon(
                 imageVector = Icons.Rounded.SkipNext,
@@ -231,6 +340,46 @@ private fun decodeCoverBitmapFromBytes(bytes: ByteArray?, reqWidth: Int, reqHeig
     return BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
 }
 
+private const val MINI_PLAYER_COVER_REQUEST_SIZE_PX = 1024
+
+private fun loadMiniPlayerCoverBitmap(
+    context: Context,
+    audioPath: String?,
+    mediaStoreId: Long,
+    artworkData: ByteArray?,
+    coverCachePath: String?
+): Bitmap? {
+    val sourceCoverBytes = runCatching {
+        val sourcePath = audioPath?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        AudioMetadataReader.readMetadata(
+            context = context,
+            filePath = sourcePath,
+            mediaStoreId = mediaStoreId,
+            includeCover = true
+        ).cover
+    }.getOrNull()
+
+    val fromSourceCover = decodeCoverBitmapFromBytes(
+        sourceCoverBytes,
+        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
+    )
+    if (fromSourceCover != null) return fromSourceCover
+
+    val fromCache = decodeCoverBitmapFromCache(
+        coverCachePath,
+        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
+    )
+    if (fromCache != null) return fromCache
+
+    return decodeCoverBitmapFromBytes(
+        artworkData,
+        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
+    )
+}
+
 private fun calculateInSampleSize(
     options: BitmapFactory.Options,
     reqWidth: Int,
@@ -247,27 +396,4 @@ private fun calculateInSampleSize(
         }
     }
     return inSampleSize.coerceAtLeast(1)
-}
-
-private const val MINI_PLAYER_THEME_PREFS = "MiniPlayerThemeCache"
-private const val MINI_PLAYER_THEME_PREFIX = "cover_theme_"
-
-private fun buildMiniPlayerColorCacheKey(coverCachePath: String?, mediaId: String?): String {
-    return when {
-        !coverCachePath.isNullOrBlank() -> "coverPath:$coverCachePath"
-        !mediaId.isNullOrBlank() -> "mediaId:$mediaId"
-        else -> "default"
-    }
-}
-
-private fun readMiniPlayerThemeColorCache(context: Context, key: String): Color? {
-    val prefs = context.getSharedPreferences(MINI_PLAYER_THEME_PREFS, Context.MODE_PRIVATE)
-    if (!prefs.contains(MINI_PLAYER_THEME_PREFIX + key)) return null
-    val argb = prefs.getInt(MINI_PLAYER_THEME_PREFIX + key, 0)
-    return Color(argb)
-}
-
-private fun writeMiniPlayerThemeColorCache(context: Context, key: String, color: Color) {
-    val prefs = context.getSharedPreferences(MINI_PLAYER_THEME_PREFS, Context.MODE_PRIVATE)
-    prefs.edit().putInt(MINI_PLAYER_THEME_PREFIX + key, color.toArgb()).apply()
 }

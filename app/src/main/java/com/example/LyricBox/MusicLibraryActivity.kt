@@ -28,7 +28,9 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -141,6 +143,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -153,6 +156,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -869,10 +873,12 @@ class MusicLibraryActivity : ComponentActivity() {
     private var _refreshMetadataPath by mutableStateOf<String?>(null)
     private var initialSearchQueryState by mutableStateOf("")
     private var initialSearchRequestState by mutableIntStateOf(0)
+    private var inlinePreviewRequestState by mutableIntStateOf(0)
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
         const val EXTRA_INITIAL_SEARCH_QUERY = "initial_search_query"
+        const val EXTRA_OPEN_INLINE_PREVIEW = "open_inline_preview"
         const val REQUEST_CODE_EDIT_METADATA = 200
         
         private val coverCache = LruCache<String, Bitmap>(50).apply {
@@ -953,6 +959,9 @@ class MusicLibraryActivity : ComponentActivity() {
         initialSearchQueryState = intent.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
         if (initialSearchQueryState.isNotBlank()) {
             initialSearchRequestState += 1
+        }
+        if (intent.getBooleanExtra(EXTRA_OPEN_INLINE_PREVIEW, false)) {
+            inlinePreviewRequestState += 1
         }
         val hasSetup = prefs.getBoolean("hasSetup", false)
         
@@ -1035,6 +1044,7 @@ class MusicLibraryActivity : ComponentActivity() {
                         MusicLibraryScreen(
                             initialSearchQuery = initialSearchQueryState,
                             initialSearchRequestVersion = initialSearchRequestState,
+                            initialInlinePreviewRequestVersion = inlinePreviewRequestState,
                             onBack = { finish() },
                             onOpenSettings = {
                                 startActivityForResult(Intent(this, MusicLibrarySettingsActivity::class.java), 100)
@@ -1106,6 +1116,9 @@ class MusicLibraryActivity : ComponentActivity() {
                 val incomingSearch = it.getStringExtra(EXTRA_INITIAL_SEARCH_QUERY).orEmpty()
                 initialSearchQueryState = incomingSearch
                 initialSearchRequestState += 1
+            }
+            if (it.getBooleanExtra(EXTRA_OPEN_INLINE_PREVIEW, false)) {
+                inlinePreviewRequestState += 1
             }
             val externalPath = handleExternalIntent(it)
             if (externalPath != null) {
@@ -1680,6 +1693,7 @@ private fun currentDateToken(): String {
 fun MusicLibraryScreen(
     initialSearchQuery: String = "",
     initialSearchRequestVersion: Int = 0,
+    initialInlinePreviewRequestVersion: Int = 0,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditMetadata: (String) -> Unit,
@@ -1689,6 +1703,9 @@ fun MusicLibraryScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val searchFocusRequester = remember { FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val lyricPreviewPrefs = remember {
+        context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE)
+    }
     var songClickAction by remember {
         mutableStateOf(prefs.getString("songClickAction", "") ?: "")
     }
@@ -1704,6 +1721,28 @@ fun MusicLibraryScreen(
     val currentPlayingAudioPath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
     val canLocatePlayingSong = currentPlayingAudioPath != null
     val miniPlayerHeight = 72.dp
+    var miniPlayerExpandProgress by rememberSaveable { mutableStateOf(0f) }
+    var miniPlayerSettleJob by remember { mutableStateOf<Job?>(null) }
+    var miniPlayerLastDragDeltaY by remember { mutableStateOf(0f) }
+    var lastAppliedInlinePreviewRequest by remember { mutableIntStateOf(0) }
+    var showInlineLyricPreview by rememberSaveable { mutableStateOf(false) }
+    var inlineLyricDisplaySelected by rememberSaveable {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_LYRIC_DISPLAY_SELECTED,
+                LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_SELECTED
+            )
+        )
+    }
+    var inlineLyricDisplayResetToken by rememberSaveable { mutableStateOf(0) }
+    var lyricPreviewLines by remember { mutableStateOf<List<NewPreviewLyricLine>>(emptyList()) }
+    var lyricPreviewCreators by remember { mutableStateOf<List<String>>(emptyList()) }
+    var lyricPreviewLoading by remember { mutableStateOf(false) }
+    var lyricPreviewLoadedPath by remember { mutableStateOf<String?>(null) }
+    var miniPlayerCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var miniBarBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var miniBarBaseTop by remember { mutableStateOf<Float?>(null) }
+    val sharedCoverId = "music_cover"
     
     val allAudioFiles = remember { mutableStateListOf<AudioFile>() }
     val displayAudioFiles = remember { mutableStateListOf<AudioFile>() }
@@ -2037,7 +2076,153 @@ fun MusicLibraryScreen(
         }
     }
 
-    BackHandler(enabled = showSearchHistoryPopup || searchQuery.isNotBlank() || isMultiSelectMode) {
+    val screenConfig = LocalConfiguration.current
+    val inlinePreviewTransitionOffsetPx = with(density) {
+        screenConfig.screenHeightDp.dp.toPx().coerceAtLeast(1f)
+    }
+    val previewOpacityRampDistancePx = with(density) { 50.dp.toPx().coerceAtLeast(1f) }
+    val autoExpandTriggerDistancePx = with(density) {
+        (screenConfig.screenHeightDp.dp.toPx() * 0.15f).coerceAtLeast(1f)
+    }
+    val previewTopDragHandleHeightPx = with(density) { 132.dp.toPx() }
+    val previewScreenHeightPx = with(density) { screenConfig.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
+    val isInlinePreviewLandscape =
+        screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isInlinePreviewLargeScreen =
+        screenConfig.smallestScreenWidthDp >= 600 || screenConfig.screenWidthDp >= 900
+    val portraitExpandedDragMaxY = previewScreenHeightPx * 0.72f
+    val landscapeLargeScreenDragMaxY = previewScreenHeightPx * 0.72f
+
+    fun resolveMiniPlayerTravelDistancePx(): Float {
+        return (miniBarBaseTop ?: miniBarBounds?.top ?: inlinePreviewTransitionOffsetPx)
+            .coerceAtLeast(1f)
+    }
+
+    fun resolvePreviewOpacity(progress: Float): Float {
+        val clampedProgress = progress.coerceIn(0f, 1f)
+        val movedDistancePx = clampedProgress * resolveMiniPlayerTravelDistancePx()
+        return (movedDistancePx / previewOpacityRampDistancePx).coerceIn(0f, 1f)
+    }
+
+    fun animateMiniPlayerProgressTo(
+        target: Float,
+        durationMillis: Int = 280,
+        useLinearEasing: Boolean = false
+    ) {
+        val resolvedTarget = target.coerceIn(0f, 1f)
+        val settledEasing = if (useLinearEasing) LinearEasing else FastOutSlowInEasing
+        miniPlayerSettleJob?.cancel()
+        miniPlayerSettleJob = scope.launch {
+            val startValue = miniPlayerExpandProgress
+            animate(
+                initialValue = startValue,
+                targetValue = resolvedTarget,
+                animationSpec = tween(durationMillis = durationMillis, easing = settledEasing)
+            ) { value, _ ->
+                miniPlayerExpandProgress = value
+            }
+            if (resolvedTarget <= 0f) {
+                showInlineLyricPreview = false
+            } else {
+                showInlineLyricPreview = true
+            }
+            miniPlayerSettleJob = null
+        }
+    }
+
+    fun persistInlineLyricDisplaySelected(selected: Boolean) {
+        inlineLyricDisplaySelected = selected
+        lyricPreviewPrefs.edit()
+            .putBoolean(LyricPreviewActivity.KEY_LYRIC_DISPLAY_SELECTED, selected)
+            .commit()
+    }
+
+    fun settleMiniPlayerExpandState() {
+        val travelDistancePx = resolveMiniPlayerTravelDistancePx()
+        val movedDistancePx = miniPlayerExpandProgress * travelDistancePx
+        val collapsedDistancePx = (travelDistancePx - movedDistancePx).coerceAtLeast(0f)
+        val settleToExpanded = when {
+            miniPlayerLastDragDeltaY < -0.5f -> movedDistancePx >= autoExpandTriggerDistancePx
+            miniPlayerLastDragDeltaY > 0.5f -> collapsedDistancePx < autoExpandTriggerDistancePx
+            else -> miniPlayerExpandProgress >= 0.5f
+        }
+        miniPlayerLastDragDeltaY = 0f
+        if (settleToExpanded) {
+            showInlineLyricPreview = true
+            animateMiniPlayerProgressTo(1f, durationMillis = 260)
+        } else {
+            persistInlineLyricDisplaySelected(inlineLyricDisplaySelected)
+            animateMiniPlayerProgressTo(0f, durationMillis = 220)
+        }
+    }
+
+    val refreshInlineLyricDisplaySelectedFromPrefs: () -> Unit = {
+        inlineLyricDisplaySelected = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_LYRIC_DISPLAY_SELECTED,
+            LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_SELECTED
+        )
+    }
+
+    fun openInlineLyricPreview() {
+        miniPlayerSettleJob?.cancel()
+        refreshInlineLyricDisplaySelectedFromPrefs()
+        inlineLyricDisplayResetToken = 0
+        showInlineLyricPreview = true
+        miniBarBaseTop = miniBarBounds?.top ?: miniBarBaseTop
+        miniPlayerExpandProgress = 0f
+        miniPlayerLastDragDeltaY = -1f
+        animateMiniPlayerProgressTo(
+            target = 1f,
+            durationMillis = 340,
+            useLinearEasing = true
+        )
+    }
+
+    fun closeInlineLyricPreview() {
+        persistInlineLyricDisplaySelected(inlineLyricDisplaySelected)
+        inlineLyricDisplayResetToken = 0
+        animateMiniPlayerProgressTo(0f)
+    }
+
+    fun updateMiniPlayerDragProgress(deltaY: Float) {
+        miniPlayerSettleJob?.cancel()
+        showInlineLyricPreview = true
+        miniPlayerLastDragDeltaY = deltaY
+        val dragDistancePx = resolveMiniPlayerTravelDistancePx()
+        val updated = miniPlayerExpandProgress + (-deltaY / dragDistancePx)
+        miniPlayerExpandProgress = updated.coerceIn(0f, 1f)
+    }
+
+    LaunchedEffect(
+        initialInlinePreviewRequestVersion,
+        miniPlayerVisible,
+        miniPlayerReady,
+        playbackController.currentMediaId
+    ) {
+        if (initialInlinePreviewRequestVersion <= lastAppliedInlinePreviewRequest) return@LaunchedEffect
+        if (!miniPlayerVisible || !miniPlayerReady || playbackController.currentAudioPath.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
+        playbackController.refreshProgress()
+        openInlineLyricPreview()
+        lastAppliedInlinePreviewRequest = initialInlinePreviewRequestVersion
+    }
+
+    BackHandler(
+        enabled = miniPlayerExpandProgress > 0f ||
+            showSearchHistoryPopup ||
+            searchQuery.isNotBlank() ||
+            isMultiSelectMode
+    ) {
+        if (miniPlayerExpandProgress > 0f) {
+            if (inlineLyricDisplaySelected) {
+                persistInlineLyricDisplaySelected(false)
+                inlineLyricDisplayResetToken += 1
+            } else {
+                closeInlineLyricPreview()
+            }
+            return@BackHandler
+        }
         if (showSearchHistoryPopup) {
             showSearchHistoryPopup = false
             return@BackHandler
@@ -2073,6 +2258,37 @@ fun MusicLibraryScreen(
         appendRecentSearchHistory(prefs, updatedHistory, normalized)
         recentSearchHistory = updatedHistory
         searchQueryApplied = normalized
+    }
+
+    LaunchedEffect(currentPlayingAudioPath, playbackController.currentMediaStoreId) {
+        val audioPath = currentPlayingAudioPath
+        if (audioPath.isNullOrBlank()) {
+            lyricPreviewLines = emptyList()
+            lyricPreviewCreators = emptyList()
+            lyricPreviewLoading = false
+            lyricPreviewLoadedPath = null
+            miniPlayerCoverBitmap = null
+            miniPlayerExpandProgress = 0f
+            showInlineLyricPreview = false
+            inlineLyricDisplayResetToken = 0
+            return@LaunchedEffect
+        }
+
+        if (lyricPreviewLoadedPath == audioPath) return@LaunchedEffect
+
+        lyricPreviewLoading = true
+        val resolvedMediaStoreId = playbackController.currentMediaStoreId
+        val payload = withContext(Dispatchers.IO) {
+            buildPlayerLyricPreviewPayload(
+                context = context,
+                audioPath = audioPath,
+                mediaStoreId = resolvedMediaStoreId
+            )
+        }
+        lyricPreviewLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
+        lyricPreviewCreators = payload?.creators ?: emptyList()
+        lyricPreviewLoadedPath = audioPath
+        lyricPreviewLoading = false
     }
 
     LaunchedEffect(Unit) {
@@ -3221,30 +3437,193 @@ fun MusicLibraryScreen(
             enter = fadeIn(animationSpec = tween(220)),
             exit = fadeOut(animationSpec = tween(180))
         ) {
+            val miniPlayerTravelDistancePx = resolveMiniPlayerTravelDistancePx()
+            val miniPlayerTranslateY = -miniPlayerExpandProgress * miniPlayerTravelDistancePx
+            val miniPlayerAlpha = (1f - miniPlayerExpandProgress * 0.9f).coerceIn(0f, 1f)
             GlobalMiniPlayerBar(
                 controller = playbackController,
+                onExpandTouchDown = {
+                    val currentPath = playbackController.currentAudioPath
+                    if (currentPath.isNullOrBlank()) return@GlobalMiniPlayerBar
+                    refreshInlineLyricDisplaySelectedFromPrefs()
+                    miniBarBaseTop = miniBarBounds?.top ?: miniBarBaseTop
+                    if (!showInlineLyricPreview) {
+                        showInlineLyricPreview = true
+                    }
+                },
+                expandProgress = miniPlayerExpandProgress,
+                sharedCoverId = sharedCoverId,
+                coverAlpha = 1f,
+                onBarBoundsChanged = { bounds ->
+                    miniBarBounds = bounds
+                    if (miniPlayerExpandProgress <= 0.01f || miniBarBaseTop == null) {
+                        miniBarBaseTop = bounds.top
+                    }
+                },
+                onCoverBitmapChanged = { bitmap ->
+                    miniPlayerCoverBitmap = bitmap
+                },
+                onExpandDragDelta = { deltaY ->
+                    val currentPath = playbackController.currentAudioPath
+                    if (currentPath.isNullOrBlank()) return@GlobalMiniPlayerBar
+                    if (deltaY <= 0f || miniPlayerExpandProgress > 0f) {
+                        updateMiniPlayerDragProgress(deltaY)
+                    }
+                },
+                onExpandDragEnd = {
+                    if (playbackController.currentAudioPath.isNullOrBlank()) {
+                        miniPlayerExpandProgress = 0f
+                        showInlineLyricPreview = false
+                    } else {
+                        settleMiniPlayerExpandState()
+                    }
+                },
+                onExpandDragCancel = {
+                    if (playbackController.currentAudioPath.isNullOrBlank()) {
+                        miniPlayerExpandProgress = 0f
+                        showInlineLyricPreview = false
+                    } else {
+                        settleMiniPlayerExpandState()
+                    }
+                },
                 onExpand = {
                     val currentPath = playbackController.currentAudioPath
                     if (currentPath.isNullOrBlank()) {
                         MusicPlayerActivity.start(context)
                     } else {
                         playbackController.refreshProgress()
-                        LyricPreviewActivity.start(
-                            context = context,
-                            audioPath = currentPath,
-                            lyricLines = emptyList(),
-                            title = playbackController.currentTitle
-                                .ifBlank { File(currentPath).nameWithoutExtension }
-                                .ifBlank { "歌词预览" },
-                            initialPosition = playbackController.positionMs.coerceAtLeast(0L),
-                            sourceAudioPath = currentPath,
-                            mediaStoreId = playbackController.currentMediaStoreId,
-                            useSharedPlayback = true,
-                            useBottomSlideTransition = true
-                        )
+                        openInlineLyricPreview()
                     }
-                }
+                },
+                modifier = Modifier
+                    .offset { IntOffset(0, miniPlayerTranslateY.toInt()) }
+                    .graphicsLayer { alpha = miniPlayerAlpha }
             )
+        }
+
+        if (showInlineLyricPreview || miniPlayerExpandProgress > 0f) {
+            val miniPlayerTravelDistancePx = resolveMiniPlayerTravelDistancePx()
+            val previewTranslateY = miniPlayerTravelDistancePx * (1f - miniPlayerExpandProgress)
+            val previewOpacity = resolvePreviewOpacity(miniPlayerExpandProgress)
+            val currentPath = playbackController.currentAudioPath.orEmpty()
+            val currentTitle = playbackController.currentTitle
+                .ifBlank { File(currentPath).nameWithoutExtension }
+                .ifBlank { "歌词预览" }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(
+                            playbackController.currentMediaId,
+                            showInlineLyricPreview,
+                            inlineLyricDisplaySelected,
+                            screenConfig.orientation,
+                            screenConfig.screenWidthDp,
+                            screenConfig.screenHeightDp,
+                            screenConfig.smallestScreenWidthDp
+                        ) {
+                            var handleTopDrag = false
+                            detectDragGestures(
+                                onDragStart = { startOffset ->
+                                    val canStartDrag = when {
+                                        isInlinePreviewLandscape -> {
+                                            val inLeftPane = startOffset.x <= (size.width / 2f)
+                                            if (!inLeftPane) {
+                                                false
+                                            } else if (isInlinePreviewLargeScreen) {
+                                                startOffset.y <= landscapeLargeScreenDragMaxY
+                                            } else {
+                                                true
+                                            }
+                                        }
+                                        !inlineLyricDisplaySelected -> {
+                                            startOffset.y <= portraitExpandedDragMaxY
+                                        }
+                                        else -> {
+                                            startOffset.y <= previewTopDragHandleHeightPx
+                                        }
+                                    }
+                                    handleTopDrag = miniPlayerExpandProgress > 0f && canStartDrag
+                                },
+                                onDragEnd = {
+                                    if (handleTopDrag) {
+                                        settleMiniPlayerExpandState()
+                                    }
+                                    handleTopDrag = false
+                                },
+                                onDragCancel = {
+                                    if (handleTopDrag) {
+                                        settleMiniPlayerExpandState()
+                                    }
+                                    handleTopDrag = false
+                                }
+                            ) { change, dragAmount ->
+                                if (!handleTopDrag) return@detectDragGestures
+                                if (dragAmount.y > 0f || miniPlayerExpandProgress < 1f) {
+                                    change.consume()
+                                    updateMiniPlayerDragProgress(dragAmount.y)
+                                }
+                            }
+                        }
+                        .graphicsLayer {
+                            translationY = previewTranslateY
+                            alpha = previewOpacity
+                        }
+                ) {
+                    LyricPreviewScreen(
+                        title = currentTitle,
+                        audioPath = currentPath,
+                        sourceAudioPath = currentPath,
+                        sourceMediaStoreId = playbackController.currentMediaStoreId,
+                        initialCoverBitmap = miniPlayerCoverBitmap,
+                        initialArtistText = playbackController.currentArtist.ifBlank { "未知艺术家" },
+                        lyricLines = lyricPreviewLines,
+                        isLyricLoading = lyricPreviewLoading,
+                        applyInitialSeek = false,
+                        creators = lyricPreviewCreators,
+                        audioDuration = playbackController.durationMs.coerceAtLeast(0L),
+                        initialPosition = playbackController.positionMs.coerceAtLeast(0L),
+                        initialIsPlaying = playbackController.isPlaying,
+                        onBack = { closeInlineLyricPreview() },
+                        onPlayPause = { playing ->
+                            if (playing) {
+                                playbackController.play()
+                            } else {
+                                playbackController.pause()
+                            }
+                        },
+                        onSkipPreviousTrack = { playbackController.skipToPrevious() },
+                        onSkipNextTrack = { playbackController.skipToNext() },
+                        canSkipNextTrack = playbackController.isReady &&
+                            playbackController.mediaCount > 0 &&
+                            playbackController.currentIndex >= 0,
+                        onSeekTo = { position -> playbackController.seekTo(position) },
+                        getCurrentPosition = {
+                            playbackController.refreshProgress()
+                            playbackController.positionMs
+                        },
+                        getIsPlayingState = { playbackController.isPlaying },
+                        getAudioDuration = {
+                            playbackController.refreshProgress()
+                            playbackController.durationMs.coerceAtLeast(0L)
+                        },
+                        playbackController = playbackController,
+                        lyricDisplayResetToken = inlineLyricDisplayResetToken,
+                        initialLyricDisplaySelected = inlineLyricDisplaySelected,
+                        onLyricDisplaySelectedChanged = { selected ->
+                            persistInlineLyricDisplaySelected(selected)
+                        },
+                        showChrome = true,
+                        enableBackHandler = false,
+                        sharedCoverId = sharedCoverId,
+                        showCoverContent = true,
+                        onPrimaryCoverBoundsChanged = null
+                    )
+                }
+            }
         }
     }
     
@@ -4204,23 +4583,64 @@ private fun MusicLibraryMiniPlayerBar(
     controller: MusicPlaybackController,
     onExpand: () -> Unit
 ) {
+    val context = LocalContext.current
     var coverBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var coverPanelColor by remember { mutableStateOf<Color?>(null) }
+    var coverBitmapKey by remember { mutableStateOf<String?>(null) }
+    var coverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
+    var coverLoadRequestVersion by remember { mutableStateOf(0) }
+    var themeResolveRequestVersion by remember { mutableStateOf(0) }
     var dragOffsetY by remember { mutableStateOf(0f) }
     val isDarkTheme = colorLuminance(MaterialTheme.colorScheme.background) < 0.5f
+    val coverThemeCacheKey = remember(
+        controller.currentMediaStoreId,
+        controller.currentAudioPath
+    ) {
+        buildCoverThemeCacheKey(
+            coverCachePath = null,
+            mediaId = controller.currentMediaStoreId
+                .takeIf { it > 0L }
+                ?.toString(),
+            audioPath = controller.currentAudioPath
+        )
+    }
 
-    LaunchedEffect(controller.currentCoverCachePath) {
-        coverBitmap = withContext(Dispatchers.IO) {
+    LaunchedEffect(
+        controller.currentCoverCachePath,
+        controller.currentAudioPath,
+        controller.currentMediaStoreId
+    ) {
+        val requestVersion = coverLoadRequestVersion + 1
+        coverLoadRequestVersion = requestVersion
+        val requestKey = coverThemeCacheKey
+        coverThemePair = null
+        coverBitmapKey = null
+        val loadedCover = withContext(Dispatchers.IO) {
             controller.currentCoverCachePath
                 ?.takeIf { File(it).exists() }
                 ?.let { loadCoverBitmapFromCache(it, 112, 112) }
         }
+        if (coverLoadRequestVersion != requestVersion) return@LaunchedEffect
+        coverBitmap = loadedCover
+        coverBitmapKey = requestKey
     }
-    LaunchedEffect(coverBitmap, isDarkTheme) {
-        coverPanelColor = withContext(Dispatchers.IO) {
-            coverBitmap?.let { extractMutedCoverColor(it, preferDark = isDarkTheme) }
+    LaunchedEffect(coverThemeCacheKey, coverBitmap) {
+        if (coverBitmapKey != coverThemeCacheKey || coverBitmap == null) {
+            coverThemePair = null
+            return@LaunchedEffect
         }
+        val requestVersion = themeResolveRequestVersion + 1
+        themeResolveRequestVersion = requestVersion
+        val resolvedPair = withContext(Dispatchers.IO) {
+            resolveCachedCoverThemePair(
+                context = context,
+                cacheKey = coverThemeCacheKey,
+                cover = coverBitmap
+            )
+        }
+        if (themeResolveRequestVersion != requestVersion) return@LaunchedEffect
+        coverThemePair = resolvedPair
     }
+    val coverPanelColor = if (isDarkTheme) coverThemePair?.darkColor else coverThemePair?.lightColor
 
     val baseColor = coverPanelColor
         ?.let { blendColorForUi(it, if (isDarkTheme) Color.Black else Color.White, if (isDarkTheme) 0.12f else 0.16f) }
