@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -193,6 +194,19 @@ fun SettingsScreen(
     }
     val supportsLyricBlur = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
     val supportsDynamicCoverBackground = supportsLyricBlur
+    fun normalizePageBackgroundMode(mode: Int): Int {
+        val normalized = when (mode) {
+            LyricPreviewActivity.PAGE_BACKGROUND_SOLID,
+            LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR,
+            LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW -> mode
+            else -> LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
+        }
+        return if (!supportsDynamicCoverBackground && normalized == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW) {
+            LyricPreviewActivity.PAGE_BACKGROUND_SOLID
+        } else {
+            normalized
+        }
+    }
     
     val savedDarkModeType = remember {
         try {
@@ -302,13 +316,27 @@ fun SettingsScreen(
             )
         )
     }
-    var dynamicCoverBackgroundEnabled by remember {
+    var pageBackgroundMode by remember {
         mutableStateOf(
-            supportsDynamicCoverBackground &&
-                lyricPreviewPrefs.getBoolean(
-                    LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
-                    LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+            if (lyricPreviewPrefs.contains(LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE)) {
+                normalizePageBackgroundMode(
+                    lyricPreviewPrefs.getInt(
+                        LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE,
+                        LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
+                    )
                 )
+            } else {
+                val legacyDynamicEnabled = supportsDynamicCoverBackground &&
+                    lyricPreviewPrefs.getBoolean(
+                        LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                        LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+                    )
+                if (legacyDynamicEnabled) {
+                    LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW
+                } else {
+                    LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
+                }
+            }
         )
     }
     var lyriconStatusBarEnabled by remember {
@@ -901,7 +929,7 @@ fun SettingsScreen(
             supportsDynamicCoverBackground = supportsDynamicCoverBackground,
             lyricBlurEnabled = lyricBlurEnabled,
             lyricGlowEnabled = lyricGlowEnabled,
-            dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
+            pageBackgroundMode = pageBackgroundMode,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
             autoHidePlaybackControlsEnabled = lyricAutoHidePlaybackControlsEnabled,
@@ -937,11 +965,15 @@ fun SettingsScreen(
                     .putBoolean(LyricPreviewActivity.KEY_LYRIC_GLOW, it)
                     .apply()
             },
-            onDynamicCoverBackgroundEnabledChange = {
-                val normalized = it && supportsDynamicCoverBackground
-                dynamicCoverBackgroundEnabled = normalized
+            onPageBackgroundModeChange = {
+                val normalized = normalizePageBackgroundMode(it)
+                pageBackgroundMode = normalized
                 lyricPreviewPrefs.edit()
-                    .putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, normalized)
+                    .putInt(LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE, normalized)
+                    .putBoolean(
+                        LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                        normalized == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW
+                    )
                     .apply()
             },
             onLyriconStatusBarEnabledChange = {

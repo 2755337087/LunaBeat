@@ -1049,6 +1049,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_LYRIC_BLUR = "lyric_blur"
         const val KEY_LYRIC_GLOW = "lyric_glow"
         const val KEY_DYNAMIC_COVER_BACKGROUND = "dynamic_cover_background"
+        const val KEY_PAGE_BACKGROUND_MODE = "page_background_mode"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
         const val KEY_AUTO_HIDE_PLAYBACK_CONTROLS = "auto_hide_playback_controls"
@@ -1063,6 +1064,10 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_LYRIC_BLUR = true
         const val DEFAULT_LYRIC_GLOW = true
         const val DEFAULT_DYNAMIC_COVER_BACKGROUND = false
+        const val PAGE_BACKGROUND_SOLID = 0
+        const val PAGE_BACKGROUND_STATIC_BLUR = 1
+        const val PAGE_BACKGROUND_DYNAMIC_FLOW = 2
+        const val DEFAULT_PAGE_BACKGROUND_MODE = PAGE_BACKGROUND_SOLID
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_SCREEN_KEEP_ON = true
         const val DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS = false
@@ -2298,6 +2303,96 @@ private fun createLyricFlowBackgroundBitmap(source: Bitmap): Bitmap {
     return Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
 }
 
+private fun blurBitmapFast(source: Bitmap, radius: Int): Bitmap {
+    if (radius <= 0) return source
+    val safeRadius = radius.coerceIn(1, 25)
+    val width = source.width
+    val height = source.height
+    if (width <= 1 || height <= 1) return source
+
+    val input = IntArray(width * height)
+    val horizontal = IntArray(width * height)
+    val output = IntArray(width * height)
+    source.getPixels(input, 0, width, 0, 0, width, height)
+
+    val windowSize = safeRadius * 2 + 1
+
+    for (y in 0 until height) {
+        val rowOffset = y * width
+        var sumA = 0
+        var sumR = 0
+        var sumG = 0
+        var sumB = 0
+        for (i in -safeRadius..safeRadius) {
+            val px = input[rowOffset + i.coerceIn(0, width - 1)]
+            sumA += (px ushr 24) and 0xFF
+            sumR += (px ushr 16) and 0xFF
+            sumG += (px ushr 8) and 0xFF
+            sumB += px and 0xFF
+        }
+        for (x in 0 until width) {
+            horizontal[rowOffset + x] =
+                ((sumA / windowSize) shl 24) or
+                    ((sumR / windowSize) shl 16) or
+                    ((sumG / windowSize) shl 8) or
+                    (sumB / windowSize)
+            val removeX = (x - safeRadius).coerceIn(0, width - 1)
+            val addX = (x + safeRadius + 1).coerceIn(0, width - 1)
+            val removePx = input[rowOffset + removeX]
+            val addPx = input[rowOffset + addX]
+            sumA += ((addPx ushr 24) and 0xFF) - ((removePx ushr 24) and 0xFF)
+            sumR += ((addPx ushr 16) and 0xFF) - ((removePx ushr 16) and 0xFF)
+            sumG += ((addPx ushr 8) and 0xFF) - ((removePx ushr 8) and 0xFF)
+            sumB += (addPx and 0xFF) - (removePx and 0xFF)
+        }
+    }
+
+    for (x in 0 until width) {
+        var sumA = 0
+        var sumR = 0
+        var sumG = 0
+        var sumB = 0
+        for (i in -safeRadius..safeRadius) {
+            val y = i.coerceIn(0, height - 1)
+            val px = horizontal[y * width + x]
+            sumA += (px ushr 24) and 0xFF
+            sumR += (px ushr 16) and 0xFF
+            sumG += (px ushr 8) and 0xFF
+            sumB += px and 0xFF
+        }
+        for (y in 0 until height) {
+            output[y * width + x] =
+                ((sumA / windowSize) shl 24) or
+                    ((sumR / windowSize) shl 16) or
+                    ((sumG / windowSize) shl 8) or
+                    (sumB / windowSize)
+            val removeY = (y - safeRadius).coerceIn(0, height - 1)
+            val addY = (y + safeRadius + 1).coerceIn(0, height - 1)
+            val removePx = horizontal[removeY * width + x]
+            val addPx = horizontal[addY * width + x]
+            sumA += ((addPx ushr 24) and 0xFF) - ((removePx ushr 24) and 0xFF)
+            sumR += ((addPx ushr 16) and 0xFF) - ((removePx ushr 16) and 0xFF)
+            sumG += ((addPx ushr 8) and 0xFF) - ((removePx ushr 8) and 0xFF)
+            sumB += (addPx and 0xFF) - (removePx and 0xFF)
+        }
+    }
+
+    val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    result.setPixels(output, 0, width, 0, 0, width, height)
+    return result
+}
+
+private fun createLyricStaticBlurBackgroundBitmap(source: Bitmap): Bitmap {
+    val minWidth = 40
+    val maxWidth = 80
+    val desiredWidth = source.width.coerceIn(minWidth, maxWidth)
+    val scale = desiredWidth.toFloat() / source.width.coerceAtLeast(1).toFloat()
+    val targetWidth = desiredWidth.coerceAtLeast(1)
+    val targetHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
+    val scaled = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+    return blurBitmapFast(scaled, radius = 12)
+}
+
 private fun DrawScope.drawDistortedCoverMesh(
     bitmap: Bitmap,
     phase: Float,
@@ -2454,6 +2549,68 @@ private fun DynamicLyricCoverBackground(
     }
 }
 
+@Composable
+private fun StaticBlurLyricCoverBackground(
+    coverBitmap: Bitmap?,
+    backgroundColor: Color,
+    isDarkTheme: Boolean,
+    enabled: Boolean
+) {
+    if (!enabled || coverBitmap == null) return
+
+    var blurredCover by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(coverBitmap) {
+        val nextBlur = withContext(Dispatchers.Default) {
+            createLyricStaticBlurBackgroundBitmap(coverBitmap)
+        }
+        blurredCover = nextBlur
+    }
+
+    val staticBitmap = blurredCover ?: return
+    val scrimColor = if (isDarkTheme) {
+        Color.Black.copy(alpha = 0.56f)
+    } else {
+        Color.White.copy(alpha = 0.44f)
+    }
+    val depthOverlay = if (isDarkTheme) {
+        Brush.verticalGradient(
+            listOf(
+                Color.Black.copy(alpha = 0.18f),
+                backgroundColor.copy(alpha = 0.22f),
+                Color.Black.copy(alpha = 0.24f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.20f),
+                backgroundColor.copy(alpha = 0.20f),
+                Color.White.copy(alpha = 0.26f)
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundColor)
+    ) {
+        Image(
+            bitmap = staticBitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alpha = 0.86f
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scrimColor)
+                .background(depthOverlay)
+        )
+    }
+}
+
 // ==================== 预览界面 ====================
 
 @OptIn(
@@ -2507,6 +2664,19 @@ fun LyricPreviewScreen(
     val appPrefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
     val supportsLyricBlur = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
     val supportsDynamicCoverBackground = supportsLyricBlur
+    fun normalizePageBackgroundMode(mode: Int): Int {
+        val normalized = when (mode) {
+            LyricPreviewActivity.PAGE_BACKGROUND_SOLID,
+            LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR,
+            LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW -> mode
+            else -> LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
+        }
+        return if (!supportsDynamicCoverBackground && normalized == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW) {
+            LyricPreviewActivity.PAGE_BACKGROUND_SOLID
+        } else {
+            normalized
+        }
+    }
     
     var isPlaying by remember(initialIsPlaying) { mutableStateOf(initialIsPlaying) }
     var currentTime by remember { mutableStateOf(initialPosition) }
@@ -2548,13 +2718,27 @@ fun LyricPreviewScreen(
             )
         )
     }
-    var dynamicCoverBackgroundEnabled by remember {
-        mutableStateOf(
-            supportsDynamicCoverBackground &&
-                prefs.getBoolean(
-                    LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
-                    LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+    var pageBackgroundMode by remember {
+        mutableIntStateOf(
+            if (prefs.contains(LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE)) {
+                normalizePageBackgroundMode(
+                    prefs.getInt(
+                        LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE,
+                        LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
+                    )
                 )
+            } else {
+                val legacyDynamicEnabled = supportsDynamicCoverBackground &&
+                    prefs.getBoolean(
+                        LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                        LyricPreviewActivity.DEFAULT_DYNAMIC_COVER_BACKGROUND
+                    )
+                if (legacyDynamicEnabled) {
+                    LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW
+                } else {
+                    LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
+                }
+            }
         )
     }
     var lyriconStatusBarEnabled by remember {
@@ -3582,10 +3766,16 @@ fun LyricPreviewScreen(
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRIC_GLOW, enabled).apply()
     }
 
-    fun saveDynamicCoverBackgroundEnabled(enabled: Boolean) {
-        val normalized = enabled && supportsDynamicCoverBackground
-        dynamicCoverBackgroundEnabled = normalized
-        prefs.edit().putBoolean(LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND, normalized).apply()
+    fun savePageBackgroundMode(mode: Int) {
+        val normalized = normalizePageBackgroundMode(mode)
+        pageBackgroundMode = normalized
+        prefs.edit()
+            .putInt(LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE, normalized)
+            .putBoolean(
+                LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND,
+                normalized == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW
+            )
+            .apply()
     }
 
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
@@ -3978,65 +4168,36 @@ fun LyricPreviewScreen(
         blendColorForUi(backgroundColor, Color.Black, 0.42f)
     }
     val baseForegroundColor = getHighContrastBlackOrWhite(backgroundColor)
-    val menuSurfaceColor = ensureReadableColor(
-        candidate = blendColors(backgroundColor, accentColor, 0.20f),
-        background = backgroundColor,
-        fallback = blendColors(backgroundColor, baseForegroundColor, 0.18f),
-        minContrast = 1.25f
-    )
-    val menuContentColor = ensureReadableColor(
-        candidate = blendColors(accentColor, baseForegroundColor, 0.72f),
-        background = menuSurfaceColor,
-        fallback = baseForegroundColor,
-        minContrast = 4.0f
-    )
-    val menuPressedColor = ensureReadableColor(
-        candidate = blendColors(accentColor, menuSurfaceColor, 0.40f),
-        background = menuSurfaceColor,
-        fallback = menuContentColor.copy(alpha = 0.18f),
-        minContrast = 1.35f
-    )
-    val menuBorderColor = ensureReadableColor(
-        candidate = blendColors(menuContentColor, menuSurfaceColor, 0.35f),
-        background = menuSurfaceColor,
-        fallback = menuContentColor.copy(alpha = 0.22f),
-        minContrast = 1.1f
-    )
-    val dialogContainerColor = ensureReadableColor(
-        candidate = blendColors(backgroundColor, accentColor, 0.24f),
-        background = backgroundColor,
-        fallback = blendColors(backgroundColor, baseForegroundColor, 0.20f),
-        minContrast = 1.2f
-    )
-    val dialogContentColor = ensureReadableColor(
-        candidate = blendColors(accentColor, baseForegroundColor, 0.78f),
-        background = dialogContainerColor,
-        fallback = baseForegroundColor,
-        minContrast = 4.4f
-    )
-    val dialogAccentColor = ensureReadableColor(
-        candidate = accentColor,
-        background = dialogContainerColor,
-        fallback = dialogContentColor,
-        minContrast = 3.0f
-    )
+    val menuSurfaceColor = MaterialTheme.colorScheme.surface
+    val menuContentColor = MaterialTheme.colorScheme.onSurface
+    val menuPressedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+    val menuBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val dialogContainerColor = MaterialTheme.colorScheme.surface
+    val dialogContentColor = MaterialTheme.colorScheme.onSurface
+    val dialogAccentColor = MaterialTheme.colorScheme.primary
     val creatorLyricColor = ensureReadableColor(
         candidate = blendColors(accentColor, backgroundColor, 0.42f),
         background = backgroundColor,
         fallback = blendColors(baseForegroundColor, backgroundColor, 0.45f),
         minContrast = 2.8f
     )
-    val useDynamicCoverChrome = supportsDynamicCoverBackground && dynamicCoverBackgroundEnabled && metadata.coverBitmap != null
-    val chromeContainerColor = if (useDynamicCoverChrome) Color.Transparent else backgroundColor
+    val useStaticCoverChrome =
+        pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR && metadata.coverBitmap != null
+    val useDynamicCoverChrome =
+        supportsDynamicCoverBackground &&
+            pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW &&
+            metadata.coverBitmap != null
+    val useRichCoverChrome = useStaticCoverChrome || useDynamicCoverChrome
+    val chromeContainerColor = if (useRichCoverChrome) Color.Transparent else backgroundColor
     val edgeFadeTopBrush = Brush.verticalGradient(
-        colors = if (useDynamicCoverChrome) {
+        colors = if (useRichCoverChrome) {
             listOf(Color.Transparent, Color.Transparent)
         } else {
             listOf(backgroundColor, Color.Transparent)
         }
     )
     val edgeFadeBottomBrush = Brush.verticalGradient(
-        colors = if (useDynamicCoverChrome) {
+        colors = if (useRichCoverChrome) {
             listOf(Color.Transparent, Color.Transparent)
         } else {
             listOf(Color.Transparent, backgroundColor)
@@ -4048,6 +4209,12 @@ fun LyricPreviewScreen(
             .fillMaxSize()
             .background(backgroundColor)
     ) {
+        StaticBlurLyricCoverBackground(
+            coverBitmap = metadata.coverBitmap,
+            backgroundColor = backgroundColor,
+            isDarkTheme = isDarkTheme,
+            enabled = useStaticCoverChrome
+        )
         DynamicLyricCoverBackground(
             coverBitmap = metadata.coverBitmap,
             backgroundColor = backgroundColor,
@@ -5171,7 +5338,7 @@ fun LyricPreviewScreen(
                 supportsDynamicCoverBackground = supportsDynamicCoverBackground,
                 lyricBlurEnabled = lyricBlurPreferenceEnabled,
                 lyricGlowEnabled = lyricGlowEnabled,
-                dynamicCoverBackgroundEnabled = dynamicCoverBackgroundEnabled,
+                pageBackgroundMode = pageBackgroundMode,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
                 autoHidePlaybackControlsEnabled = autoHidePlaybackControlsEnabled,
@@ -5187,7 +5354,7 @@ fun LyricPreviewScreen(
                 onShowTransliterationChange = { saveShowTransliteration(it) },
                 onLyricBlurEnabledChange = { saveLyricBlurEnabled(it) },
                 onLyricGlowEnabledChange = { saveLyricGlowEnabled(it) },
-                onDynamicCoverBackgroundEnabledChange = { saveDynamicCoverBackgroundEnabled(it) },
+                onPageBackgroundModeChange = { savePageBackgroundMode(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
                 onAutoHidePlaybackControlsEnabledChange = { saveAutoHidePlaybackControlsEnabled(it) },

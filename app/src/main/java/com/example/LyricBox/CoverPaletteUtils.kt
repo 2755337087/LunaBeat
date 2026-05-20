@@ -18,13 +18,14 @@ private const val PALETTE_EMPTY_COLOR_SENTINEL = Int.MIN_VALUE
 private const val COVER_THEME_PREFS = "CoverThemeColorCache"
 private const val COVER_THEME_LIGHT_PREFIX = "cover_theme_light_"
 private const val COVER_THEME_DARK_PREFIX = "cover_theme_dark_"
-private const val COVER_THEME_ALGO_VERSION = "v5_population_min_20_keep_gray_white"
-private const val MIN_THEME_POPULATION_RATIO = 0.20f
-private const val MIN_THEME_LIGHTNESS = 0f
-private const val MAX_THEME_LIGHTNESS = 1f
+private const val COVER_THEME_ALGO_VERSION = "v6_population_weighted_saturation_guard"
+private const val MIN_THEME_POPULATION_RATIO = 0.06f
+private const val MIN_THEME_LIGHTNESS = 0.05f
+private const val MAX_THEME_LIGHTNESS = 0.95f
 private const val TARGET_THEME_SATURATION_FLOOR = 0f
-private const val TARGET_THEME_SATURATION_CEILING = 0.82f
-private const val LIGHT_THEME_LIGHTNESS_MIN = 0.48f
+private const val LIGHT_THEME_SATURATION_CEILING = 0.42f
+private const val DARK_THEME_SATURATION_CEILING = 0.66f
+private const val LIGHT_THEME_LIGHTNESS_MIN = 0.54f
 private const val LIGHT_THEME_LIGHTNESS_MAX = 0.78f
 private const val DARK_THEME_LIGHTNESS_MIN = 0.20f
 private const val DARK_THEME_LIGHTNESS_MAX = 0.44f
@@ -158,14 +159,19 @@ private fun pickDominantThemeSwatch(
 ): Palette.Swatch? {
     if (swatches.isEmpty()) return null
 
-    val eligibleSwatches = swatches.filter { swatch ->
+    val validSwatches = swatches.filter { swatch ->
+        shouldKeepPaletteColor(swatch.rgb, swatch.hsl)
+    }
+    if (validSwatches.isEmpty()) return null
+
+    val eligibleSwatches = validSwatches.filter { swatch ->
         val ratio = swatch.population.toFloat() / totalPopulation
-        ratio >= MIN_THEME_POPULATION_RATIO && shouldKeepPaletteColor(swatch.rgb, swatch.hsl)
+        ratio >= MIN_THEME_POPULATION_RATIO
     }
     if (eligibleSwatches.isNotEmpty()) {
         return eligibleSwatches.maxByOrNull { scorePopulationFirstSwatch(it, totalPopulation) }
     }
-    return null
+    return validSwatches.maxByOrNull { scorePopulationFirstSwatch(it, totalPopulation) }
 }
 
 private fun scorePopulationFirstSwatch(
@@ -176,18 +182,25 @@ private fun scorePopulationFirstSwatch(
     val populationRatio = (swatch.population.toFloat() / totalPopulation.coerceAtLeast(1)).coerceIn(0f, 1f)
     val saturation = hsl.getOrElse(1) { 0f }.coerceIn(0f, 1f)
     val lightness = hsl.getOrElse(2) { 0f }.coerceIn(0f, 1f)
-    val brightnessBalance = (1f - abs(lightness - 0.5f) / 0.5f).coerceIn(0f, 1f)
+    val lightnessBalance = (1f - abs(lightness - 0.42f) / 0.42f).coerceIn(0f, 1f)
+    val saturationBalance = (1f - abs(saturation - 0.24f) / 0.24f).coerceIn(0f, 1f)
 
-    return populationRatio * 0.7f +
-        saturation * 0.2f +
-        brightnessBalance * 0.1f
+    return populationRatio * 0.62f +
+        saturationBalance * 0.22f +
+        lightnessBalance * 0.16f
 }
 
 private fun adjustThemeColor(colorInt: Int, preferDark: Boolean): Color {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(colorInt, hsl)
+    val originalLightness = hsl[2].coerceIn(0f, 1f)
 
-    hsl[1] = hsl[1].coerceIn(TARGET_THEME_SATURATION_FLOOR, TARGET_THEME_SATURATION_CEILING)
+    val saturationCeiling = if (preferDark) {
+        DARK_THEME_SATURATION_CEILING
+    } else {
+        LIGHT_THEME_SATURATION_CEILING
+    }
+    hsl[1] = hsl[1].coerceIn(TARGET_THEME_SATURATION_FLOOR, saturationCeiling)
 
     val lightnessRange = if (preferDark) {
         DARK_THEME_LIGHTNESS_MIN..DARK_THEME_LIGHTNESS_MAX
@@ -195,6 +208,14 @@ private fun adjustThemeColor(colorInt: Int, preferDark: Boolean): Color {
         LIGHT_THEME_LIGHTNESS_MIN..LIGHT_THEME_LIGHTNESS_MAX
     }
     hsl[2] = hsl[2].coerceIn(lightnessRange.start, lightnessRange.endInclusive)
+
+    if (!preferDark) {
+        val liftedAmount = (hsl[2] - originalLightness).coerceAtLeast(0f)
+        if (liftedAmount > 0f) {
+            val saturationDamping = (1f - liftedAmount * 0.95f).coerceIn(0.35f, 1f)
+            hsl[1] = (hsl[1] * saturationDamping).coerceAtLeast(0f)
+        }
+    }
 
     return Color(ColorUtils.HSLToColor(hsl))
 }

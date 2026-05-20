@@ -64,6 +64,7 @@ import kotlin.math.roundToInt
 
 private enum class LyricSettingsPage {
     MAIN,
+    PAGE_BACKGROUND,
     LYRIC_DISPLAY_MODE,
     LYRIC_DISPLAY_POSITION,
     FONT_SIZE,
@@ -84,7 +85,7 @@ fun LyricSettingsBottomSheet(
     supportsDynamicCoverBackground: Boolean,
     lyricBlurEnabled: Boolean,
     lyricGlowEnabled: Boolean,
-    dynamicCoverBackgroundEnabled: Boolean,
+    pageBackgroundMode: Int,
     lyriconStatusBarEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
     autoHidePlaybackControlsEnabled: Boolean,
@@ -100,7 +101,7 @@ fun LyricSettingsBottomSheet(
     onShowTransliterationChange: (Boolean) -> Unit,
     onLyricBlurEnabledChange: (Boolean) -> Unit,
     onLyricGlowEnabledChange: (Boolean) -> Unit,
-    onDynamicCoverBackgroundEnabledChange: (Boolean) -> Unit,
+    onPageBackgroundModeChange: (Int) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
     onAutoHidePlaybackControlsEnabledChange: (Boolean) -> Unit,
@@ -234,6 +235,11 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor
                     )
                     LyricSettingsActionRow(
+                        title = "页面背景",
+                        contentColor = contentColor,
+                        onClick = { page = LyricSettingsPage.PAGE_BACKGROUND }
+                    )
+                    LyricSettingsActionRow(
                         title = "间奏动画",
                         contentColor = contentColor,
                         onClick = {
@@ -256,15 +262,6 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
-                    if (supportsDynamicCoverBackground) {
-                        LyricSettingsSwitchRow(
-                            title = "封面流光背景",
-                            checked = dynamicCoverBackgroundEnabled,
-                            onCheckedChange = onDynamicCoverBackgroundEnabledChange,
-                            contentColor = contentColor,
-                            accentColor = accentColor
-                        )
-                    }
                     if (supportsLyricBlur) {
                         LyricSettingsSwitchRow(
                             title = "歌词模糊",
@@ -596,6 +593,43 @@ fun LyricSettingsBottomSheet(
                                     onDeleteFont(option.id)
                                 }
                             }
+                        )
+                    }
+                }
+
+                LyricSettingsPage.PAGE_BACKGROUND -> {
+                    LyricSettingsSubPageTitle(
+                        title = "页面背景",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "纯色背景",
+                        selected = pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_SOLID,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = { onPageBackgroundModeChange(LyricPreviewActivity.PAGE_BACKGROUND_SOLID) }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "静态模糊背景",
+                        selected = pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = { onPageBackgroundModeChange(LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR) }
+                    )
+                    if (supportsDynamicCoverBackground) {
+                        LyricSettingsRadioRow(
+                            title = "动态流光背景",
+                            selected = pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW,
+                            contentColor = contentColor,
+                            accentColor = accentColor,
+                            onClick = { onPageBackgroundModeChange(LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW) }
+                        )
+                    } else {
+                        LyricSettingsActionRow(
+                            title = "动态流光背景（仅 Android 12+）",
+                            contentColor = contentColor.copy(alpha = 0.62f),
+                            onClick = {}
                         )
                     }
                 }

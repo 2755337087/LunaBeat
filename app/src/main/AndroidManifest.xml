@@ -90,6 +90,7 @@
         <activity
             android:name=".MusicLibraryActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode"
             android:theme="@style/Theme.歌词转换" />
 
         <activity
@@ -111,7 +112,7 @@
         <activity
             android:name=".LyricPreviewActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode"
             android:theme="@style/Theme.歌词转换" />
         <activity
             android:name=".DeveloperTestActivity"
@@ -166,6 +167,7 @@
         <activity
             android:name=".MusicPlayerActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode"
             android:theme="@style/Theme.歌词转换" />
 
         <provider
