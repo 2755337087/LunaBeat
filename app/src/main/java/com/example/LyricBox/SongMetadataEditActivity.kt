@@ -5147,19 +5147,29 @@ suspend fun saveMetadata(
             }
             
             val updates = mutableMapOf<String, String>()
-            if (!titleKeep) updates["TITLE"] = title
-            if (!artistKeep) updates["ARTIST"] = artist
-            if (!albumKeep) updates["ALBUM"] = album
-            if (!yearKeep) updates["DATE"] = year
-            if (!trackNumberKeep) updates["TRACKNUMBER"] = trackNumber
-            if (!discNumberKeep) updates["DISCNUMBER"] = discNumber
-            if (!genreKeep) updates["GENRE"] = genre
-            if (!albumArtistKeep) updates["ALBUMARTIST"] = albumArtist
-            if (!composerKeep) updates["COMPOSER"] = composer
-            if (!lyricistKeep) updates["LYRICIST"] = lyricist
-            if (!commentKeep) updates["COMMENT"] = comment
-            if (!copyrightKeep) updates["COPYRIGHT"] = copyright
-            if (!lyricsKeep) updates["LYRICS"] = lyrics
+            fun putTagWithAliases(primaryKey: String, value: String, vararg aliases: String) {
+                updates[primaryKey] = value
+                aliases.forEach { alias ->
+                    updates[alias] = value
+                }
+            }
+            if (!titleKeep) putTagWithAliases("TITLE", title)
+            if (!artistKeep) putTagWithAliases("ARTIST", artist)
+            if (!albumKeep) putTagWithAliases("ALBUM", album)
+            if (!yearKeep) putTagWithAliases("DATE", year, "YEAR")
+            if (!trackNumberKeep) putTagWithAliases("TRACKNUMBER", trackNumber, "TRACK")
+            if (!discNumberKeep) putTagWithAliases("DISCNUMBER", discNumber, "DISC", "TPOS", "DISKNUMBER")
+            if (!genreKeep) putTagWithAliases("GENRE", genre, "STYLE", "SUBGENRE", "MOOD")
+            if (!albumArtistKeep) {
+                putTagWithAliases("ALBUMARTIST", albumArtist, "ALBUM ARTIST", "TPE2", "aART", "ALBUMARTISTSORT")
+            }
+            if (!composerKeep) putTagWithAliases("COMPOSER", composer, "TCOM", "©wrt")
+            if (!lyricistKeep) putTagWithAliases("LYRICIST", lyricist, "TEXT", "WRITER", "LYRICS BY")
+            if (!commentKeep) putTagWithAliases("COMMENT", comment, "COMM", "DESCRIPTION")
+            if (!copyrightKeep) putTagWithAliases("COPYRIGHT", copyright, "COPYRIGHTS", "COPYRIGHTINFO")
+            if (!lyricsKeep) {
+                putTagWithAliases("LYRICS", lyrics, "UNSYNCED LYRICS", "UNSYNCEDLYRICS", "USLT", "LYRIC", "LYRICSENG")
+            }
             
             // 添加自定义字段
             customFields.forEach { (field, value) ->

@@ -1170,6 +1170,7 @@ private fun resolveMediaStoreAudioUri(
 private fun MediaItem.resolveSourcePath(): String? {
     return mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
         ?: mediaId.takeIf { it.isNotBlank() }
+        ?: localConfiguration?.uri?.path?.takeIf { it.isNotBlank() }
 }
 
 private fun resolvePlayablePathForPlayback(context: Context, sourcePath: String): String {

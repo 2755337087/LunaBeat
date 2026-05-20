@@ -5413,6 +5413,11 @@ fun LyricPreviewScreen(
                 isFavorite = previewSongInfoIsFavorite,
                 renameSuccessSignal = 0L,
                 onDismiss = { showSongInfoSheet = false },
+                onSearchNavigateDone = {
+                    showSongInfoSheet = false
+                    clearLyricDisplaySelectionState()
+                    onBack()
+                },
                 onEditLyricsFromPreview = {
                     pendingResetLyricDisplayOnResume = true
                 },
@@ -5436,10 +5441,12 @@ fun LyricPreviewScreen(
                 onSelectAlbum = { albumName ->
                     showArtistSelectionSheet = false
                     openMusicLibrarySearch("#专辑：$albumName")
+                    onBack()
                 },
                 onSelectArtist = { artist ->
                     showArtistSelectionSheet = false
                     openMusicLibrarySearch(artist)
+                    onBack()
                 }
             )
         }

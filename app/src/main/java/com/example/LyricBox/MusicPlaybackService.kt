@@ -854,7 +854,9 @@ private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
 private fun MediaItem.resolveOriginalAudioPath(): String? {
     val pathFromExtras = mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
     if (!pathFromExtras.isNullOrBlank()) return pathFromExtras
-    return mediaId.takeIf { it.isNotBlank() }
+    val mediaIdPath = mediaId.takeIf { it.isNotBlank() }
+    if (!mediaIdPath.isNullOrBlank()) return mediaIdPath
+    return localConfiguration?.uri?.path?.takeIf { it.isNotBlank() }
 }
 
 private fun resolvePlayableAudioUriForService(

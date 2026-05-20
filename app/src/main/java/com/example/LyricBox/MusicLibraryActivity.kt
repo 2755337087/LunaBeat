@@ -145,6 +145,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1739,6 +1740,8 @@ fun MusicLibraryScreen(
     var lyricPreviewCreators by remember { mutableStateOf<List<String>>(emptyList()) }
     var lyricPreviewLoading by remember { mutableStateOf(false) }
     var lyricPreviewLoadedPath by remember { mutableStateOf<String?>(null) }
+    var inlineCompanionAudioPath by remember { mutableStateOf<String?>(null) }
+    var inlineCompanionSwitching by remember { mutableStateOf(false) }
     var miniPlayerCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var miniBarBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var miniBarBaseTop by remember { mutableStateOf<Float?>(null) }
@@ -2107,12 +2110,16 @@ fun MusicLibraryScreen(
     fun animateMiniPlayerProgressTo(
         target: Float,
         durationMillis: Int = 280,
-        useLinearEasing: Boolean = false
+        useLinearEasing: Boolean = false,
+        deferToNextFrame: Boolean = false
     ) {
         val resolvedTarget = target.coerceIn(0f, 1f)
         val settledEasing = if (useLinearEasing) LinearEasing else FastOutSlowInEasing
         miniPlayerSettleJob?.cancel()
         miniPlayerSettleJob = scope.launch {
+            if (deferToNextFrame) {
+                withFrameNanos { }
+            }
             val startValue = miniPlayerExpandProgress
             animate(
                 initialValue = startValue,
@@ -2163,18 +2170,81 @@ fun MusicLibraryScreen(
         )
     }
 
+    fun isInlineCompanionNameMatch(fileName: String?, sourceBaseName: String): Boolean {
+        if (fileName.isNullOrBlank() || sourceBaseName.isBlank()) return false
+        val candidate = fileName.trim()
+        val lowerCandidate = candidate.lowercase()
+        val lowerBase = sourceBaseName.lowercase()
+        if (lowerCandidate == lowerBase) return true
+        if (lowerCandidate.startsWith("$lowerBase.")) return true
+        val withoutLast = candidate.substringBeforeLast('.', candidate)
+        if (withoutLast.equals(sourceBaseName, ignoreCase = true)) return true
+        val withoutTwo = withoutLast.substringBeforeLast('.', withoutLast)
+        return withoutTwo.equals(sourceBaseName, ignoreCase = true)
+    }
+
+    fun findInlineCompanionInDir(
+        dir: File,
+        exactFileName: String,
+        sourceBaseName: String
+    ): File? {
+        if (!dir.exists() || !dir.isDirectory) return null
+        val exactCandidate = File(dir, exactFileName)
+        if (exactCandidate.exists() && exactCandidate.isFile) return exactCandidate
+        val files = dir.listFiles() ?: return null
+        return files.firstOrNull { file ->
+            file.isFile && isInlineCompanionNameMatch(file.name, sourceBaseName)
+        }
+    }
+
+    fun resolveInlineCompanionAudioPath(sourcePath: String): String? {
+        val sourceFile = File(sourcePath)
+        val exactFileName = sourceFile.name.takeIf { it.isNotBlank() } ?: return null
+        val sourceBaseName = sourceFile.nameWithoutExtension.takeIf { it.isNotBlank() } ?: return null
+        val candidateDirs = linkedSetOf<File>()
+        candidateDirs += File("/storage/emulated/0/Music/.sing")
+        val sourceParent = sourceFile.parentFile
+        if (sourceParent != null) {
+            candidateDirs += File(sourceParent, "sing")
+            candidateDirs += File(sourceParent, ".sing")
+            sourceParent.parentFile?.let { parent ->
+                candidateDirs += File(parent, "music${File.separator}sing")
+                candidateDirs += File(parent, "Music${File.separator}sing")
+                candidateDirs += File(parent, "music${File.separator}.sing")
+                candidateDirs += File(parent, "Music${File.separator}.sing")
+            }
+        }
+        return candidateDirs.firstNotNullOfOrNull { dir ->
+            findInlineCompanionInDir(
+                dir = dir,
+                exactFileName = exactFileName,
+                sourceBaseName = sourceBaseName
+            )
+        }?.absolutePath
+    }
+
+    fun isSameInlineAudioPath(pathA: String?, pathB: String?): Boolean {
+        if (pathA.isNullOrBlank() || pathB.isNullOrBlank()) return false
+        val normalizedA = runCatching { File(pathA).absolutePath }.getOrElse { pathA }
+        val normalizedB = runCatching { File(pathB).absolutePath }.getOrElse { pathB }
+        return normalizedA == normalizedB
+    }
+
     fun openInlineLyricPreview() {
         miniPlayerSettleJob?.cancel()
         refreshInlineLyricDisplaySelectedFromPrefs()
         inlineLyricDisplayResetToken = 0
         showInlineLyricPreview = true
         miniBarBaseTop = miniBarBounds?.top ?: miniBarBaseTop
-        miniPlayerExpandProgress = 0f
+        if (miniPlayerExpandProgress <= 0.001f) {
+            miniPlayerExpandProgress = 0f
+        }
         miniPlayerLastDragDeltaY = -1f
         animateMiniPlayerProgressTo(
             target = 1f,
-            durationMillis = 340,
-            useLinearEasing = true
+            durationMillis = 300,
+            useLinearEasing = false,
+            deferToNextFrame = true
         )
     }
 
@@ -2267,6 +2337,8 @@ fun MusicLibraryScreen(
             lyricPreviewCreators = emptyList()
             lyricPreviewLoading = false
             lyricPreviewLoadedPath = null
+            inlineCompanionAudioPath = null
+            inlineCompanionSwitching = false
             miniPlayerCoverBitmap = null
             miniPlayerExpandProgress = 0f
             showInlineLyricPreview = false
@@ -2289,6 +2361,19 @@ fun MusicLibraryScreen(
         lyricPreviewCreators = payload?.creators ?: emptyList()
         lyricPreviewLoadedPath = audioPath
         lyricPreviewLoading = false
+    }
+
+    LaunchedEffect(currentPlayingAudioPath) {
+        val audioPath = currentPlayingAudioPath
+        if (audioPath.isNullOrBlank()) {
+            inlineCompanionAudioPath = null
+            inlineCompanionSwitching = false
+            return@LaunchedEffect
+        }
+        inlineCompanionSwitching = false
+        inlineCompanionAudioPath = withContext(Dispatchers.IO) {
+            resolveInlineCompanionAudioPath(audioPath)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -3491,7 +3576,6 @@ fun MusicLibraryScreen(
                     if (currentPath.isNullOrBlank()) {
                         MusicPlayerActivity.start(context)
                     } else {
-                        playbackController.refreshProgress()
                         openInlineLyricPreview()
                     }
                 },
@@ -3506,6 +3590,10 @@ fun MusicLibraryScreen(
             val previewTranslateY = miniPlayerTravelDistancePx * (1f - miniPlayerExpandProgress)
             val previewOpacity = resolvePreviewOpacity(miniPlayerExpandProgress)
             val currentPath = playbackController.currentAudioPath.orEmpty()
+            val inlineCompanionSelected = isSameInlineAudioPath(
+                playbackController.currentPlaybackUriPath,
+                inlineCompanionAudioPath
+            )
             val currentTitle = playbackController.currentTitle
                 .ifBlank { File(currentPath).nameWithoutExtension }
                 .ifBlank { "歌词预览" }
@@ -3610,7 +3698,29 @@ fun MusicLibraryScreen(
                             playbackController.refreshProgress()
                             playbackController.durationMs.coerceAtLeast(0L)
                         },
+                        companionAvailable = !inlineCompanionAudioPath.isNullOrBlank(),
+                        companionSelected = inlineCompanionSelected,
+                        companionBusy = inlineCompanionSwitching,
                         playbackController = playbackController,
+                        onCompanionToggle = { enabled ->
+                            if (inlineCompanionSwitching) return@LyricPreviewScreen
+                            val sourcePath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
+                                ?: return@LyricPreviewScreen
+                            val companionPath = inlineCompanionAudioPath
+                            val targetPath = if (enabled) companionPath else sourcePath
+                            if (targetPath.isNullOrBlank()) return@LyricPreviewScreen
+                            inlineCompanionSwitching = true
+                            scope.launch {
+                                runCatching {
+                                    playbackController.switchCurrentAudioKeepingMetadata(
+                                        expectedSourcePath = sourcePath,
+                                        targetAudioPath = targetPath,
+                                        crossfadeDurationMs = 420L
+                                    )
+                                }
+                                inlineCompanionSwitching = false
+                            }
+                        },
                         lyricDisplayResetToken = inlineLyricDisplayResetToken,
                         initialLyricDisplaySelected = inlineLyricDisplaySelected,
                         onLyricDisplaySelectedChanged = { selected ->

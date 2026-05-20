@@ -84,7 +84,8 @@ fun SongInfoBottomSheet(
     onRenameFile: (() -> Unit)? = null,
     onDeleteFile: (() -> Unit)? = null,
     onEditLyricsFromPreview: (() -> Unit)? = null,
-    onEditMetadataFromSheet: ((AudioFile) -> Unit)? = null
+    onEditMetadataFromSheet: ((AudioFile) -> Unit)? = null,
+    onSearchNavigateDone: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -350,10 +351,12 @@ fun SongInfoBottomSheet(
                 } else {
                     launchMusicLibrarySearch(context, "#专辑：$albumName")
                 }
+                onSearchNavigateDone?.invoke()
             },
             onSelectArtist = { artist ->
                 showArtistSelectionSheet = false
                 launchMusicLibrarySearch(context, artist)
+                onSearchNavigateDone?.invoke()
             }
         )
     }
