@@ -4101,6 +4101,9 @@ private fun SplitLyricBottomSheet(
                                     val totalWeight = segmentWeights.sum()
                                     var sourceCharCursor = 0
                                     var accumulatedMs = startMs
+                                    val sourceText = currentUnit.text
+                                        .replace('\u00A0', ' ')
+                                        .replace('\u2009', ' ')
 
                                     segments.forEachIndexed { segmentIndex, segment ->
                                         val weight = segmentWeights[segmentIndex]
@@ -4113,14 +4116,30 @@ private fun SplitLyricBottomSheet(
                                         val unitEndMs = if (segmentIndex == segments.size - 1) endMs else accumulatedMs + unitDuration
                                         accumulatedMs = unitEndMs
 
-                                        val mappedCharTransliterations = mutableMapOf<Int, String>()
-                                        segment.forEachIndexed { newIdx, _ ->
-                                            val oldIdx = sourceCharCursor + newIdx
-                                            currentUnit.charTransliterations[oldIdx]?.let { translit ->
-                                                mappedCharTransliterations[newIdx] = translit
+                                        // 按原始单元文本做顺序匹配，避免前导空格/分隔空格变化导致注音索引错位。
+                                        val sourceIndices = mutableListOf<Int>()
+                                        var searchCursor = sourceCharCursor
+                                        segment.forEachIndexed { _, ch ->
+                                            while (searchCursor < sourceText.length && sourceText[searchCursor] != ch) {
+                                                searchCursor++
+                                            }
+                                            if (searchCursor < sourceText.length) {
+                                                sourceIndices.add(searchCursor)
+                                                searchCursor++
+                                            } else {
+                                                sourceIndices.add(-1)
                                             }
                                         }
-                                        sourceCharCursor += segment.length
+                                        sourceCharCursor = searchCursor
+
+                                        val mappedCharTransliterations = mutableMapOf<Int, String>()
+                                        sourceIndices.forEachIndexed { newIdx, oldIdx ->
+                                            if (oldIdx >= 0) {
+                                                currentUnit.charTransliterations[oldIdx]?.let { translit ->
+                                                    mappedCharTransliterations[newIdx] = translit
+                                                }
+                                            }
+                                        }
 
                                         val mappedTransliteration = when {
                                             mappedCharTransliterations.isNotEmpty() && segment.length == 1 -> mappedCharTransliterations[0] ?: ""
@@ -8247,10 +8266,6 @@ fun LyricTimingScreen(
             lyricLines = parsedLinesResult
             onHasLyricsChange(true)
             
-            // 检测是否存在空行
-            if (hasEmptyLines(parsedLinesResult)) {
-                showDeleteEmptyLinesDialog = true
-            }
         }
     }
     
@@ -8267,10 +8282,6 @@ fun LyricTimingScreen(
                 creators = pendingLyricsCreators
             }
             
-            // 检测是否存在空行
-            if (hasEmptyLines(verbatimLyricsLines)) {
-                showDeleteEmptyLinesDialog = true
-            }
         }
     }
     
@@ -9001,9 +9012,6 @@ fun LyricTimingScreen(
                 lyricLines = parsedLyricLines
                 selectedLineIndex = 0
                 selectedWordIndex = 0
-                if (hasEmptyLines(parsedLyricLines)) {
-                    showDeleteEmptyLinesDialog = true
-                }
             },
             onApplySplInput = { input ->
                 val parseResult = LyricParsingUtils.parseByType(LyricParseType.SPL_LRC, input)
@@ -9013,9 +9021,6 @@ fun LyricTimingScreen(
                 lyricLines = parsedLines
                 selectedLineIndex = 0
                 selectedWordIndex = 0
-                if (hasEmptyLines(parsedLines)) {
-                    showDeleteEmptyLinesDialog = true
-                }
             },
             onApplyElrcInput = { input ->
                 val parseResult = LyricParsingUtils.parseByType(LyricParseType.ENHANCED_LRC, input)
@@ -9026,9 +9031,6 @@ fun LyricTimingScreen(
                     lyricLines = parsedLines
                     selectedLineIndex = 0
                     selectedWordIndex = 0
-                    if (hasEmptyLines(parsedLines)) {
-                        showDeleteEmptyLinesDialog = true
-                    }
                 }
             },
             onApplyTtmlInput = { input ->
@@ -9042,9 +9044,6 @@ fun LyricTimingScreen(
                     val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(input)
                     if (parsedSongwriters.isNotEmpty()) {
                         creators = parsedSongwriters
-                    }
-                    if (hasEmptyLines(parsedLines)) {
-                        showDeleteEmptyLinesDialog = true
                     }
                 }
             }

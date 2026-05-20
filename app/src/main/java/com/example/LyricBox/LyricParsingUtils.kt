@@ -758,26 +758,39 @@ object LyricParsingUtils {
                         if (isCJKCharacter(char)) idx else null 
                     }
                     
-                    // 尝试将注音分配到单字符
+                    // 尝试将注音按时间位置映射到字符索引，避免前导空格/假名导致顺序错位
                     if (cjkIndices.isNotEmpty() && matchingTransliterations.isNotEmpty()) {
-                        // 检查注音数量是否与CJK字符数量匹配
-                        // 或者我们可以按字符位置分配
-                        var transIndex = 0
-                        for (cjkIdx in cjkIndices) {
-                            if (transIndex < matchingTransliterations.size) {
-                                val (_, _, transText) = matchingTransliterations[transIndex]
-                                if (transText.isNotEmpty()) {
-                                    charTransliterations[cjkIdx] = transText
+                        val sortedMatchingTransliterations = matchingTransliterations.sortedBy { parseTimeToMs(it.first) }
+                        val textLength = unit.text.length
+                        if (textLength > 0) {
+                            val unitDuration = (unitEndMs - unitBeginMs).coerceAtLeast(1L)
+                            val charDuration = unitDuration.toDouble() / textLength.toDouble()
+                            val remainingIndices = cjkIndices.toMutableSet()
+
+                            for ((transBegin, transEnd, transText) in sortedMatchingTransliterations) {
+                                if (transText.isEmpty()) continue
+                                val transBeginMs = parseTimeToMs(transBegin)
+                                val transEndMs = parseTimeToMs(transEnd)
+                                val midMs = ((transBeginMs + transEndMs) / 2L).coerceIn(unitBeginMs, unitEndMs)
+                                val estimatedIdx = (((midMs - unitBeginMs) / charDuration).toInt())
+                                    .coerceIn(0, textLength - 1)
+
+                                val chosenIdx = if (estimatedIdx in remainingIndices) {
+                                    estimatedIdx
+                                } else {
+                                    remainingIndices.minByOrNull { idx -> kotlin.math.abs(idx - estimatedIdx) }
                                 }
-                                transIndex++
-                            } else {
-                                break
+
+                                if (chosenIdx != null) {
+                                    charTransliterations[chosenIdx] = transText
+                                    remainingIndices.remove(chosenIdx)
+                                }
                             }
                         }
-                        
+
                         // 如果没有成功分配到单字符，使用整体注音
-                        if (charTransliterations.isEmpty() && matchingTransliterations.isNotEmpty()) {
-                            matchedTransliteration = matchingTransliterations[0].third
+                        if (charTransliterations.isEmpty()) {
+                            matchedTransliteration = sortedMatchingTransliterations[0].third
                         }
                     } else if (matchingTransliterations.isNotEmpty()) {
                         // 没有CJK字符，使用整体注音
@@ -864,21 +877,36 @@ object LyricParsingUtils {
                         }
                         
                         if (cjkIndices.isNotEmpty() && matchingTransliterations.isNotEmpty()) {
-                            var transIndex = 0
-                            for (cjkIdx in cjkIndices) {
-                                if (transIndex < matchingTransliterations.size) {
-                                    val (_, _, transText) = matchingTransliterations[transIndex]
-                                    if (transText.isNotEmpty()) {
-                                        charTransliterations[cjkIdx] = transText
+                            val sortedMatchingTransliterations = matchingTransliterations.sortedBy { parseTimeToMs(it.first) }
+                            val textLength = unit.text.length
+                            if (textLength > 0) {
+                                val unitDuration = (unitEndMs - unitBeginMs).coerceAtLeast(1L)
+                                val charDuration = unitDuration.toDouble() / textLength.toDouble()
+                                val remainingIndices = cjkIndices.toMutableSet()
+
+                                for ((transBegin, transEnd, transText) in sortedMatchingTransliterations) {
+                                    if (transText.isEmpty()) continue
+                                    val transBeginMs = parseTimeToMs(transBegin)
+                                    val transEndMs = parseTimeToMs(transEnd)
+                                    val midMs = ((transBeginMs + transEndMs) / 2L).coerceIn(unitBeginMs, unitEndMs)
+                                    val estimatedIdx = (((midMs - unitBeginMs) / charDuration).toInt())
+                                        .coerceIn(0, textLength - 1)
+
+                                    val chosenIdx = if (estimatedIdx in remainingIndices) {
+                                        estimatedIdx
+                                    } else {
+                                        remainingIndices.minByOrNull { idx -> kotlin.math.abs(idx - estimatedIdx) }
                                     }
-                                    transIndex++
-                                } else {
-                                    break
+
+                                    if (chosenIdx != null) {
+                                        charTransliterations[chosenIdx] = transText
+                                        remainingIndices.remove(chosenIdx)
+                                    }
                                 }
                             }
-                            
-                            if (charTransliterations.isEmpty() && matchingTransliterations.isNotEmpty()) {
-                                matchedTransliteration = matchingTransliterations[0].third
+
+                            if (charTransliterations.isEmpty()) {
+                                matchedTransliteration = sortedMatchingTransliterations[0].third
                             }
                         } else if (matchingTransliterations.isNotEmpty()) {
                             matchedTransliteration = matchingTransliterations[0].third
