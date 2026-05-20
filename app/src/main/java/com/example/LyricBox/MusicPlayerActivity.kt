@@ -887,19 +887,35 @@ private fun MusicPlayerControlPanel(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        val minSeekStartMs = 240L
-        val safeDuration = duration.coerceAtLeast(0L)
-        val seekStart = if (safeDuration > minSeekStartMs) minSeekStartMs else 0L
-        val seekSpan = (safeDuration - seekStart).coerceAtLeast(0L)
-        val clampedCurrentTime = position.coerceIn(0L, safeDuration)
-        val seekSliderProgress = if (seekSpan > 0L) {
-            ((clampedCurrentTime - seekStart).toFloat() / seekSpan.toFloat())
-                .takeIf { it.isFinite() }
-                ?.coerceIn(0f, 1f)
-                ?: 0f
+    val minSeekStartMs = 240L
+    val safeDuration = duration.coerceAtLeast(0L)
+    val seekStart = if (safeDuration > minSeekStartMs) minSeekStartMs else 0L
+    val seekSpan = (safeDuration - seekStart).coerceAtLeast(0L)
+    val clampedCurrentTime = position.coerceIn(0L, safeDuration)
+    val seekSliderProgress = if (seekSpan > 0L) {
+        ((clampedCurrentTime - seekStart).toFloat() / seekSpan.toFloat())
+            .takeIf { it.isFinite() }
+            ?.coerceIn(0f, 1f)
+            ?: 0f
+    } else {
+        0f
+    }
+    var draggingProgress by remember { mutableStateOf<Float?>(null) }
+    var isSeekDragging by remember { mutableStateOf(false) }
+    fun resolveSeekPosition(progress: Float): Long {
+        val safeProgress = progress
+            .takeIf { it.isFinite() }
+            ?.coerceIn(0f, 1f)
+            ?: 0f
+        return if (seekSpan > 0L) {
+            seekStart + (safeProgress * seekSpan.toFloat()).toLong()
         } else {
-            0f
+            seekStart
         }
+    }
+    val effectiveSliderProgress = draggingProgress ?: seekSliderProgress
+    val previewPosition = (draggingProgress?.let { resolveSeekPosition(it) } ?: clampedCurrentTime)
+        .coerceIn(0L, safeDuration)
 
         val progressColor = controlAccentColor
         val progressTrackColor = controlAccentColor.copy(alpha = 0.24f)
@@ -911,7 +927,7 @@ private fun MusicPlayerControlPanel(
                 .padding(vertical = 6.dp)
         ) {
             val displayProgress = if (safeDuration > 0L) {
-                (clampedCurrentTime.toFloat() / safeDuration.toFloat())
+                (previewPosition.toFloat() / safeDuration.toFloat())
                     .takeIf { it.isFinite() }
                     ?.coerceIn(0f, 1f)
                     ?: 0f
@@ -926,18 +942,23 @@ private fun MusicPlayerControlPanel(
             )
 
             Slider(
-                value = seekSliderProgress,
+                value = effectiveSliderProgress,
                 onValueChange = { newProgress ->
                     val safeProgress = newProgress
                         .takeIf { it.isFinite() }
                         ?.coerceIn(0f, 1f)
                         ?: 0f
-                    val newPosition = if (seekSpan > 0L) {
-                        seekStart + (safeProgress * seekSpan.toFloat()).toLong()
-                    } else {
-                        seekStart
+                    if (!isSeekDragging) {
+                        isSeekDragging = true
                     }
-                    controller.seekTo(newPosition.coerceIn(0L, safeDuration))
+                    draggingProgress = safeProgress
+                },
+                onValueChangeFinished = {
+                    val finalProgress = draggingProgress ?: seekSliderProgress
+                    val finalPosition = resolveSeekPosition(finalProgress).coerceIn(0L, safeDuration)
+                    draggingProgress = null
+                    isSeekDragging = false
+                    controller.seekTo(finalPosition)
                 },
                 modifier = Modifier.fillMaxSize(),
                 colors = SliderDefaults.colors(
@@ -952,7 +973,7 @@ private fun MusicPlayerControlPanel(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = formatPlaybackTime(position),
+                text = formatPlaybackTime(previewPosition),
                 color = panelOnColor.copy(alpha = 0.74f),
                 fontSize = timeSize
             )

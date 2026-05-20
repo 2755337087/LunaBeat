@@ -3322,12 +3322,16 @@ fun LyricPreviewScreen(
     
     // 用户滑动检测
     var isUserScrolling by remember { mutableStateOf(false) }
+    var isSeekBarDragging by remember { mutableStateOf(false) }
     var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var autoScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var seekPreviewScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var lyricDisplayPreviewJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var pendingAutoScrollIndex by remember { mutableIntStateOf(-1) }
     var autoScrollRunningTarget by remember { mutableIntStateOf(-1) }
     var lastAutoScrollWallTime by remember { mutableLongStateOf(0L) }
+    var lastSeekPreviewScrollWallTime by remember { mutableLongStateOf(0L) }
+    var lastSeekPreviewTargetIndex by remember { mutableIntStateOf(-1) }
     var lastAutoScrolledIndex by remember { mutableIntStateOf(-1) }
     var currentLineIndex by remember { mutableIntStateOf(-1) }
     var isLyricBlurEnabled by remember { mutableStateOf(lyricBlurPreferenceEnabled) }
@@ -3626,7 +3630,14 @@ fun LyricPreviewScreen(
     }
 
     // 更新当前播放行索引
-    LaunchedEffect(currentTime, processedLyricLines) {
+    LaunchedEffect(currentTime, processedLyricLines, isSeekBarDragging) {
+        if (isSeekBarDragging) {
+            if (processedLyricLines.isNotEmpty()) {
+                currentLineIndex = lineNavigator.findTargetIndex(currentTime)
+            }
+            previousObservedTime = currentTime
+            return@LaunchedEffect
+        }
         val isExternalBackwardSeek = currentTime + 800L < previousObservedTime
         if (isExternalBackwardSeek && !isManualLyricJumping) {
             isUserScrolling = false
@@ -3835,9 +3846,11 @@ fun LyricPreviewScreen(
     
     // 更新当前时间
     val playbackTickerDelayMs = if (showChrome) 16L else 48L
-    LaunchedEffect(playbackTickerDelayMs) {
+    LaunchedEffect(playbackTickerDelayMs, isSeekBarDragging) {
         while (true) {
-            currentTime = getCurrentPosition()
+            if (!isSeekBarDragging) {
+                currentTime = getCurrentPosition()
+            }
             isPlaying = getIsPlayingState()
             dynamicDuration = getAudioDuration().coerceAtLeast(0L)
             delay(playbackTickerDelayMs)
@@ -3851,7 +3864,8 @@ fun LyricPreviewScreen(
         ((fontSize.sp.toDp() * 2) + 8.dp).toPx()
     }
 
-    LaunchedEffect(currentTime, lyricsContentReady, processedLyricLines, fontSize, isUserScrolling) {
+    LaunchedEffect(currentTime, lyricsContentReady, processedLyricLines, fontSize, isUserScrolling, isSeekBarDragging) {
+        if (isSeekBarDragging) return@LaunchedEffect
         if (!lyricsContentReady || processedLyricLines.isEmpty()) {
             previousVisibleInterludeIndices = emptySet()
             return@LaunchedEffect
@@ -3952,6 +3966,7 @@ fun LyricPreviewScreen(
     // 自动滚动到当前播放行（屏幕1/4位置）
     LaunchedEffect(
         currentTime,
+        isSeekBarDragging,
         isUserScrolling,
         isManualLyricJumping,
         lyricsContentReady,
@@ -3961,7 +3976,7 @@ fun LyricPreviewScreen(
         manualTapSeekSettled,
         manualTapSuppressUntilMs
     ) {
-        if (!isUserScrolling && !isManualLyricJumping && lyricsContentReady && processedLyricLines.isNotEmpty()) {
+        if (!isSeekBarDragging && !isUserScrolling && !isManualLyricJumping && lyricsContentReady && processedLyricLines.isNotEmpty()) {
             val nowWallTime = SystemClock.elapsedRealtime()
             if (manualTapAnchorIndex >= 0) {
                 val seekDelta = currentTime - manualTapAnchorBeginMs
@@ -4727,6 +4742,40 @@ fun LyricPreviewScreen(
                                 if (targetIndex >= 0) {
                                     lazyListState.scrollToItem(index = toLyricListIndex(targetIndex), scrollOffset = lyricTargetScrollOffset)
                                 }
+                            }
+                        },
+                        onSeekPreviewChange = { previewPosition ->
+                            currentTime = previewPosition
+                            if (processedLyricLines.isNotEmpty()) {
+                                val targetIndex = lineNavigator.findTargetIndex(previewPosition)
+                                if (targetIndex >= 0) {
+                                    val now = SystemClock.elapsedRealtime()
+                                    val indexChanged = targetIndex != lastSeekPreviewTargetIndex
+                                    if (indexChanged || now - lastSeekPreviewScrollWallTime >= 90L) {
+                                        lastSeekPreviewTargetIndex = targetIndex
+                                        lastSeekPreviewScrollWallTime = now
+                                        seekPreviewScrollJob?.cancel()
+                                        seekPreviewScrollJob = coroutineScope.launch {
+                                            lazyListState.scrollToItem(
+                                                index = toLyricListIndex(targetIndex),
+                                                scrollOffset = lyricTargetScrollOffset
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        onSeekDragStateChange = { dragging ->
+                            isSeekBarDragging = dragging
+                            if (dragging) {
+                                registerPortraitControlsInteraction()
+                                autoScrollJob?.cancel()
+                                pendingAutoScrollIndex = -1
+                                autoScrollRunningTarget = -1
+                                lastSeekPreviewTargetIndex = -1
+                                lastSeekPreviewScrollWallTime = 0L
+                            } else {
+                                seekPreviewScrollJob?.cancel()
                             }
                         },
                         vibrantColor = coverThemeColor ?: accentColor,
@@ -7353,6 +7402,8 @@ fun PlaybackControls(
     onSkipNextClick: (() -> Unit)? = null,
     isSkipNextEnabled: Boolean = true,
     onSeek: (Long) -> Unit,
+    onSeekPreviewChange: (Long) -> Unit = {},
+    onSeekDragStateChange: (Boolean) -> Unit = {},
     vibrantColor: Color? = null,
     backgroundColor: Color? = null,
     containerColor: Color? = null,
@@ -7388,6 +7439,9 @@ fun PlaybackControls(
     } else {
         0f
     }
+    var draggingProgress by remember { mutableStateOf<Float?>(null) }
+    var isSeekDragging by remember { mutableStateOf(false) }
+    val effectiveSliderProgress = draggingProgress ?: sliderProgress
     
     val controlBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
     val controlContainer = containerColor ?: controlBackground
@@ -7555,18 +7609,40 @@ fun PlaybackControls(
             
             // 可拖动的进度条
             Slider(
-                value = sliderProgress,
+                value = effectiveSliderProgress,
                 onValueChange = { newProgress ->
                     val safeProgress = newProgress
                         .takeIf { it.isFinite() }
                         ?.coerceIn(0f, 1f)
                         ?: 0f
+                    if (!isSeekDragging) {
+                        isSeekDragging = true
+                        onSeekDragStateChange(true)
+                    }
+                    draggingProgress = safeProgress
                     val newPosition = if (seekSpan > 0L) {
                         seekStart + (safeProgress * seekSpan.toFloat()).toLong()
                     } else {
                         seekStart
                     }
-                    onSeek(newPosition.coerceIn(0L, safeDuration))
+                    onSeekPreviewChange(newPosition.coerceIn(0L, safeDuration))
+                },
+                onValueChangeFinished = {
+                    val finalProgress = draggingProgress
+                        ?.takeIf { it.isFinite() }
+                        ?.coerceIn(0f, 1f)
+                        ?: sliderProgress
+                    val finalPosition = if (seekSpan > 0L) {
+                        seekStart + (finalProgress * seekSpan.toFloat()).toLong()
+                    } else {
+                        seekStart
+                    }
+                    draggingProgress = null
+                    onSeek(finalPosition.coerceIn(0L, safeDuration))
+                    if (isSeekDragging) {
+                        isSeekDragging = false
+                        onSeekDragStateChange(false)
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
                 colors = SliderDefaults.colors(
