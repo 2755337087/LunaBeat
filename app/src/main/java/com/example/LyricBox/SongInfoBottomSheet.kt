@@ -74,6 +74,7 @@ data class SongInfoState(
 fun SongInfoBottomSheet(
     audio: AudioFile,
     isFavorite: Boolean,
+    isSleepTimerRunning: Boolean = false,
     renameSuccessSignal: Long,
     onDismiss: () -> Unit,
     onPlayNext: (() -> Unit)? = null,
@@ -85,7 +86,8 @@ fun SongInfoBottomSheet(
     onDeleteFile: (() -> Unit)? = null,
     onEditLyricsFromPreview: (() -> Unit)? = null,
     onEditMetadataFromSheet: ((AudioFile) -> Unit)? = null,
-    onSearchNavigateDone: (() -> Unit)? = null
+    onSearchNavigateDone: (() -> Unit)? = null,
+    onOpenSleepTimer: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -248,6 +250,12 @@ fun SongInfoBottomSheet(
                         } else {
                             favoriteState = toggleFavoriteForAudio(context, audio)
                         }
+                    }
+                )
+                SongInfoActionItem(
+                    title = if (isSleepTimerRunning) "定时播放中" else "定时播放",
+                    onClick = {
+                        onOpenSleepTimer?.invoke()
                     }
                 )
                 SongInfoActionItem(

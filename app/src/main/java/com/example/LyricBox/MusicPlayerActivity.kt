@@ -144,6 +144,7 @@ private fun MusicPlayerScreen(
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
 
     val lyricPreviewLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -433,6 +434,7 @@ private fun MusicPlayerScreen(
         SongInfoBottomSheet(
             audio = infoAudio,
             isFavorite = infoAudio.path in LocalPlaylistStore.loadFavoritePaths(context),
+            isSleepTimerRunning = controller.sleepTimerState.isActive,
             renameSuccessSignal = 0L,
             onDismiss = {
                 showSongInfoSheet = false
@@ -445,6 +447,25 @@ private fun MusicPlayerScreen(
                 pendingAlbum = albumName
                 pendingArtists = artists
                 showArtistSheet = true
+            },
+            onOpenSleepTimer = {
+                showSongInfoSheet = false
+                selectedSongInfoAudio = null
+                showSleepTimerSheet = true
+            }
+        )
+    }
+
+    if (showSleepTimerSheet) {
+        SleepTimerBottomSheet(
+            isRunning = controller.sleepTimerState.isActive,
+            remainingMs = controller.sleepTimerState.remainingMs,
+            onDismiss = { showSleepTimerSheet = false },
+            onStartTimer = { minutes, finishCurrentSong ->
+                controller.startSleepTimer(minutes = minutes, finishCurrentSong = finishCurrentSong)
+            },
+            onCancelTimer = {
+                controller.cancelSleepTimer()
             }
         )
     }

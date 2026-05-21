@@ -93,6 +93,12 @@ class MusicPlaybackService : MediaSessionService() {
             mainHandler.postDelayed(this, 300L)
         }
     }
+    private val sleepTimerRunnable = object : Runnable {
+        override fun run() {
+            evaluateSleepTimer()
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
     private val lyricPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             LyricPreviewActivity.KEY_LYRICON_STATUS_BAR -> syncLyriconEnabledFromPrefs()
@@ -169,6 +175,7 @@ class MusicPlaybackService : MediaSessionService() {
                         pushLyriconSongForCurrentItem(forceReloadLyrics = true)
                         pushLyriconPlayback(isSeek = true)
                     }
+                    evaluateSleepTimer()
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -272,6 +279,7 @@ class MusicPlaybackService : MediaSessionService() {
 
         lyricPreviewPrefs.registerOnSharedPreferenceChangeListener(lyricPrefsListener)
         syncLyriconEnabledFromPrefs()
+        mainHandler.post(sleepTimerRunnable)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -287,6 +295,7 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(lyriconProgressRunnable)
+        mainHandler.removeCallbacks(sleepTimerRunnable)
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
         lyriconBridge.release()
         mediaSession?.run {
@@ -402,6 +411,39 @@ class MusicPlaybackService : MediaSessionService() {
                 lyriconBridge.updateSong(song)
                 pushLyriconDisplayFlags()
                 pushLyriconPlayback(isSeek = true)
+            }
+        }
+    }
+
+    private fun evaluateSleepTimer() {
+        val currentPlayer = player ?: return
+        val snapshot = SleepTimerStore.read(this)
+        if (!snapshot.isActive) return
+
+        val now = SystemClock.elapsedRealtime()
+        val currentPath = currentPlayer.currentMediaItem?.resolveOriginalAudioPath()
+
+        if (!snapshot.waitingForSongEnd && now >= snapshot.endElapsedRealtimeMs) {
+            if (snapshot.finishCurrentSong && !currentPath.isNullOrBlank()) {
+                SleepTimerStore.markWaitingForSongEnd(this, currentPath)
+                return
+            }
+            currentPlayer.pause()
+            currentPlayer.playWhenReady = false
+            SleepTimerStore.clear(this)
+            return
+        }
+
+        if (snapshot.waitingForSongEnd) {
+            val anchorPath = snapshot.anchorAudioPath
+            val endedOrSwitched = anchorPath.isNullOrBlank() ||
+                currentPath.isNullOrBlank() ||
+                currentPath != anchorPath ||
+                currentPlayer.playbackState == Player.STATE_ENDED
+            if (endedOrSwitched) {
+                currentPlayer.pause()
+                currentPlayer.playWhenReady = false
+                SleepTimerStore.clear(this)
             }
         }
     }

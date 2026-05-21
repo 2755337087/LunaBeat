@@ -3001,6 +3001,7 @@ fun LyricPreviewScreen(
     var playbackControlsMenuExpanded by remember { mutableStateOf(false) }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
     var pendingArtistSheetAlbum by remember { mutableStateOf("") }
     var pendingArtistSheetArtists by remember { mutableStateOf(listOf<String>()) }
@@ -5875,6 +5876,7 @@ fun LyricPreviewScreen(
             SongInfoBottomSheet(
                 audio = previewSongInfoAudio,
                 isFavorite = previewSongInfoIsFavorite,
+                isSleepTimerRunning = activePlaybackController?.sleepTimerState?.isActive == true,
                 renameSuccessSignal = 0L,
                 onDismiss = { showSongInfoSheet = false },
                 onSearchNavigateDone = {
@@ -5893,6 +5895,27 @@ fun LyricPreviewScreen(
                         putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audioToEdit.mediaStoreId)
                     }
                     activity.startActivity(editIntent)
+                },
+                onOpenSleepTimer = {
+                    showSongInfoSheet = false
+                    showSleepTimerSheet = true
+                }
+            )
+        }
+
+        if (showSleepTimerSheet && activePlaybackController != null) {
+            SleepTimerBottomSheet(
+                isRunning = activePlaybackController.sleepTimerState.isActive,
+                remainingMs = activePlaybackController.sleepTimerState.remainingMs,
+                onDismiss = { showSleepTimerSheet = false },
+                onStartTimer = { minutes, finishCurrentSong ->
+                    activePlaybackController.startSleepTimer(
+                        minutes = minutes,
+                        finishCurrentSong = finishCurrentSong
+                    )
+                },
+                onCancelTimer = {
+                    activePlaybackController.cancelSleepTimer()
                 }
             )
         }

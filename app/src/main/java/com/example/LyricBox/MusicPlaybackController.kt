@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import androidx.compose.runtime.Composable
@@ -51,6 +52,13 @@ enum class PlaybackMode {
     SHUFFLE,
     SINGLE_REPEAT
 }
+
+data class SleepTimerUiState(
+    val isActive: Boolean = false,
+    val remainingMs: Long = 0L,
+    val finishCurrentSong: Boolean = false,
+    val waitingForSongEnd: Boolean = false
+)
 
 class MusicPlaybackController(private val context: Context) {
 
@@ -115,6 +123,8 @@ class MusicPlaybackController(private val context: Context) {
         private set
     var nextTrackTitle by mutableStateOf("")
         private set
+    var sleepTimerState by mutableStateOf(SleepTimerUiState())
+        private set
     private var temporaryCompanionMediaIndex: Int = -1
     private var temporaryCompanionSourcePath: String? = null
     private var lastKnownDurationMs: Long = 0L
@@ -128,6 +138,7 @@ class MusicPlaybackController(private val context: Context) {
     init {
         restoreSnapshotState()
         restorePlaybackModeState()
+        refreshSleepTimerState()
     }
 
     private val listener = object : Player.Listener {
@@ -153,6 +164,7 @@ class MusicPlaybackController(private val context: Context) {
                 syncFromPlayer(readyController)
                 isReady = true
                 restoreQueueIfNeededAsync(readyController)
+                refreshSleepTimerState()
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -167,6 +179,7 @@ class MusicPlaybackController(private val context: Context) {
         transcodeQueueExecutor.shutdownNow()
         queuePersistExecutor.shutdownNow()
         isReady = false
+        refreshSleepTimerState()
     }
 
     fun togglePlayPause() {
@@ -200,6 +213,80 @@ class MusicPlaybackController(private val context: Context) {
             return
         }
         controller?.pause()
+    }
+
+    fun startSleepTimer(minutes: Int, finishCurrentSong: Boolean) {
+        val safeMinutes = minutes.coerceIn(1, 120)
+        SleepTimerStore.saveLastCustomMinutes(context, safeMinutes)
+        SleepTimerStore.saveLastFinishCurrentSong(context, finishCurrentSong)
+        SleepTimerStore.start(
+            context = context,
+            durationMs = safeMinutes * 60_000L,
+            finishCurrentSong = finishCurrentSong,
+            anchorPath = currentAudioPath
+        )
+        refreshSleepTimerState()
+    }
+
+    fun cancelSleepTimer() {
+        SleepTimerStore.clear(context)
+        refreshSleepTimerState()
+    }
+
+    fun refreshSleepTimerState() {
+        val snapshot = SleepTimerStore.read(context)
+        val now = SystemClock.elapsedRealtime()
+        if (!snapshot.isActive) {
+            sleepTimerState = SleepTimerUiState()
+            return
+        }
+
+        if (!snapshot.waitingForSongEnd && now >= snapshot.endElapsedRealtimeMs) {
+            if (snapshot.finishCurrentSong && !currentAudioPath.isNullOrBlank()) {
+                SleepTimerStore.markWaitingForSongEnd(context, currentAudioPath)
+                val waitingSnapshot = SleepTimerStore.read(context)
+                sleepTimerState = SleepTimerUiState(
+                    isActive = true,
+                    remainingMs = 0L,
+                    finishCurrentSong = waitingSnapshot.finishCurrentSong,
+                    waitingForSongEnd = waitingSnapshot.waitingForSongEnd
+                )
+                return
+            }
+            pause()
+            SleepTimerStore.clear(context)
+            sleepTimerState = SleepTimerUiState()
+            return
+        }
+
+        if (snapshot.waitingForSongEnd) {
+            val anchorPath = snapshot.anchorAudioPath
+            val currentPath = currentAudioPath
+            val endedOrSwitched = anchorPath.isNullOrBlank() ||
+                currentPath.isNullOrBlank() ||
+                currentPath != anchorPath ||
+                playbackState == Player.STATE_ENDED
+            if (endedOrSwitched) {
+                pause()
+                SleepTimerStore.clear(context)
+                sleepTimerState = SleepTimerUiState()
+                return
+            }
+            sleepTimerState = SleepTimerUiState(
+                isActive = true,
+                remainingMs = 0L,
+                finishCurrentSong = snapshot.finishCurrentSong,
+                waitingForSongEnd = true
+            )
+            return
+        }
+
+        sleepTimerState = SleepTimerUiState(
+            isActive = true,
+            remainingMs = snapshot.remainingMs(now),
+            finishCurrentSong = snapshot.finishCurrentSong,
+            waitingForSongEnd = false
+        )
     }
 
     fun playQueue(queue: List<AudioFile>, startPath: String) {
@@ -732,6 +819,7 @@ class MusicPlaybackController(private val context: Context) {
             if (lastKnownDurationMs > 0L) {
                 durationMs = lastKnownDurationMs
             }
+            refreshSleepTimerState()
             return
         }
         val player = controller ?: return
@@ -743,6 +831,7 @@ class MusicPlaybackController(private val context: Context) {
         } else if (durationMs <= 0L && lastKnownDurationMs > 0L) {
             durationMs = lastKnownDurationMs
         }
+        refreshSleepTimerState()
     }
 
     fun realtimePositionMs(): Long {
@@ -841,6 +930,7 @@ class MusicPlaybackController(private val context: Context) {
         } else {
             persistSnapshotState()
         }
+        refreshSleepTimerState()
     }
 
     private fun removeDuplicateQueueItems(player: Player): Boolean {
@@ -952,6 +1042,7 @@ class MusicPlaybackController(private val context: Context) {
         if (!forcePlay) {
             dsdPlayer.pause()
         }
+        refreshSleepTimerState()
     }
 
     private fun stopDsdPlayback(clearState: Boolean) {
@@ -965,6 +1056,7 @@ class MusicPlaybackController(private val context: Context) {
             playWhenReadyRequested = false
             playbackState = Player.STATE_IDLE
         }
+        refreshSleepTimerState()
     }
 
     private fun syncFromDsdPlayer(state: DsdPlaybackState) {
@@ -974,6 +1066,7 @@ class MusicPlaybackController(private val context: Context) {
             playWhenReadyRequested = false
             playbackState = Player.STATE_IDLE
             Log.e("MusicPlaybackController", "DSF playback failed: ${state.errorMessage}")
+            refreshSleepTimerState()
             return
         }
         if (state.hasEnded) {
@@ -984,6 +1077,7 @@ class MusicPlaybackController(private val context: Context) {
             durationMs = state.durationMs
             lastKnownDurationMs = state.durationMs
             handleDsdEnded()
+            refreshSleepTimerState()
             return
         }
         isPlaying = state.isPlaying
@@ -995,6 +1089,7 @@ class MusicPlaybackController(private val context: Context) {
             lastKnownDurationMs = state.durationMs
         }
         updateDsdNextTrack()
+        refreshSleepTimerState()
     }
 
     private fun handleDsdEnded() {
@@ -1523,6 +1618,13 @@ fun rememberMusicPlaybackController(): MusicPlaybackController {
         while (controller.isReady && (controller.isPlaying || controller.playbackState == Player.STATE_BUFFERING)) {
             delay(500L)
             controller.refreshProgress()
+        }
+    }
+
+    LaunchedEffect(controller) {
+        while (true) {
+            controller.refreshSleepTimerState()
+            delay(1000L)
         }
     }
 

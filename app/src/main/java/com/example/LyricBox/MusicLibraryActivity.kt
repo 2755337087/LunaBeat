@@ -1761,6 +1761,7 @@ fun MusicLibraryScreen(
     var showAudioOptionsDialog by remember { mutableStateOf(false) }
     var selectedSongInfoAudio by remember { mutableStateOf<AudioFile?>(null) }
     var showSongInfoSheet by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
     var pendingAlbumCandidate by remember { mutableStateOf("") }
     var pendingArtistCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -3790,6 +3791,7 @@ fun MusicLibraryScreen(
         SongInfoBottomSheet(
             audio = infoAudio,
             isFavorite = infoAudio.path in favoritePaths,
+            isSleepTimerRunning = playbackController.sleepTimerState.isActive,
             renameSuccessSignal = renameSuccessSignal,
             onDismiss = {
                 showSongInfoSheet = false
@@ -3836,6 +3838,25 @@ fun MusicLibraryScreen(
             },
             onEditMetadataFromSheet = { audioToEdit ->
                 onEditMetadata(audioToEdit.path)
+            },
+            onOpenSleepTimer = {
+                showSongInfoSheet = false
+                selectedSongInfoAudio = null
+                showSleepTimerSheet = true
+            }
+        )
+    }
+
+    if (showSleepTimerSheet) {
+        SleepTimerBottomSheet(
+            isRunning = playbackController.sleepTimerState.isActive,
+            remainingMs = playbackController.sleepTimerState.remainingMs,
+            onDismiss = { showSleepTimerSheet = false },
+            onStartTimer = { minutes, finishCurrentSong ->
+                playbackController.startSleepTimer(minutes = minutes, finishCurrentSong = finishCurrentSong)
+            },
+            onCancelTimer = {
+                playbackController.cancelSleepTimer()
             }
         )
     }
