@@ -12,6 +12,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.WindowManager
 import android.widget.Toast
 import com.lonx.audiotag.rw.AudioTagReader
@@ -107,6 +108,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.airbnb.lottie.compose.*
+import com.example.LyricBox.lyrics.api.Netease163KeyCodec
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
@@ -118,6 +120,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.cos
@@ -127,11 +131,14 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import androidx.media3.common.C
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
@@ -144,6 +151,65 @@ private const val PLAYED_LINE_BLUR_RADIUS = 2f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
 private const val COMPANION_AUDIO_LOG_TAG = "LyricPreviewCompanion"
+
+private fun resolveNowPlayingCommentText(rawComment: String): String? {
+    val trimmed = rawComment.trim()
+    if (trimmed.isBlank()) return null
+
+    val has163Key = trimmed.contains("163 key", ignoreCase = true) ||
+        trimmed.contains("163key", ignoreCase = true)
+    if (!has163Key) return trimmed
+
+    val decodedMusicJson = runCatching {
+        Netease163KeyCodec.decode(trimmed).musicJson
+    }.getOrNull().orEmpty()
+    if (decodedMusicJson.isBlank()) return null
+
+    return extractAliasFrom163MusicJson(decodedMusicJson)
+}
+
+private fun extractAliasFrom163MusicJson(musicJson: String): String? {
+    val jsonObject = runCatching { JSONObject(musicJson) }.getOrNull() ?: return null
+
+    fun parseAliasValue(value: Any?): String? {
+        return when (value) {
+            is JSONArray -> {
+                (0 until value.length())
+                    .mapNotNull { index ->
+                        value.optString(index)
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                    }
+                    .joinToString(" / ")
+                    .takeIf { it.isNotBlank() }
+            }
+            is String -> {
+                val trimmed = value.trim()
+                if (trimmed.isBlank()) return null
+                if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                    runCatching { JSONArray(trimmed) }
+                        .getOrNull()
+                        ?.let { parseAliasValue(it) }
+                        ?: trimmed.removePrefix("[").removeSuffix("]").trim().takeIf { it.isNotBlank() }
+                } else {
+                    trimmed
+                }
+            }
+            else -> value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    val rootAlias = parseAliasValue(jsonObject.opt("alias"))
+    if (!rootAlias.isNullOrBlank()) return rootAlias
+
+    val nestedAlias = runCatching {
+        val musicObj = jsonObject.optJSONObject("music")
+        parseAliasValue(musicObj?.opt("alias"))
+    }.getOrNull()
+    if (!nestedAlias.isNullOrBlank()) return nestedAlias
+
+    return null
+}
 
 // ==================== 数据模型 ====================
 
@@ -2608,6 +2674,142 @@ private fun StaticBlurLyricCoverBackground(
     }
 }
 
+private suspend fun resolveLyricPreviewVideoCoverPath(
+    context: Context,
+    audioPath: String?,
+    albumName: String?
+): String? {
+    return getVideoCoverPath(context, audioPath, albumName)
+}
+
+@Composable
+private fun LyricPreviewPortraitVideoCover(
+    videoPath: String,
+    isActive: Boolean,
+    contentAlpha: Float,
+    bottomFadeHeight: Dp = 200.dp,
+    modifier: Modifier = Modifier,
+    onBoundsChanged: (androidx.compose.ui.geometry.Rect) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val density = LocalDensity.current
+    val bottomFadeHeightPx = remember(bottomFadeHeight, density) { with(density) { bottomFadeHeight.toPx() } }
+    var hasRenderedFirstFrame by remember(videoPath) { mutableStateOf(false) }
+    val renderedFrameAlpha by animateFloatAsState(
+        targetValue = if (hasRenderedFirstFrame) 1f else 0f,
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        label = "videoFirstFrameFadeIn"
+    )
+    val player = remember(videoPath) {
+        ExoPlayer.Builder(context).build().apply {
+            repeatMode = Player.REPEAT_MODE_ALL
+            volume = 0f
+            setAudioAttributes(AudioAttributes.DEFAULT, false)
+        }
+    }
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
+    }
+    DisposableEffect(lifecycleOwner, player, isActive) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    if (isActive) {
+                        player.playWhenReady = true
+                        player.play()
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    player.pause()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    LaunchedEffect(videoPath) {
+        val file = File(videoPath)
+        hasRenderedFirstFrame = false
+        if (!file.exists()) {
+            player.clearMediaItems()
+            return@LaunchedEffect
+        }
+        player.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(file)))
+        player.prepare()
+    }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                hasRenderedFirstFrame = true
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+        }
+    }
+    LaunchedEffect(isActive, player) {
+        if (isActive) {
+            player.playWhenReady = true
+            player.play()
+        } else {
+            player.pause()
+            player.playWhenReady = false
+        }
+    }
+    AndroidView(
+        factory = { ctx ->
+            (LayoutInflater.from(ctx)
+                .inflate(R.layout.view_lyric_preview_video_cover_player, null, false) as PlayerView).apply {
+                useController = false
+                // centerCrop: 保持比例并填满容器，超出部分裁剪。
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                this.player = player
+            }
+        },
+        update = { playerView ->
+            playerView.player = player
+        },
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = (contentAlpha.coerceIn(0f, 1f) * renderedFrameAlpha).coerceIn(0f, 1f)
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithContent {
+                drawContent()
+                val fadeStart = (size.height - bottomFadeHeightPx).coerceAtLeast(0f)
+                val opaqueStop = if (size.height <= 0f) 1f else (fadeStart / size.height).coerceIn(0f, 1f)
+                val stop1 = (opaqueStop + (1f - opaqueStop) * 0.16f).coerceIn(0f, 1f)
+                val stop2 = (opaqueStop + (1f - opaqueStop) * 0.42f).coerceIn(0f, 1f)
+                val stop3 = (opaqueStop + (1f - opaqueStop) * 0.72f).coerceIn(0f, 1f)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.White,
+                            opaqueStop to Color.White,
+                            stop1 to Color.White.copy(alpha = 0.90f),
+                            stop2 to Color.White.copy(alpha = 0.58f),
+                            stop3 to Color.White.copy(alpha = 0.22f),
+                            1f to Color.Transparent
+                        )
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            .onGloballyPositioned { coordinates ->
+                onBoundsChanged(coordinates.boundsInRoot())
+            }
+    )
+}
+
 // ==================== 预览界面 ====================
 
 @OptIn(
@@ -2830,6 +3032,7 @@ fun LyricPreviewScreen(
     var themeResolveRequestVersion by remember { mutableIntStateOf(0) }
     var coverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
     var displayedCoverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
+    var portraitVideoCoverPath by remember(sourceAudioPath) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     DisposableEffect(keepScreenOnEnabled, isPlaying) {
@@ -2983,6 +3186,24 @@ fun LyricPreviewScreen(
             portraitLyricDisplaySelected &&
             autoHidePlaybackControlsEnabled
     val isPortraitCoverMode = usePortraitPlaybackLayout && !portraitLyricLayoutSelected
+    val enablePortraitVideoCover = usePortraitPlaybackLayout && !isLargeScreenDevice
+    val showPortraitVideoPreferred =
+        enablePortraitVideoCover && !portraitLyricDisplaySelected && !portraitVideoCoverPath.isNullOrBlank()
+    val portraitVideoCoverAlpha by animateFloatAsState(
+        targetValue = if (showPortraitVideoPreferred) 1f else 0f,
+        animationSpec = tween(durationMillis = 260),
+        label = "portraitVideoCoverAlpha"
+    )
+    val sharedCoverVisibilityAlpha by animateFloatAsState(
+        targetValue = if (showCoverContent) 1f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "sharedCoverVisibilityAlpha"
+    )
+    val portraitMainImageCoverAlpha by animateFloatAsState(
+        targetValue = if (showPortraitVideoPreferred) 0f else 1f,
+        animationSpec = tween(durationMillis = 260),
+        label = "portraitMainImageCoverAlpha"
+    )
     val sharedCoverTargetMode = when {
         usePortraitPlaybackLayout && lyricLayoutSelected -> "portrait_header"
         usePortraitPlaybackLayout -> "portrait_main_cover"
@@ -3113,6 +3334,15 @@ fun LyricPreviewScreen(
             onBack()
         }
     }
+    LaunchedEffect(sourceAudioPath, audioPath, metadata.album) {
+        val resolvedAudioPath = sourceAudioPath.takeIf { it.isNotBlank() }
+            ?: audioPath.takeIf { it.isNotBlank() }
+        portraitVideoCoverPath = resolveLyricPreviewVideoCoverPath(
+            context = context,
+            audioPath = resolvedAudioPath,
+            albumName = metadata.album
+        )
+    }
     var handledLyricDisplayResetToken by remember { mutableIntStateOf(lyricDisplayResetToken) }
     LaunchedEffect(lyricDisplayResetToken) {
         if (lyricDisplayResetToken <= handledLyricDisplayResetToken) return@LaunchedEffect
@@ -3138,11 +3368,8 @@ fun LyricPreviewScreen(
             showPortraitNextTrackHint = !showPortraitNextTrackHint
         }
     }
-    val playbackComment = metadata.comment.trim()
-    val shouldShowPlaybackComment = playbackComment.isNotBlank() &&
-        !playbackComment.contains("163 key", ignoreCase = true) &&
-        !playbackComment.contains("163key", ignoreCase = true)
-    val nowPlayingTopText = if (shouldShowPlaybackComment) {
+    val playbackComment = resolveNowPlayingCommentText(metadata.comment)
+    val nowPlayingTopText = if (!playbackComment.isNullOrBlank()) {
         "正在播放：$playbackComment"
     } else {
         "正在播放"
@@ -3288,7 +3515,6 @@ fun LyricPreviewScreen(
             coverVisualPlaying = isPlaying
         }
     }
-    
     LaunchedEffect(playbackCompleted) {
         if (playbackCompleted) {
             isPlaying = false
@@ -5092,7 +5318,48 @@ fun LyricPreviewScreen(
                             .asPaddingValues()
                             .calculateTopPadding() + 56.dp
                     }
+                    var portraitControlsTopPx by remember { mutableFloatStateOf(Float.NaN) }
+                    val showPortraitVideoLayer =
+                        enablePortraitVideoCover &&
+                            !portraitVideoCoverPath.isNullOrBlank() &&
+                            (showPortraitVideoPreferred || portraitVideoCoverAlpha > 0.01f)
+                    val portraitVideoCompositeAlpha =
+                        (portraitVideoCoverAlpha * sharedCoverVisibilityAlpha).coerceIn(0f, 1f)
                     Box(modifier = Modifier.fillMaxSize()) {
+                        if (showPortraitVideoLayer && portraitVideoCoverPath != null) {
+                            val controlsTopPx = portraitControlsTopPx.takeIf { !it.isNaN() }
+                            val fallbackControlsTopPx = with(density) {
+                                (
+                                    screenConfig.screenHeightDp.dp -
+                                        if (portraitControlsPanelHeightPx > 0) {
+                                            portraitControlsPanelHeightPx.toDp()
+                                        } else {
+                                            228.dp
+                                        }
+                                    ).toPx()
+                            }
+                            val topGapPx = with(density) { 20.dp.toPx() }
+                            val availableHeightPx = ((controlsTopPx ?: fallbackControlsTopPx) - topGapPx)
+                                .coerceAtLeast(1f)
+                            val availableHeightDp = with(density) { availableHeightPx.toDp() }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .height(availableHeightDp)
+                                    .graphicsLayer { alpha = portraitVideoCompositeAlpha }
+                            ) {
+                                LyricPreviewPortraitVideoCover(
+                                    videoPath = portraitVideoCoverPath!!,
+                                    isActive = showPortraitVideoPreferred && isPlaying,
+                                    // 视频自身底部做 alpha 渐隐，不影响其他组件层。
+                                    contentAlpha = 1f,
+                                    bottomFadeHeight = 260.dp,
+                                    modifier = Modifier.matchParentSize(),
+                                    onBoundsChanged = { }
+                                )
+                            }
+                        }
                         Column(modifier = Modifier.fillMaxSize()) {
                             Box(
                                 modifier = Modifier
@@ -5158,7 +5425,7 @@ fun LyricPreviewScreen(
                                         sharedTransitionScope = portraitSharedTransitionScope,
                                         sharedCoverAnimatedVisibilityScope = centerCoverVisibilityScope,
                                         sharedCoverId = sharedCoverId,
-                                        coverAlpha = if (showCoverContent) 1f else 0f,
+                                        coverAlpha = if (showCoverContent) portraitMainImageCoverAlpha else 0f,
                                         onCoverBoundsChanged = if (shouldTrackPortraitMainCover) {
                                             onPrimaryCoverBoundsChanged
                                         } else {
@@ -5205,6 +5472,9 @@ fun LyricPreviewScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .onGloballyPositioned { coordinates ->
+                                            portraitControlsTopPx = coordinates.boundsInRoot().top
+                                        }
                                         .onSizeChanged { size ->
                                             if (size.height > 0) {
                                                 portraitControlsPanelHeightPx = size.height
