@@ -2083,7 +2083,6 @@ fun MusicLibraryScreen(
     val inlinePreviewTransitionOffsetPx = with(density) {
         screenConfig.screenHeightDp.dp.toPx().coerceAtLeast(1f)
     }
-    val previewOpacityRampDistancePx = with(density) { 50.dp.toPx().coerceAtLeast(1f) }
     val autoExpandTriggerDistancePx = with(density) {
         (screenConfig.screenHeightDp.dp.toPx() * 0.15f).coerceAtLeast(1f)
     }
@@ -2099,12 +2098,6 @@ fun MusicLibraryScreen(
     fun resolveMiniPlayerTravelDistancePx(): Float {
         return (miniBarBaseTop ?: miniBarBounds?.top ?: inlinePreviewTransitionOffsetPx)
             .coerceAtLeast(1f)
-    }
-
-    fun resolvePreviewOpacity(progress: Float): Float {
-        val clampedProgress = progress.coerceIn(0f, 1f)
-        val movedDistancePx = clampedProgress * resolveMiniPlayerTravelDistancePx()
-        return (movedDistancePx / previewOpacityRampDistancePx).coerceIn(0f, 1f)
     }
 
     fun animateMiniPlayerProgressTo(
@@ -3585,10 +3578,13 @@ fun MusicLibraryScreen(
             )
         }
 
-        if (showInlineLyricPreview || miniPlayerExpandProgress > 0f) {
+        AnimatedVisibility(
+            visible = showInlineLyricPreview || miniPlayerExpandProgress > 0f,
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 220))
+        ) {
             val miniPlayerTravelDistancePx = resolveMiniPlayerTravelDistancePx()
             val previewTranslateY = miniPlayerTravelDistancePx * (1f - miniPlayerExpandProgress)
-            val previewOpacity = resolvePreviewOpacity(miniPlayerExpandProgress)
             val currentPath = playbackController.currentAudioPath.orEmpty()
             val inlineCompanionSelected = isSameInlineAudioPath(
                 playbackController.currentPlaybackUriPath,
@@ -3658,7 +3654,6 @@ fun MusicLibraryScreen(
                         }
                         .graphicsLayer {
                             translationY = previewTranslateY
-                            alpha = previewOpacity
                         }
                 ) {
                     LyricPreviewScreen(

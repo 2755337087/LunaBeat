@@ -1133,7 +1133,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val PAGE_BACKGROUND_SOLID = 0
         const val PAGE_BACKGROUND_STATIC_BLUR = 1
         const val PAGE_BACKGROUND_DYNAMIC_FLOW = 2
-        const val DEFAULT_PAGE_BACKGROUND_MODE = PAGE_BACKGROUND_SOLID
+        const val DEFAULT_PAGE_BACKGROUND_MODE = PAGE_BACKGROUND_STATIC_BLUR
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_SCREEN_KEEP_ON = true
         const val DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS = false
@@ -1143,7 +1143,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val LYRIC_DISPLAY_MODE_FORCE_LINE = 2
         const val DEFAULT_LYRIC_DISPLAY_MODE = LYRIC_DISPLAY_MODE_DEFAULT
         const val LYRIC_DISPLAY_POSITION_MIN = -4
-        const val LYRIC_DISPLAY_POSITION_DEFAULT = -4
+        const val LYRIC_DISPLAY_POSITION_DEFAULT = -3
         const val LYRIC_DISPLAY_POSITION_MAX = 15
         const val LYRIC_DISPLAY_STEP_DP = 10
         const val DEFAULT_LYRIC_DISPLAY_POSITION = LYRIC_DISPLAY_POSITION_DEFAULT
@@ -2875,7 +2875,7 @@ fun LyricPreviewScreen(
             else -> LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
         }
         return if (!supportsDynamicCoverBackground && normalized == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW) {
-            LyricPreviewActivity.PAGE_BACKGROUND_SOLID
+            LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
         } else {
             normalized
         }

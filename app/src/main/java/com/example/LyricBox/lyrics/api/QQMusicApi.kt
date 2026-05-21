@@ -364,6 +364,7 @@ class QQMusicApi {
                     
                     val trackNumber = data.optInt("index_album", 0).let { if (it > 0) it.toString() else null }
                     val year = data.optString("time_public", "").let { if (it.isNotEmpty()) it else null }
+                    val comment = extractDetailComment(data, album)
                     
                     SongInfo(
                         source = songInfo.source,
@@ -382,7 +383,7 @@ class QQMusicApi {
                         albumArtist = null,
                         composer = null,
                         lyricist = null,
-                        comment = null,
+                        comment = comment,
                         copyright = null,
                         coverUrl = coverUrl
                     )
@@ -392,5 +393,47 @@ class QQMusicApi {
                 null
             }
         }
+    }
+
+    private fun extractDetailComment(data: JSONObject, album: JSONObject?): String? {
+        fun firstNonBlank(vararg values: String?): String? {
+            return values.firstOrNull { !it.isNullOrBlank() }?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+        val direct = firstNonBlank(
+            data.optString("comment"),
+            data.optString("desc"),
+            data.optString("description"),
+            data.optString("intro"),
+            data.optString("subTitle"),
+            data.optString("subtitle")
+        )
+        if (direct != null) return direct
+
+        val albumFields = firstNonBlank(
+            album?.optString("comment"),
+            album?.optString("desc"),
+            album?.optString("description"),
+            album?.optString("intro"),
+            album?.optString("subTitle"),
+            album?.optString("subtitle")
+        )
+        if (albumFields != null) return albumFields
+
+        val infoArray = data.optJSONArray("info")
+        if (infoArray != null) {
+            for (i in 0 until infoArray.length()) {
+                val obj = infoArray.optJSONObject(i) ?: continue
+                val fromInfo = firstNonBlank(
+                    obj.optString("content"),
+                    obj.optString("value"),
+                    obj.optString("desc"),
+                    obj.optString("comment")
+                )
+                if (fromInfo != null) return fromInfo
+            }
+        }
+
+        return null
     }
 }

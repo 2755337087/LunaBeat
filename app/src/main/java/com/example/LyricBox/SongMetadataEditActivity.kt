@@ -124,6 +124,9 @@ private val GENRE_SPLIT_REGEX = Regex("""[;；:：、&]+""")
 private const val ACCOMPANIMENT_DIR_PATH = "/storage/emulated/0/Music/.sing"
 private const val ACCOMPANIMENT_PREFS = "AccompanimentStoragePrefs"
 private const val ACCOMPANIMENT_TREE_URI_KEY = "music_sing_tree_uri"
+private const val ALBUM_VIDEO_DIR_NAME = ".album_video"
+private val ALBUM_VIDEO_EXTENSION_CANDIDATES = listOf("mp4", "m4v", "mov", "mkv", "webm")
+private const val ALBUM_VIDEO_WRITE_EXTENSION = "mp4"
 
 private fun readAudioDurationMillis(audioPath: String): Long {
     var retriever: MediaMetadataRetriever? = null
@@ -1388,16 +1391,30 @@ fun SongMetadataEditScreen(
                                 try {
                                     val oldVideoFile = File(videoCoverPath!!)
                                     if (oldVideoFile.exists()) {
-                                        val parentDir = oldVideoFile.parentFile
-                                        val newVideoFile = if (album.isNotEmpty()) {
-                                            File(parentDir, "$album.mp4")
-                                        } else {
-                                            val baseName = File(audioPath!!).nameWithoutExtension
-                                            File(parentDir, "$baseName.mp4")
+                                        val newVideoFile = resolveVideoCoverWriteFile(
+                                            audioPath = audioPath!!,
+                                            albumName = album
+                                        )
+                                        val targetParent = newVideoFile.parentFile
+                                        if (targetParent != null && !targetParent.exists() && !targetParent.mkdirs()) {
+                                            renameError = "无法创建视频封面目录"
+                                            return@withContext
                                         }
                                         if (oldVideoFile.absolutePath != newVideoFile.absolutePath) {
-                                            val renameSuccess = oldVideoFile.renameTo(newVideoFile)
-                                            if (renameSuccess) {
+                                            val renamed = oldVideoFile.renameTo(newVideoFile)
+                                            val moved = if (renamed) {
+                                                true
+                                            } else {
+                                                runCatching {
+                                                    oldVideoFile.inputStream().use { input ->
+                                                        newVideoFile.outputStream().use { output ->
+                                                            input.copyTo(output)
+                                                        }
+                                                    }
+                                                    oldVideoFile.delete()
+                                                }.getOrDefault(false)
+                                            }
+                                            if (moved) {
                                                 videoCoverPath = newVideoFile.absolutePath
                                             } else {
                                                 renameError = "重命名失败"
@@ -3990,25 +4007,44 @@ fun ModifiableMetadataField(
     }
 }
 
+private fun resolveAlbumVideoDirectory(): File {
+    val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+    return File(musicDir, ALBUM_VIDEO_DIR_NAME)
+}
+
+private fun buildVideoCoverNameCandidates(audioPath: String, albumName: String?): List<String> {
+    val audioBase = File(audioPath).nameWithoutExtension.trim()
+    val albumBase = albumName?.trim().orEmpty()
+    return buildList {
+        if (albumBase.isNotEmpty() && !containsIllegalFileNameChars(albumBase)) add(albumBase)
+        if (audioBase.isNotEmpty()) add(audioBase)
+    }.distinct()
+}
+
+private fun resolveVideoCoverWriteFile(audioPath: String, albumName: String): File {
+    val stem = albumName.trim().takeIf { it.isNotEmpty() } ?: File(audioPath).nameWithoutExtension
+    return File(resolveAlbumVideoDirectory(), "$stem.$ALBUM_VIDEO_WRITE_EXTENSION")
+}
+
 suspend fun getVideoCoverPath(context: Context, audioPath: String?, albumName: String? = null): String? {
     return withContext(Dispatchers.IO) {
-        audioPath?.let { path ->
-            val file = File(path)
-            val parentDir = file.parentFile
-            
-            var videoCoverFile: File? = null
-            
-            if (albumName?.isNotEmpty() == true) {
-                videoCoverFile = File(parentDir, "$albumName.mp4")
+        val safeAudioPath = audioPath?.trim().orEmpty()
+        if (safeAudioPath.isBlank()) return@withContext null
+        val videoDir = resolveAlbumVideoDirectory()
+        if (!videoDir.exists() || !videoDir.isDirectory) return@withContext null
+        val nameCandidates = buildVideoCoverNameCandidates(
+            audioPath = safeAudioPath,
+            albumName = albumName
+        )
+        for (baseName in nameCandidates) {
+            for (extension in ALBUM_VIDEO_EXTENSION_CANDIDATES) {
+                val videoCoverFile = File(videoDir, "$baseName.$extension")
                 if (videoCoverFile.exists()) {
                     return@withContext videoCoverFile.absolutePath
                 }
             }
-            
-            val baseName = file.nameWithoutExtension
-            videoCoverFile = File(parentDir, "$baseName.mp4")
-            if (videoCoverFile.exists()) videoCoverFile.absolutePath else null
         }
+        null
     }
 }
 
@@ -4222,20 +4258,17 @@ suspend fun saveVideoCover(
                 return@withContext VideoSaveResult(false, "存在非法字符\"$illegalChars\"，无法重命名。")
             }
             
-            val audioFile = File(audioPath)
-            val parentDir = audioFile.parentFile
-            val videoCoverFile = if (albumName.isNotEmpty()) {
-                File(parentDir, "$albumName.mp4")
-            } else {
-                val baseName = audioFile.nameWithoutExtension
-                File(parentDir, "$baseName.mp4")
+            val albumVideoDir = resolveAlbumVideoDirectory()
+            if (!albumVideoDir.exists() && !albumVideoDir.mkdirs()) {
+                return@withContext VideoSaveResult(false, "无法创建视频封面目录：${albumVideoDir.absolutePath}")
             }
+            val videoCoverFile = resolveVideoCoverWriteFile(audioPath, albumName)
             
             context.contentResolver.openInputStream(videoUri)?.use { input ->
                 java.io.FileOutputStream(videoCoverFile).use { output ->
                     input.copyTo(output)
                 }
-            }
+            } ?: return@withContext VideoSaveResult(false, "无法读取视频文件")
             
             VideoSaveResult(true)
         } catch (e: Exception) {

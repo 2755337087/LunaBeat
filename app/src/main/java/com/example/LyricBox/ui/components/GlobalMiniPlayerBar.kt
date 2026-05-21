@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,10 +39,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -49,6 +53,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.MusicPlaybackController
@@ -61,6 +67,7 @@ import com.example.LyricBox.utils.AudioMetadataReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 fun GlobalMiniPlayerBar(
@@ -80,6 +87,7 @@ fun GlobalMiniPlayerBar(
 ) {
     val context = LocalContext.current
     var coverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var blurredPanelBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var coverBitmapKey by remember { mutableStateOf<String?>(null) }
     var coverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
     var displayedCoverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
@@ -131,6 +139,15 @@ fun GlobalMiniPlayerBar(
     LaunchedEffect(coverBitmap) {
         onCoverBitmapChanged?.invoke(coverBitmap)
     }
+    LaunchedEffect(coverBitmap) {
+        blurredPanelBitmap = withContext(Dispatchers.Default) {
+            coverBitmap?.let { source ->
+                createMiniPlayerStaticBlurBackgroundBitmap(
+                    source = source
+                )
+            }
+        }
+    }
     LaunchedEffect(coverThemeCacheKey, coverBitmap) {
         if (coverBitmapKey != coverThemeCacheKey || coverBitmap == null) {
             return@LaunchedEffect
@@ -167,12 +184,70 @@ fun GlobalMiniPlayerBar(
     val coverCornerRadius = lerp(12.dp, 4.dp, normalizedExpandProgress)
     val miniContentAlpha = (1f - normalizedExpandProgress).coerceIn(0f, 1f)
     val normalizedCoverAlpha = coverAlpha.coerceIn(0f, 1f)
+    val blurredBackgroundImage = remember(blurredPanelBitmap) { blurredPanelBitmap?.asImageBitmap() }
+    val blurredBackgroundScrim = if (isDarkTheme) {
+        Color.Black.copy(alpha = 0.56f)
+    } else {
+        Color.White.copy(alpha = 0.44f)
+    }
+    val blurredBackgroundDepthOverlay = if (isDarkTheme) {
+        Brush.verticalGradient(
+            listOf(
+                Color.Black.copy(alpha = 0.18f),
+                panelColor.copy(alpha = 0.22f),
+                Color.Black.copy(alpha = 0.24f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.20f),
+                panelColor.copy(alpha = 0.20f),
+                Color.White.copy(alpha = 0.26f)
+            )
+        )
+    }
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(panelColor)
+            .drawWithContent {
+                val backgroundImage = blurredBackgroundImage
+                if (backgroundImage != null && size.width > 1f && size.height > 1f) {
+                    val dstWidth = size.width.roundToInt().coerceAtLeast(1)
+                    val dstHeight = size.height.roundToInt().coerceAtLeast(1)
+                    val srcWidth = backgroundImage.width
+                    val srcHeight = backgroundImage.height.coerceAtLeast(1)
+                    val dstAspect = dstWidth.toFloat() / dstHeight.toFloat()
+                    val srcAspect = srcWidth.toFloat() / srcHeight.toFloat()
+                    val cropWidth: Int
+                    val cropHeight: Int
+                    if (srcAspect > dstAspect) {
+                        cropHeight = srcHeight
+                        cropWidth = (cropHeight * dstAspect).roundToInt().coerceIn(1, srcWidth)
+                    } else {
+                        cropWidth = srcWidth
+                        cropHeight = (cropWidth / dstAspect).roundToInt().coerceIn(1, srcHeight)
+                    }
+                    val cropX = ((srcWidth - cropWidth) / 2).coerceAtLeast(0)
+                    val cropY = ((srcHeight - cropHeight) / 2).coerceAtLeast(0)
+                    drawImage(
+                        image = backgroundImage,
+                        srcOffset = IntOffset(cropX, cropY),
+                        srcSize = IntSize(cropWidth, cropHeight),
+                        dstSize = IntSize(
+                            dstWidth,
+                            dstHeight
+                        ),
+                        alpha = 0.86f
+                    )
+                    drawRect(blurredBackgroundScrim)
+                    drawRect(brush = blurredBackgroundDepthOverlay)
+                }
+                drawContent()
+            }
             .onGloballyPositioned { coordinates ->
                 onBarBoundsChanged?.invoke(coordinates.boundsInRoot())
             }
@@ -206,127 +281,221 @@ fun GlobalMiniPlayerBar(
                 }
             }
             .clickable { onExpand() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        if (coverBitmap != null) {
-            Image(
-                bitmap = coverBitmap!!.asImageBitmap(),
-                contentDescription = "当前歌曲封面",
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (coverBitmap != null) {
+                Image(
+                    bitmap = coverBitmap!!.asImageBitmap(),
+                    contentDescription = "当前歌曲封面",
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(coverCornerRadius))
+                        .testTag(sharedCoverId)
+                        .onGloballyPositioned { coordinates ->
+                            onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                        }
+                        .graphicsLayer {
+                            scaleX = coverScale
+                            scaleY = coverScale
+                            alpha = normalizedCoverAlpha
+                        }
+                )
+            } else {
+                Icon(
+                    painter = painterResource(id = android.R.drawable.ic_media_play),
+                    contentDescription = null,
+                    tint = onPanelColor,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .testTag(sharedCoverId)
+                        .onGloballyPositioned { coordinates ->
+                            onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                        }
+                        .graphicsLayer {
+                            scaleX = coverScale
+                            scaleY = coverScale
+                            alpha = normalizedCoverAlpha
+                        }
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(coverCornerRadius))
-                    .testTag(sharedCoverId)
-                    .onGloballyPositioned { coordinates ->
-                        onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
-                    }
-                    .graphicsLayer {
-                        scaleX = coverScale
-                        scaleY = coverScale
-                        alpha = normalizedCoverAlpha
-                    }
-            )
-        } else {
-            Icon(
-                painter = painterResource(id = android.R.drawable.ic_media_play),
-                contentDescription = null,
-                tint = onPanelColor,
+                    .weight(1f)
+                    .graphicsLayer(alpha = miniContentAlpha),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = controller.currentTitle.ifBlank { "未选择歌曲" },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = onPanelColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.size(2.dp))
+                Text(
+                    text = controller.currentArtist.ifBlank { "未知艺术家" },
+                    fontSize = 12.sp,
+                    color = onPanelColor.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(
+                onClick = { controller.skipToPrevious() },
                 modifier = Modifier
-                    .size(44.dp)
-                    .testTag(sharedCoverId)
-                    .onGloballyPositioned { coordinates ->
-                        onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
-                    }
-                    .graphicsLayer {
-                        scaleX = coverScale
-                        scaleY = coverScale
-                        alpha = normalizedCoverAlpha
-                    }
-            )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .graphicsLayer(alpha = miniContentAlpha),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = onPanelColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.size(2.dp))
-            Text(
-                text = controller.currentArtist.ifBlank { "未知艺术家" },
-                fontSize = 12.sp,
-                color = onPanelColor.copy(alpha = 0.75f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        IconButton(
-            onClick = { controller.skipToPrevious() },
-            modifier = Modifier
-                .size(40.dp)
-                .graphicsLayer(alpha = miniContentAlpha)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SkipPrevious,
-                contentDescription = "上一首",
-                tint = onPanelColor,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-        IconButton(
-            onClick = { controller.togglePlayPause() },
-            modifier = Modifier
-                .size(42.dp)
-                .graphicsLayer(alpha = miniContentAlpha)
-        ) {
-            Icon(
-                imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (controller.isPlaying) "暂停" else "播放",
-                tint = onPanelColor,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-        IconButton(
-            onClick = { controller.skipToNext() },
-            modifier = Modifier
-                .size(40.dp)
-                .graphicsLayer(alpha = miniContentAlpha)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SkipNext,
-                contentDescription = "下一首",
-                tint = onPanelColor,
-                modifier = Modifier.size(24.dp)
-            )
+                    .size(40.dp)
+                    .graphicsLayer(alpha = miniContentAlpha)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipPrevious,
+                    contentDescription = "上一首",
+                    tint = onPanelColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            IconButton(
+                onClick = { controller.togglePlayPause() },
+                modifier = Modifier
+                    .size(42.dp)
+                    .graphicsLayer(alpha = miniContentAlpha)
+            ) {
+                Icon(
+                    imageVector = if (controller.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (controller.isPlaying) "暂停" else "播放",
+                    tint = onPanelColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            IconButton(
+                onClick = { controller.skipToNext() },
+                modifier = Modifier
+                    .size(40.dp)
+                    .graphicsLayer(alpha = miniContentAlpha)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipNext,
+                    contentDescription = "下一首",
+                    tint = onPanelColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
+}
+
+private fun createMiniPlayerStaticBlurBackgroundBitmap(
+    source: Bitmap
+): Bitmap {
+    val minWidth = 40
+    val maxWidth = 80
+    val desiredWidth = source.width.coerceIn(minWidth, maxWidth)
+    val scale = desiredWidth.toFloat() / source.width.coerceAtLeast(1).toFloat()
+    val targetWidth = desiredWidth.coerceAtLeast(1)
+    val targetHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
+    val scaled = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+    return blurMiniPlayerBitmapFast(scaled, radius = 12)
+}
+
+private fun blurMiniPlayerBitmapFast(source: Bitmap, radius: Int): Bitmap {
+    if (radius <= 0) return source
+    val safeRadius = radius.coerceIn(1, 25)
+    val width = source.width
+    val height = source.height
+    if (width <= 1 || height <= 1) return source
+
+    val input = IntArray(width * height)
+    val horizontal = IntArray(width * height)
+    val output = IntArray(width * height)
+    source.getPixels(input, 0, width, 0, 0, width, height)
+
+    val windowSize = safeRadius * 2 + 1
+    for (y in 0 until height) {
+        val rowOffset = y * width
+        var sumA = 0
+        var sumR = 0
+        var sumG = 0
+        var sumB = 0
+        for (i in -safeRadius..safeRadius) {
+            val px = input[rowOffset + i.coerceIn(0, width - 1)]
+            sumA += (px ushr 24) and 0xFF
+            sumR += (px ushr 16) and 0xFF
+            sumG += (px ushr 8) and 0xFF
+            sumB += px and 0xFF
+        }
+        for (x in 0 until width) {
+            horizontal[rowOffset + x] =
+                ((sumA / windowSize) shl 24) or
+                    ((sumR / windowSize) shl 16) or
+                    ((sumG / windowSize) shl 8) or
+                    (sumB / windowSize)
+            val removeX = (x - safeRadius).coerceIn(0, width - 1)
+            val addX = (x + safeRadius + 1).coerceIn(0, width - 1)
+            val removePx = input[rowOffset + removeX]
+            val addPx = input[rowOffset + addX]
+            sumA += ((addPx ushr 24) and 0xFF) - ((removePx ushr 24) and 0xFF)
+            sumR += ((addPx ushr 16) and 0xFF) - ((removePx ushr 16) and 0xFF)
+            sumG += ((addPx ushr 8) and 0xFF) - ((removePx ushr 8) and 0xFF)
+            sumB += (addPx and 0xFF) - (removePx and 0xFF)
+        }
+    }
+
+    for (x in 0 until width) {
+        var sumA = 0
+        var sumR = 0
+        var sumG = 0
+        var sumB = 0
+        for (i in -safeRadius..safeRadius) {
+            val y = i.coerceIn(0, height - 1)
+            val px = horizontal[y * width + x]
+            sumA += (px ushr 24) and 0xFF
+            sumR += (px ushr 16) and 0xFF
+            sumG += (px ushr 8) and 0xFF
+            sumB += px and 0xFF
+        }
+        for (y in 0 until height) {
+            output[y * width + x] =
+                ((sumA / windowSize) shl 24) or
+                    ((sumR / windowSize) shl 16) or
+                    ((sumG / windowSize) shl 8) or
+                    (sumB / windowSize)
+            val removeY = (y - safeRadius).coerceIn(0, height - 1)
+            val addY = (y + safeRadius + 1).coerceIn(0, height - 1)
+            val removePx = horizontal[removeY * width + x]
+            val addPx = horizontal[addY * width + x]
+            sumA += ((addPx ushr 24) and 0xFF) - ((removePx ushr 24) and 0xFF)
+            sumR += ((addPx ushr 16) and 0xFF) - ((removePx ushr 16) and 0xFF)
+            sumG += ((addPx ushr 8) and 0xFF) - ((removePx ushr 8) and 0xFF)
+            sumB += (addPx and 0xFF) - (removePx and 0xFF)
+        }
+    }
+
+    val blurred = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    blurred.setPixels(output, 0, width, 0, 0, width, height)
+    return blurred
 }
 
 private fun decodeCoverBitmapFromCache(cachePath: String?, reqWidth: Int, reqHeight: Int): Bitmap? {
     if (cachePath.isNullOrBlank()) return null
     val cacheFile = File(cachePath)
-    if (!cacheFile.exists()) return null
-    val bytes = cacheFile.readBytes()
-    if (bytes.isEmpty()) return null
+    if (!cacheFile.exists() || !cacheFile.isFile || cacheFile.length() <= 0L) return null
 
     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    BitmapFactory.decodeFile(cacheFile.absolutePath, options)
     if (options.outWidth <= 0 || options.outHeight <= 0) return null
 
     options.inJustDecodeBounds = false
     options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    return BitmapFactory.decodeFile(cacheFile.absolutePath, options)
 }
 
 private fun decodeCoverBitmapFromBytes(bytes: ByteArray?, reqWidth: Int, reqHeight: Int): Bitmap? {
@@ -349,6 +518,20 @@ private fun loadMiniPlayerCoverBitmap(
     artworkData: ByteArray?,
     coverCachePath: String?
 ): Bitmap? {
+    val fromCache = decodeCoverBitmapFromCache(
+        coverCachePath,
+        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
+    )
+    if (fromCache != null) return fromCache
+
+    val fromArtworkData = decodeCoverBitmapFromBytes(
+        artworkData,
+        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
+        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
+    )
+    if (fromArtworkData != null) return fromArtworkData
+
     val sourceCoverBytes = runCatching {
         val sourcePath = audioPath?.takeIf { it.isNotBlank() } ?: return@runCatching null
         AudioMetadataReader.readMetadata(
@@ -358,23 +541,8 @@ private fun loadMiniPlayerCoverBitmap(
             includeCover = true
         ).cover
     }.getOrNull()
-
-    val fromSourceCover = decodeCoverBitmapFromBytes(
-        sourceCoverBytes,
-        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
-        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
-    )
-    if (fromSourceCover != null) return fromSourceCover
-
-    val fromCache = decodeCoverBitmapFromCache(
-        coverCachePath,
-        reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
-        reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
-    )
-    if (fromCache != null) return fromCache
-
     return decodeCoverBitmapFromBytes(
-        artworkData,
+        sourceCoverBytes,
         reqWidth = MINI_PLAYER_COVER_REQUEST_SIZE_PX,
         reqHeight = MINI_PLAYER_COVER_REQUEST_SIZE_PX
     )

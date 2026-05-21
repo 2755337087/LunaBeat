@@ -202,7 +202,7 @@ fun SettingsScreen(
             else -> LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
         }
         return if (!supportsDynamicCoverBackground && normalized == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW) {
-            LyricPreviewActivity.PAGE_BACKGROUND_SOLID
+            LyricPreviewActivity.DEFAULT_PAGE_BACKGROUND_MODE
         } else {
             normalized
         }

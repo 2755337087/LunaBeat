@@ -431,7 +431,7 @@ class NeteaseApi {
                     
                     val copyright = song.optLong("copyright", 0L).toString()
                     
-                    val real163Key = generate163Key(song, album, singers)
+                    val real163Key = generate163Key(song, album, singers, fallbackAlias = songInfo.subtitle)
                     
                     Log.d(TAG, "生成的163key: ${real163Key?.take(100)}...")
                     
@@ -464,7 +464,12 @@ class NeteaseApi {
         }
     }
     
-    private fun generate163Key(song: JSONObject, album: JSONObject?, singers: List<String>): String? {
+    private fun generate163Key(
+        song: JSONObject,
+        album: JSONObject?,
+        singers: List<String>,
+        fallbackAlias: String? = null
+    ): String? {
         try {
             val safeAlbum = album ?: JSONObject()
             val musicId = song.optLong("id", 0L)
@@ -488,7 +493,27 @@ class NeteaseApi {
                     artistArray.put(artistItem)
                 }
             }
-            
+
+            fun appendValues(target: org.json.JSONArray, source: org.json.JSONArray?) {
+                if (source == null) return
+                for (i in 0 until source.length()) {
+                    val value = source.optString(i).trim()
+                    if (value.isNotEmpty()) {
+                        target.put(value)
+                    }
+                }
+            }
+
+            val aliasArray = org.json.JSONArray()
+            appendValues(aliasArray, song.optJSONArray("alia"))
+            appendValues(aliasArray, song.optJSONArray("alias"))
+            if (aliasArray.length() == 0 && !fallbackAlias.isNullOrBlank()) {
+                aliasArray.put(fallbackAlias.trim())
+            }
+
+            val transNamesArray = org.json.JSONArray()
+            appendValues(transNamesArray, song.optJSONArray("tns"))
+
             val musicJson = JSONObject()
             musicJson.put("format", "mp3")
             musicJson.put("musicId", musicId)
@@ -502,8 +527,8 @@ class NeteaseApi {
             musicJson.put("flag", 0)
             musicJson.put("bitrate", bitrate)
             musicJson.put("duration", duration)
-            musicJson.put("alias", org.json.JSONArray())
-            musicJson.put("transNames", org.json.JSONArray())
+            musicJson.put("alias", aliasArray)
+            musicJson.put("transNames", transNamesArray)
 
             return Netease163KeyCodec.encodeMusicJson(musicJson.toString())
         } catch (e: Exception) {
