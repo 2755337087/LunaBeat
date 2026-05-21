@@ -1465,8 +1465,7 @@ class LyricPreviewActivity : ComponentActivity() {
                         val pos = if (useSharedPlayback) {
                             val controller = sharedPlaybackController
                             if (controller != null && controller.isReady) {
-                                controller.refreshProgress()
-                                controller.positionMs
+                                controller.realtimePositionMs()
                             } else {
                                 currentPlaybackPosition
                             }
@@ -1487,8 +1486,7 @@ class LyricPreviewActivity : ComponentActivity() {
                         if (useSharedPlayback) {
                             val controller = sharedPlaybackController
                             if (controller != null && controller.isReady) {
-                                controller.refreshProgress()
-                                controller.durationMs.coerceAtLeast(0L)
+                                controller.realtimeDurationMs()
                             } else {
                                 previewAudioDuration.coerceAtLeast(0L)
                             }
@@ -1949,8 +1947,7 @@ class LyricPreviewActivity : ComponentActivity() {
         val currentPos = if (useSharedPlayback) {
             val controller = sharedPlaybackController
             if (controller != null && controller.isReady) {
-                controller.refreshProgress()
-                controller.positionMs
+                controller.realtimePositionMs()
             } else {
                 currentPlaybackPosition
             }

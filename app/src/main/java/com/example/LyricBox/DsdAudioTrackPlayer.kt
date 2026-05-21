@@ -3,6 +3,7 @@ package com.example.LyricBox
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Process
 import android.util.Log
 import java.io.File
 import java.io.RandomAccessFile
@@ -59,6 +60,10 @@ class DsdAudioTrackPlayer(
     private var renderedOutputSamples: Long = 0L
     @Volatile
     private var outputSampleRate: Int = 176_400
+    private val playbackHeadLock = Object()
+    private var playbackHeadBaseSamples: Long = 0L
+    private var playbackHeadWrapSamples: Long = 0L
+    private var lastPlaybackHeadRaw: Long = 0L
 
     private var audioTrack: AudioTrack? = null
     private var playbackThread: Thread? = null
@@ -69,7 +74,7 @@ class DsdAudioTrackPlayer(
     val isPlaying: Boolean
         get() = isActive && !paused && !stopRequested
 
-    fun play(path: String, startPositionMs: Long = 0L) {
+    fun play(path: String, startPositionMs: Long = 0L, startPaused: Boolean = false) {
         stop()
         val info = try {
             parseDsf(path)
@@ -80,7 +85,7 @@ class DsdAudioTrackPlayer(
         }
 
         stopRequested = false
-        paused = false
+        paused = startPaused
         currentInfo = info
         currentPath = path
         currentDurationMs = info.durationMs
@@ -88,7 +93,7 @@ class DsdAudioTrackPlayer(
         outputSampleRate = chooseOutputSampleRate(info.sampleRate)
         seekToMs = startPositionMs.takeIf { it > 0L }
 
-        onStateChanged(DsdPlaybackState(path, true, startPositionMs.coerceAtLeast(0L), info.durationMs))
+        onStateChanged(DsdPlaybackState(path, !startPaused, startPositionMs.coerceAtLeast(0L), info.durationMs))
         playbackThread = thread(start = true, name = "DsdAudioTrackPlayer") {
             runPlayback(info)
         }
@@ -132,17 +137,20 @@ class DsdAudioTrackPlayer(
         currentPath = null
         currentDurationMs = 0L
         renderedOutputSamples = 0L
+        resetPlaybackHeadPosition(0L)
         seekToMs = null
     }
 
     fun currentPositionMs(): Long {
         val rate = outputSampleRate.takeIf { it > 0 } ?: return 0L
-        return ((renderedOutputSamples * 1000L) / rate).coerceAtLeast(0L)
+        val playedSamples = audioTrack?.let { readPlaybackHeadPositionSamples(it) } ?: renderedOutputSamples
+        return ((playedSamples * 1000L) / rate).coerceAtLeast(0L)
     }
 
     private fun runPlayback(info: DsfInfo) {
         var raf: RandomAccessFile? = null
         try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE)
             val outRate = chooseSupportedOutputSampleRate(info.sampleRate, info.channelCount)
             outputSampleRate = outRate
             val decimationRatio = info.sampleRate / outRate
@@ -155,7 +163,10 @@ class DsdAudioTrackPlayer(
             val audioTrack = createAudioTrack(outRate, channelCount)
             this.audioTrack = audioTrack
             raf = RandomAccessFile(File(info.path), "r")
-            audioTrack.play()
+            resetPlaybackHeadPosition(0L)
+            if (!paused) {
+                audioTrack.play()
+            }
 
             val channelBlocks = Array(channelCount) { ByteArray(info.blockSizePerChannel) }
             val outputFramesPerBlock = info.blockSizePerChannel / bytesPerOutputSample
@@ -172,6 +183,7 @@ class DsdAudioTrackPlayer(
                     seekToMs = null
                     audioTrack.pause()
                     audioTrack.flush()
+                    resetPlaybackHeadPosition(seek.second)
                     if (!paused) audioTrack.play()
                 }
 
@@ -435,6 +447,25 @@ class DsdAudioTrackPlayer(
             AudioFormat.CHANNEL_OUT_MONO
         } else {
             AudioFormat.CHANNEL_OUT_STEREO
+        }
+    }
+
+    private fun resetPlaybackHeadPosition(baseSamples: Long) {
+        synchronized(playbackHeadLock) {
+            playbackHeadBaseSamples = baseSamples.coerceAtLeast(0L)
+            playbackHeadWrapSamples = 0L
+            lastPlaybackHeadRaw = 0L
+        }
+    }
+
+    private fun readPlaybackHeadPositionSamples(track: AudioTrack): Long {
+        val raw = track.playbackHeadPosition.toLong() and 0xFFFF_FFFFL
+        return synchronized(playbackHeadLock) {
+            if (raw < lastPlaybackHeadRaw) {
+                playbackHeadWrapSamples += 1L shl 32
+            }
+            lastPlaybackHeadRaw = raw
+            playbackHeadBaseSamples + playbackHeadWrapSamples + raw
         }
     }
 

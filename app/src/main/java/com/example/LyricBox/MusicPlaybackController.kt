@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
@@ -744,6 +745,23 @@ class MusicPlaybackController(private val context: Context) {
         }
     }
 
+    fun realtimePositionMs(): Long {
+        return if (dsdModeActive) {
+            dsdPlayer.currentPositionMs().coerceAtLeast(0L)
+        } else {
+            controller?.currentPosition?.coerceAtLeast(0L) ?: positionMs
+        }
+    }
+
+    fun realtimeDurationMs(): Long {
+        return if (dsdModeActive) {
+            durationMs.coerceAtLeast(0L)
+        } else {
+            val playerDuration = controller?.duration?.takeIf { it > 0L && it != C.TIME_UNSET }
+            playerDuration ?: durationMs.coerceAtLeast(0L)
+        }
+    }
+
     private fun syncFromPlayer(player: Player) {
         if (dsdModeActive) return
         if (removeDuplicateQueueItems(player)) {
@@ -977,7 +995,6 @@ class MusicPlaybackController(private val context: Context) {
             lastKnownDurationMs = state.durationMs
         }
         updateDsdNextTrack()
-        persistSnapshotState()
     }
 
     private fun handleDsdEnded() {

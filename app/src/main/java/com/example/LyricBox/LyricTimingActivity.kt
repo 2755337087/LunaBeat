@@ -191,6 +191,13 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private var mediaPlayer: ExoPlayer? = null
+    private val dsdTimingPlayer by lazy {
+        DsdAudioTrackPlayer { state ->
+            runOnUiThread {
+                syncDsdTimingState(state)
+            }
+        }
+    }
     private var showConfirmDialog by mutableStateOf(false)
     private var hasLyrics by mutableStateOf(false)
     private var showConvertDialog by mutableStateOf(false)
@@ -206,6 +213,8 @@ class LyricTimingActivity : ComponentActivity() {
     private var importedLyricsContent by mutableStateOf("")
     private var importedLyricsFormat by mutableStateOf(0)
     private var playbackCompleted by mutableStateOf(false)
+    private var isDsdTimingAudio by mutableStateOf(false)
+    private var dsdTimingDurationMs by mutableLongStateOf(0L)
     private var pendingLyricsCreators by mutableStateOf<List<String>>(emptyList())
     private var pendingRestoreSeekMs: Long? = null
     private var lastKnownPlaybackPositionMs: Long = 0L
@@ -314,7 +323,7 @@ class LyricTimingActivity : ComponentActivity() {
     private fun applyPendingRestoreSeek() {
         val seekPosition = pendingRestoreSeekMs ?: return
         if (seekPosition > 0L) {
-            mediaPlayer?.seekTo(seekPosition)
+            seekTimingAudioTo(seekPosition)
             lastKnownPlaybackPositionMs = seekPosition
         }
         pendingRestoreSeekMs = null
@@ -327,6 +336,24 @@ class LyricTimingActivity : ComponentActivity() {
             Log.w("LyricTiming", "Audio file does not exist: $path")
             return
         }
+        if (path.isDsfAudioPath()) {
+            mediaPlayer?.pause()
+            isDsdTimingAudio = true
+            dsdTimingDurationMs = 0L
+            if (updateSourcePath) {
+                sourceAudioPath = path
+            }
+            dsdTimingPlayer.play(path, startPositionMs = pendingRestoreSeekMs ?: 0L, startPaused = true)
+            playbackCompleted = false
+            audioImportCount++
+            applyPendingRestoreSeek()
+            return
+        }
+        if (isDsdTimingAudio || dsdTimingPlayer.isActive) {
+            dsdTimingPlayer.stop()
+        }
+        isDsdTimingAudio = false
+        dsdTimingDurationMs = 0L
         val player = ensureTimingPlayer()
         val playbackUri = mediaStoreUri ?: Uri.fromFile(targetFile)
         player.setMediaItem(MediaItem.fromUri(playbackUri))
@@ -354,6 +381,9 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun getAudioDuration(): Long {
+        if (isDsdTimingAudio) {
+            return dsdTimingDurationMs.takeIf { it > 0L } ?: 0L
+        }
         val player = mediaPlayer ?: return 0L
         val duration = runCatching { player.duration }
             .onFailure { throwable ->
@@ -370,7 +400,72 @@ class LyricTimingActivity : ComponentActivity() {
     }
     
     private fun setPlaybackSpeed(speed: Float) {
+        if (isDsdTimingAudio) {
+            Log.d("LyricTiming", "DSF timing playback does not support speed changes yet: $speed")
+            return
+        }
         mediaPlayer?.setPlaybackParameters(PlaybackParameters(speed))
+    }
+
+    private fun playPauseTimingAudio(play: Boolean) {
+        if (isDsdTimingAudio) {
+            if (play) {
+                if (dsdTimingPlayer.isActive) {
+                    dsdTimingPlayer.resume()
+                } else if (sourceAudioPath.isNotBlank()) {
+                    dsdTimingPlayer.play(
+                        sourceAudioPath,
+                        startPositionMs = lastKnownPlaybackPositionMs.coerceAtLeast(0L),
+                        startPaused = false
+                    )
+                }
+                playbackCompleted = false
+            } else {
+                dsdTimingPlayer.pause()
+            }
+            return
+        }
+        if (play) {
+            mediaPlayer?.play()
+            playbackCompleted = false
+        } else {
+            mediaPlayer?.pause()
+        }
+    }
+
+    private fun seekTimingAudioTo(timeMs: Long) {
+        if (isDsdTimingAudio) {
+            if (dsdTimingPlayer.isActive) {
+                dsdTimingPlayer.seekTo(timeMs)
+            }
+        } else {
+            mediaPlayer?.seekTo(timeMs)
+        }
+        lastKnownPlaybackPositionMs = timeMs
+    }
+
+    private fun getTimingAudioPosition(): Long {
+        val position = if (isDsdTimingAudio) {
+            dsdTimingPlayer.currentPositionMs()
+        } else {
+            mediaPlayer?.currentPosition?.toLong() ?: lastKnownPlaybackPositionMs
+        }
+        lastKnownPlaybackPositionMs = position
+        return position
+    }
+
+    private fun syncDsdTimingState(state: DsdPlaybackState) {
+        if (!isDsdTimingAudio || state.path != sourceAudioPath) return
+        if (state.durationMs > 0L) {
+            dsdTimingDurationMs = state.durationMs
+        }
+        lastKnownPlaybackPositionMs = state.positionMs.coerceAtLeast(0L)
+        if (state.hasEnded) {
+            playbackCompleted = true
+        }
+        if (state.errorMessage != null) {
+            Log.e("LyricTiming", "DSF timing playback failed: ${state.errorMessage}")
+        }
     }
 
     private fun resolveMediaStoreAudioUri(filePath: String, mediaStoreId: Long = -1L): Uri? {
@@ -672,22 +767,14 @@ class LyricTimingActivity : ComponentActivity() {
                         onBack = { finishWithLyricsResult() },
                         onImportAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
                         onPlayPause = { play ->
-                            if (play) {
-                                mediaPlayer?.play()
-                                playbackCompleted = false
-                            } else {
-                                mediaPlayer?.pause()
-                            }
+                            playPauseTimingAudio(play)
                         },
                         onSeekTo = { timeMs ->
-                            mediaPlayer?.seekTo(timeMs)
-                            lastKnownPlaybackPositionMs = timeMs
+                            seekTimingAudioTo(timeMs)
                         },
                         onSetPlaybackSpeed = { speed -> setPlaybackSpeed(speed) },
                         getCurrentPosition = {
-                            val position = mediaPlayer?.currentPosition?.toLong() ?: lastKnownPlaybackPositionMs
-                            lastKnownPlaybackPositionMs = position
-                            position
+                            getTimingAudioPosition()
                         },
                         getAudioDuration = { getAudioDuration() },
                         showConfirmDialog = showConfirmDialog,
@@ -781,6 +868,7 @@ class LyricTimingActivity : ComponentActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
+        dsdTimingPlayer.stop()
         mediaPlayer?.release()
         mediaPlayer = null
         if (isFinishing) {
@@ -800,7 +888,7 @@ class LyricTimingActivity : ComponentActivity() {
         outState.putString(KEY_CONVERTED_AUDIO_PATH, convertedAudioPath)
         outState.putBoolean(KEY_HAS_LYRICS, hasLyrics)
         outState.putStringArrayList(KEY_PENDING_CREATORS, ArrayList(pendingLyricsCreators))
-        val playbackPosition = mediaPlayer?.currentPosition?.toLong() ?: lastKnownPlaybackPositionMs
+        val playbackPosition = getTimingAudioPosition()
         outState.putLong(KEY_PLAYBACK_POSITION, playbackPosition)
         outState.putInt(KEY_SELECTED_LINE_INDEX, lastSelectedLineIndexSnapshot)
         outState.putInt(KEY_SELECTED_WORD_INDEX, lastSelectedWordIndexSnapshot)
@@ -1079,6 +1167,10 @@ class LyricTimingActivity : ComponentActivity() {
     private fun getPathFromDocumentsProvider(uri: Uri): String? {
         return getPathFromDataColumn(uri)
     }
+}
+
+private fun String.isDsfAudioPath(): Boolean {
+    return substringAfterLast('.', "").lowercase(Locale.ROOT) == "dsf"
 }
 
 data class LyricTimeUnit(
