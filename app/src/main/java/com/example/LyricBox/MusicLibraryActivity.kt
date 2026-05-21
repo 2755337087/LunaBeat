@@ -5604,7 +5604,7 @@ private suspend fun scanAudioFilesFromFolders(
     val folders = prefs.getStringSet("musicFolders", emptySet()) ?: emptySet()
     val excludeFolders = prefs.getStringSet("excludeFolders", emptySet()) ?: emptySet()
     val excludeShortAudio = prefs.getBoolean("excludeShortAudio", true)
-    val audioExtensions = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "wma", "ape")
+    val audioExtensions = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "wma", "ape", "dsf", "dff", "dsdiff")
 
     val allFiles = mutableListOf<File>()
 
@@ -5770,6 +5770,17 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
             .filter { entry -> shouldIncludeLibraryPath(entry.path, includeFolders, excludeFolders) }
             .filter { entry -> !excludeShortAudio || entry.duration >= 60000L }
             .distinctBy { it.path }
+            .toMutableList()
+
+        val mediaPaths = mediaEntries.asSequence().map { it.path }.toHashSet()
+        val supplementalEntries = collectSupplementalDsdEntriesFromFolders(
+            includeFolders = includeFolders,
+            excludeFolders = excludeFolders,
+            existingPaths = mediaPaths
+        )
+        if (supplementalEntries.isNotEmpty()) {
+            mediaEntries.addAll(supplementalEntries)
+        }
 
         val existingSnapshot = withContext(Dispatchers.Main) {
             audioFiles.associateBy { it.path }
@@ -5918,6 +5929,54 @@ private suspend fun scanAudioFilesFromNativeMediaStore(
             )
         }
     }
+}
+
+private fun collectSupplementalDsdEntriesFromFolders(
+    includeFolders: Set<String>,
+    excludeFolders: Set<String>,
+    existingPaths: Set<String>
+): List<NativeMediaAudioEntry> {
+    val dsdExtensions = setOf("dsf", "dff", "dsdiff")
+    val files = mutableListOf<File>()
+    val scanRoots = if (includeFolders.isNotEmpty()) {
+        includeFolders
+    } else {
+        setOf(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).absolutePath)
+    }
+
+    fun isExcluded(file: File): Boolean {
+        val target = file.absolutePath
+        return excludeFolders.any { excludeFolder ->
+            target.startsWith(excludeFolder + File.separator) || target == excludeFolder
+        }
+    }
+
+    scanRoots.forEach { folder ->
+        val dir = File(folder)
+        if (dir.exists() && dir.isDirectory) {
+            scanDirectory(dir, dsdExtensions, files, ::isExcluded)
+        }
+    }
+
+    return files
+        .asSequence()
+        .map { it.absolutePath }
+        .distinct()
+        .filter { path -> path !in existingPaths }
+        .mapNotNull { path ->
+            runCatching {
+                val file = File(path)
+                if (!file.exists() || !file.isFile) return@runCatching null
+                NativeMediaAudioEntry(
+                    mediaStoreId = -1L,
+                    path = file.absolutePath,
+                    duration = 0L,
+                    fileSize = file.length(),
+                    lastModified = file.lastModified()
+                )
+            }.getOrNull()
+        }
+        .toList()
 }
 
 private fun scanDirectory(dir: File, extensions: Set<String>, fileList: MutableList<File>, isExcluded: (File) -> Boolean) {

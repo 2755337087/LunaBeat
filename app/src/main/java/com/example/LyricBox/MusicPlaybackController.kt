@@ -57,6 +57,11 @@ class MusicPlaybackController(private val context: Context) {
     private var controller: MediaController? = null
     private val transcodeQueueExecutor = Executors.newSingleThreadExecutor()
     private val queuePersistExecutor = Executors.newSingleThreadExecutor()
+    private val dsdPlayer = DsdAudioTrackPlayer { state ->
+        ContextCompat.getMainExecutor(context).execute {
+            syncFromDsdPlayer(state)
+        }
+    }
     private val playbackStatePrefs by lazy {
         context.getSharedPreferences(PLAYBACK_STATE_PREFS, Context.MODE_PRIVATE)
     }
@@ -112,6 +117,9 @@ class MusicPlaybackController(private val context: Context) {
     private var temporaryCompanionMediaIndex: Int = -1
     private var temporaryCompanionSourcePath: String? = null
     private var lastKnownDurationMs: Long = 0L
+    private var dsdModeActive: Boolean = false
+    private var dsdQueueSnapshot: List<AudioFile> = emptyList()
+    private var dsdCurrentIndex: Int = -1
 
     val hasCurrentItem: Boolean
         get() = currentAudioPath != null
@@ -149,6 +157,8 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun release() {
+        dsdPlayer.stop()
+        dsdModeActive = false
         controller?.removeListener(listener)
         controller = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
@@ -159,6 +169,14 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun togglePlayPause() {
+        if (dsdModeActive) {
+            if (dsdPlayer.isPlaying) {
+                dsdPlayer.pause()
+            } else {
+                dsdPlayer.resume()
+            }
+            return
+        }
         val player = controller ?: return
         if (player.isPlaying) {
             player.pause()
@@ -168,10 +186,18 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun play() {
+        if (dsdModeActive) {
+            dsdPlayer.resume()
+            return
+        }
         controller?.play()
     }
 
     fun pause() {
+        if (dsdModeActive) {
+            dsdPlayer.pause()
+            return
+        }
         controller?.pause()
     }
 
@@ -180,15 +206,29 @@ class MusicPlaybackController(private val context: Context) {
         if (queue.isEmpty()) return
         val queueSnapshot = queue.distinctBy { it.path }
         val startIndex = queueSnapshot.indexOfFirst { it.path == startPath }.coerceAtLeast(0)
+        if (queueSnapshot.getOrNull(startIndex)?.path?.isDsfAudioPath() == true) {
+            startDsdQueue(queueSnapshot, startIndex, forcePlay = true)
+            persistQueueEntriesAsync(
+                queueSnapshot.map {
+                    LocalPlaylistEntry(
+                        path = it.path,
+                        title = it.displayTitle,
+                        artist = it.displayArtist,
+                        durationSeconds = (it.duration / 1000L).coerceAtLeast(-1L)
+                    )
+                }
+            )
+            return
+        }
+        stopDsdPlayback(clearState = false)
         transcodeQueueExecutor.execute {
-            val playablePathBySource = queueSnapshot.associate { audio ->
-                audio.path to resolvePlayablePathForPlayback(context, audio.path)
-            }
+            val startAudioPath = queueSnapshot.getOrNull(startIndex)?.path
+            val startPlaybackPath = startAudioPath?.let { resolvePlayablePathForPlayback(context, it) }
             val mediaItems = queueSnapshot.map { audio ->
                 audio.toPlayableMediaItem(
                     context = context,
                     preferOriginalCover = audio.path == startPath,
-                    playbackPathOverride = playablePathBySource[audio.path]
+                    playbackPathOverride = startPlaybackPath.takeIf { audio.path == startAudioPath }
                 )
             }
             ContextCompat.getMainExecutor(context).execute {
@@ -253,6 +293,10 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun skipToNext() {
+        if (dsdModeActive) {
+            skipDsdToNext()
+            return
+        }
         val player = controller ?: return
         val current = player.currentMediaItemIndex
         if (current < 0) return
@@ -277,6 +321,14 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun skipToPrevious() {
+        if (dsdModeActive) {
+            if (positionMs > 5_000L) {
+                dsdPlayer.seekTo(0L)
+            } else {
+                skipDsdToPrevious()
+            }
+            return
+        }
         val player = controller ?: return
         val current = player.currentMediaItemIndex
         if (playbackMode == PlaybackMode.SINGLE_REPEAT && current > 0 && player.currentPosition <= 5_000L) {
@@ -296,6 +348,10 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun seekTo(position: Long) {
+        if (dsdModeActive) {
+            dsdPlayer.seekTo(position.coerceAtLeast(0L))
+            return
+        }
         controller?.seekTo(position.coerceAtLeast(0L))
     }
 
@@ -364,6 +420,15 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun playAtQueueIndex(index: Int) {
+        if (dsdModeActive && index in dsdQueueSnapshot.indices) {
+            val target = dsdQueueSnapshot[index]
+            if (target.path.isDsfAudioPath()) {
+                startDsdQueue(dsdQueueSnapshot, index, forcePlay = true)
+            } else {
+                playQueue(dsdQueueSnapshot, target.path)
+            }
+            return
+        }
         playQueueItemWithPreTranscode(index, forcePlay = true)
     }
 
@@ -374,6 +439,13 @@ class MusicPlaybackController(private val context: Context) {
         val sourceItem = player.getMediaItemAt(index)
         val sourcePath = sourceItem.resolveSourcePath()
         val shouldPlay = forcePlay || player.isPlaying || player.playWhenReady
+        if (sourcePath?.isDsfAudioPath() == true) {
+            val queueSnapshot = rebuildAudioQueueFromPlayer(player)
+            val resolvedIndex = queueSnapshot.indexOfFirst { it.path == sourcePath }.takeIf { it >= 0 } ?: index
+            startDsdQueue(queueSnapshot, resolvedIndex, forcePlay = shouldPlay)
+            return
+        }
+        stopDsdPlayback(clearState = false)
 
         if (sourcePath.isNullOrBlank()) {
             player.seekToDefaultPosition(index)
@@ -654,6 +726,13 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun refreshProgress() {
+        if (dsdModeActive) {
+            positionMs = dsdPlayer.currentPositionMs().coerceAtLeast(0L)
+            if (lastKnownDurationMs > 0L) {
+                durationMs = lastKnownDurationMs
+            }
+            return
+        }
         val player = controller ?: return
         positionMs = player.currentPosition.coerceAtLeast(0L)
         val updatedDuration = player.duration.takeIf { it > 0L }
@@ -666,6 +745,7 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     private fun syncFromPlayer(player: Player) {
+        if (dsdModeActive) return
         if (removeDuplicateQueueItems(player)) {
             persistCurrentQueue(player)
             return
@@ -818,6 +898,164 @@ class MusicPlaybackController(private val context: Context) {
         }
         temporaryCompanionMediaIndex = -1
         temporaryCompanionSourcePath = null
+    }
+
+    private fun startDsdQueue(queueSnapshot: List<AudioFile>, index: Int, forcePlay: Boolean) {
+        val audio = queueSnapshot.getOrNull(index) ?: return
+        if (!audio.path.isDsfAudioPath()) return
+        controller?.pause()
+        controller?.playWhenReady = false
+
+        dsdModeActive = true
+        dsdQueueSnapshot = queueSnapshot
+        dsdCurrentIndex = index
+        isPlaying = forcePlay
+        playWhenReadyRequested = forcePlay
+        playbackState = Player.STATE_BUFFERING
+        positionMs = 0L
+        durationMs = audio.duration.coerceAtLeast(0L)
+        lastKnownDurationMs = durationMs
+        currentIndex = index
+        mediaCount = queueSnapshot.size
+        currentMediaId = audio.path
+        currentAudioPath = audio.path
+        currentPlaybackUriPath = audio.path
+        currentMediaStoreId = audio.mediaStoreId
+        currentCoverCachePath = audio.coverCachePath
+        currentArtworkData = audio.resolvePlaybackArtworkData(context, preferOriginalCover = true)
+        currentTitle = audio.displayTitle
+        currentArtist = audio.displayArtist
+        currentAlbum = audio.displayAlbum
+        queueAudioPaths = queueSnapshot.map { it.path }
+        updateDsdNextTrack()
+        persistSnapshotState()
+
+        dsdPlayer.play(audio.path)
+        if (!forcePlay) {
+            dsdPlayer.pause()
+        }
+    }
+
+    private fun stopDsdPlayback(clearState: Boolean) {
+        if (!dsdModeActive && !dsdPlayer.isActive) return
+        dsdPlayer.stop()
+        dsdModeActive = false
+        dsdQueueSnapshot = emptyList()
+        dsdCurrentIndex = -1
+        if (clearState) {
+            isPlaying = false
+            playWhenReadyRequested = false
+            playbackState = Player.STATE_IDLE
+        }
+    }
+
+    private fun syncFromDsdPlayer(state: DsdPlaybackState) {
+        if (!dsdModeActive || state.path != currentAudioPath) return
+        if (state.errorMessage != null) {
+            isPlaying = false
+            playWhenReadyRequested = false
+            playbackState = Player.STATE_IDLE
+            Log.e("MusicPlaybackController", "DSF playback failed: ${state.errorMessage}")
+            return
+        }
+        if (state.hasEnded) {
+            isPlaying = false
+            playWhenReadyRequested = false
+            playbackState = Player.STATE_ENDED
+            positionMs = state.positionMs
+            durationMs = state.durationMs
+            lastKnownDurationMs = state.durationMs
+            handleDsdEnded()
+            return
+        }
+        isPlaying = state.isPlaying
+        playWhenReadyRequested = state.isPlaying
+        playbackState = Player.STATE_READY
+        positionMs = state.positionMs.coerceAtLeast(0L)
+        if (state.durationMs > 0L) {
+            durationMs = state.durationMs
+            lastKnownDurationMs = state.durationMs
+        }
+        updateDsdNextTrack()
+        persistSnapshotState()
+    }
+
+    private fun handleDsdEnded() {
+        when (playbackMode) {
+            PlaybackMode.SINGLE_REPEAT -> {
+                if (dsdCurrentIndex in dsdQueueSnapshot.indices) {
+                    startDsdQueue(dsdQueueSnapshot, dsdCurrentIndex, forcePlay = true)
+                }
+            }
+            else -> skipDsdToNext()
+        }
+    }
+
+    private fun skipDsdToNext() {
+        val count = dsdQueueSnapshot.size
+        if (count <= 0) return
+        val nextIndex = when {
+            dsdCurrentIndex + 1 in 0 until count -> dsdCurrentIndex + 1
+            playbackMode == PlaybackMode.SEQUENTIAL || playbackMode == PlaybackMode.SHUFFLE -> 0
+            else -> dsdCurrentIndex
+        }.coerceIn(0, count - 1)
+        playDsdOrControllerItem(nextIndex, forcePlay = true)
+    }
+
+    private fun skipDsdToPrevious() {
+        val count = dsdQueueSnapshot.size
+        if (count <= 0) return
+        val previousIndex = when {
+            dsdCurrentIndex - 1 in 0 until count -> dsdCurrentIndex - 1
+            else -> count - 1
+        }
+        playDsdOrControllerItem(previousIndex, forcePlay = true)
+    }
+
+    private fun playDsdOrControllerItem(index: Int, forcePlay: Boolean) {
+        val target = dsdQueueSnapshot.getOrNull(index) ?: return
+        if (target.path.isDsfAudioPath()) {
+            startDsdQueue(dsdQueueSnapshot, index, forcePlay = forcePlay)
+        } else {
+            val snapshot = dsdQueueSnapshot
+            stopDsdPlayback(clearState = false)
+            playQueue(snapshot, target.path)
+        }
+    }
+
+    private fun updateDsdNextTrack() {
+        hasNextTrack = dsdCurrentIndex >= 0 && dsdQueueSnapshot.isNotEmpty()
+        val nextIndex = if (dsdQueueSnapshot.isEmpty()) {
+            -1
+        } else if (dsdCurrentIndex + 1 in dsdQueueSnapshot.indices) {
+            dsdCurrentIndex + 1
+        } else {
+            0
+        }
+        val nextAudio = dsdQueueSnapshot.getOrNull(nextIndex)
+        nextTrackAudioPath = nextAudio?.path
+        nextTrackTitle = nextAudio?.displayTitle.orEmpty()
+    }
+
+    private fun rebuildAudioQueueFromPlayer(player: Player): List<AudioFile> {
+        return (0 until player.mediaItemCount).mapNotNull { idx ->
+            val item = player.getMediaItemAt(idx)
+            val path = item.resolveSourcePath() ?: return@mapNotNull null
+            val file = File(path)
+            val extras = item.mediaMetadata.extras
+            AudioFile(
+                path = path,
+                title = item.mediaMetadata.title?.toString().orEmpty(),
+                artist = item.mediaMetadata.artist?.toString().orEmpty(),
+                album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+                duration = 0L,
+                fileSize = file.length(),
+                lastModified = file.lastModified(),
+                addedTime = file.lastModified(),
+                coverCachePath = extras?.getString(EXTRA_COVER_CACHE_PATH),
+                mediaStoreId = extras?.getLong(EXTRA_MEDIA_STORE_ID, -1L) ?: -1L
+            )
+        }.distinctBy { it.path }
     }
 
     private fun persistCurrentQueue(player: Player) {
@@ -1128,11 +1366,14 @@ private fun resolvePlayableAudioUri(
     playbackPath: String,
     mediaStoreId: Long = -1L
 ): Uri {
+    val playbackFile = File(playbackPath)
+    if (playbackPath != sourcePath && playbackFile.exists()) {
+        return Uri.fromFile(playbackFile)
+    }
     if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
         val mediaUri = resolveMediaStoreAudioUri(context, sourcePath, mediaStoreId)
         if (mediaUri != null) return mediaUri
     }
-    val playbackFile = File(playbackPath)
     if (playbackFile.exists()) {
         return Uri.fromFile(playbackFile)
     }
@@ -1173,13 +1414,16 @@ private fun MediaItem.resolveSourcePath(): String? {
         ?: localConfiguration?.uri?.path?.takeIf { it.isNotBlank() }
 }
 
+private fun String.isDsfAudioPath(): Boolean {
+    return substringAfterLast('.', "").lowercase() == "dsf"
+}
+
 private fun resolvePlayablePathForPlayback(context: Context, sourcePath: String): String {
     val normalizedPath = sourcePath.trim()
     if (normalizedPath.isEmpty()) return sourcePath
-    if (!normalizedPath.lowercase().endsWith(".m4a")) return sourcePath
-    if (supportsDirectAlacDecode()) {
-        return sourcePath
-    }
+    val extension = normalizedPath.substringAfterLast('.', "").lowercase()
+    if (extension != "m4a") return sourcePath
+    if (supportsDirectAlacDecode()) return sourcePath
     val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(normalizedPath)
     if (!isDetectedAlac) return sourcePath
     Log.d("MusicPlaybackController", "ALAC direct decode unavailable, fallback transcode: $normalizedPath")

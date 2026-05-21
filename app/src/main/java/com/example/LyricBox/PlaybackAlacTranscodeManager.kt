@@ -89,6 +89,10 @@ object PlaybackAlacTranscodeManager {
         return path.startsWith(cacheDirPath) && File(path).name.startsWith(CACHE_PREFIX)
     }
 
+    fun releaseStreamingResources() {
+        // No-op. Kept as a stable hook for playback-service cleanup.
+    }
+
     private fun getCacheDir(context: Context): File {
         val dir = File(context.cacheDir, CACHE_DIR_NAME)
         if (!dir.exists()) {

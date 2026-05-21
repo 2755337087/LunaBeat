@@ -20,9 +20,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -106,7 +108,13 @@ class MusicPlaybackService : MediaSessionService() {
         val renderersFactory = DefaultRenderersFactory(this).apply {
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         }
-        player = ExoPlayer.Builder(this, renderersFactory).build().apply {
+        val dataSourceFactory = DefaultDataSource.Factory(this)
+        val progressiveSourceFactory = ProgressiveMediaSource.Factory(dataSourceFactory)
+
+        player = ExoPlayer.Builder(this, renderersFactory)
+            .setMediaSourceFactory(progressiveSourceFactory)
+            .build()
+            .apply {
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .setUsage(C.USAGE_MEDIA)
@@ -244,6 +252,7 @@ class MusicPlaybackService : MediaSessionService() {
         alacCleanupExecutor.shutdownNow()
         transcodeExecutor.shutdownNow()
         artworkExecutor.shutdownNow()
+        PlaybackAlacTranscodeManager.releaseStreamingResources()
         super.onDestroy()
     }
 
@@ -447,7 +456,14 @@ class MusicPlaybackService : MediaSessionService() {
     private fun resolvePlayablePathForNotification(sourcePath: String): String {
         val normalizedPath = sourcePath.trim()
         if (normalizedPath.isEmpty()) return sourcePath
-        if (!normalizedPath.lowercase().endsWith(".m4a")) return sourcePath
+        val extension = normalizedPath.substringAfterLast('.', "").lowercase()
+        if (extension == "dsf" || extension == "dff" || extension == "dsdiff") {
+            return PlaybackAlacTranscodeManager.ensureTranscodedPath(
+                context = applicationContext,
+                sourcePath = normalizedPath
+            ) ?: sourcePath
+        }
+        if (extension != "m4a") return sourcePath
         if (supportsDirectAlacDecode()) return sourcePath
         val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(normalizedPath)
         if (!isDetectedAlac) return sourcePath
@@ -641,6 +657,9 @@ class MusicPlaybackService : MediaSessionService() {
 
         val sourceFileNameLower = sourcePath.lowercase()
         val sourceIsM4a = sourceFileNameLower.endsWith(".m4a")
+        if (!sourceIsM4a) {
+            return
+        }
         val directAlacDecodeSupported = supportsDirectAlacDecode()
         val forceTranscodeForM4aFailure = sourceIsM4a && reason.startsWith("player_error")
         // 直解码优先：正常切歌下，m4a 直接交给 FFmpeg/系统解码器；仅在解码报错时再回退转码。
@@ -659,9 +678,6 @@ class MusicPlaybackService : MediaSessionService() {
         if (!shouldTranscode) {
             lastFailedAlacPath = null
             pendingPlayAfterTranscode = false
-            alacCleanupExecutor.execute {
-                PlaybackAlacTranscodeManager.cleanupCacheFiles(this, keepPath = null)
-            }
             return
         }
 
@@ -864,11 +880,14 @@ private fun resolvePlayableAudioUriForService(
     sourcePath: String,
     playbackPath: String
 ): Uri {
+    val playbackFile = File(playbackPath)
+    if (playbackPath != sourcePath && playbackFile.exists()) {
+        return Uri.fromFile(playbackFile)
+    }
     if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && context != null) {
         val mediaUri = resolveMediaStoreAudioUriForService(context, sourcePath)
         if (mediaUri != null) return mediaUri
     }
-    val playbackFile = File(playbackPath)
     if (playbackFile.exists()) {
         return Uri.fromFile(playbackFile)
     }

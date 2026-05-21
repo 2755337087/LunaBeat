@@ -464,13 +464,14 @@ class NeteaseApi {
         }
     }
     
-    private fun generate163Key(song: JSONObject, album: JSONObject, singers: List<String>): String? {
+    private fun generate163Key(song: JSONObject, album: JSONObject?, singers: List<String>): String? {
         try {
+            val safeAlbum = album ?: JSONObject()
             val musicId = song.optLong("id", 0L)
             val musicName = song.optString("name", "")
-            val albumName = album.optString("name", "")
-            val albumId = album.optLong("id", 0L)
-            val albumPic = album.optString("picUrl", "")
+            val albumName = safeAlbum.optString("name", "")
+            val albumId = safeAlbum.optLong("id", 0L)
+            val albumPic = safeAlbum.optString("picUrl", "")
             val duration = song.optLong("dt", 0L)
             val bitrate = song.optJSONObject("h")?.optLong("br", 128000L) 
                 ?: song.optJSONObject("m")?.optLong("br", 128000L)
@@ -503,35 +504,12 @@ class NeteaseApi {
             musicJson.put("duration", duration)
             musicJson.put("alias", org.json.JSONArray())
             musicJson.put("transNames", org.json.JSONArray())
-            
-            val rawData = "music:" + musicJson.toString()
-            
-            val key = "#14ljk_!\\]&0U<'(".toByteArray(Charsets.UTF_8)
-            
-            val paddedData = padPKCS5(rawData.toByteArray(Charsets.UTF_8))
-            
-            val secretKey = SecretKeySpec(key, "AES")
-            val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            val encrypted = cipher.doFinal(paddedData)
-            
-            val base64Encoded = Base64.getEncoder().encodeToString(encrypted)
-            
-            return "163 key(Don't modify):$base64Encoded"
+
+            return Netease163KeyCodec.encodeMusicJson(musicJson.toString())
         } catch (e: Exception) {
             Log.e(TAG, "生成163key失败", e)
             return null
         }
-    }
-    
-    private fun padPKCS5(data: ByteArray): ByteArray {
-        val padLength = 16 - (data.size % 16)
-        val padded = ByteArray(data.size + padLength)
-        System.arraycopy(data, 0, padded, 0, data.size)
-        for (i in data.size until padded.size) {
-            padded[i] = padLength.toByte()
-        }
-        return padded
     }
     
     suspend fun getLyrics(songInfo: SongInfo): Lyrics? {

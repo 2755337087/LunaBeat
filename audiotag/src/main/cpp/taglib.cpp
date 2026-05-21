@@ -7,6 +7,8 @@
 #include <opusfile.h>
 #include <mp4file.h>
 #include <wavfile.h>
+#include <dsffile.h>
+#include <dsdifffile.h>
 
 #include <memory>
 #include <stdexcept>
@@ -34,6 +36,10 @@ TagLib::File* createFileFromContent(TagLib::IOStream *stream,
         file = new TagLib::MP4::File(stream, readAudioProperties, audioPropertiesStyle);
     else if (TagLib::RIFF::WAV::File::isSupported(stream))
         file = new TagLib::RIFF::WAV::File(stream, readAudioProperties, audioPropertiesStyle);
+    else if (TagLib::DSF::File::isSupported(stream))
+        file = new TagLib::DSF::File(stream, readAudioProperties, audioPropertiesStyle);
+    else if (TagLib::DSDIFF::File::isSupported(stream))
+        file = new TagLib::DSDIFF::File(stream, readAudioProperties, audioPropertiesStyle);
 
     if (file) {
         if (file->isValid()) {
