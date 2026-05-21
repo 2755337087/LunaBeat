@@ -2518,9 +2518,10 @@ private fun DynamicLyricCoverBackground(
     coverBitmap: Bitmap?,
     backgroundColor: Color,
     isDarkTheme: Boolean,
-    enabled: Boolean
+    enabled: Boolean,
+    layerAlpha: Float = 1f
 ) {
-    if (!enabled || coverBitmap == null) return
+    if (!enabled || coverBitmap == null || layerAlpha <= 0f) return
 
     var lowResCover by remember(coverBitmap) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(coverBitmap) {
@@ -2571,6 +2572,7 @@ private fun DynamicLyricCoverBackground(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = layerAlpha.coerceIn(0f, 1f) }
             .background(backgroundColor)
     ) {
         Canvas(
@@ -2617,9 +2619,10 @@ private fun StaticBlurLyricCoverBackground(
     coverBitmap: Bitmap?,
     backgroundColor: Color,
     isDarkTheme: Boolean,
-    enabled: Boolean
+    enabled: Boolean,
+    layerAlpha: Float = 1f
 ) {
-    if (!enabled || coverBitmap == null) return
+    if (!enabled || coverBitmap == null || layerAlpha <= 0f) return
 
     var blurredCover by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(coverBitmap) {
@@ -2656,6 +2659,7 @@ private fun StaticBlurLyricCoverBackground(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = layerAlpha.coerceIn(0f, 1f) }
             .background(backgroundColor)
     ) {
         Image(
@@ -2787,17 +2791,17 @@ private fun LyricPreviewPortraitVideoCover(
                 drawContent()
                 val fadeStart = (size.height - bottomFadeHeightPx).coerceAtLeast(0f)
                 val opaqueStop = if (size.height <= 0f) 1f else (fadeStart / size.height).coerceIn(0f, 1f)
-                val stop1 = (opaqueStop + (1f - opaqueStop) * 0.16f).coerceIn(0f, 1f)
-                val stop2 = (opaqueStop + (1f - opaqueStop) * 0.42f).coerceIn(0f, 1f)
-                val stop3 = (opaqueStop + (1f - opaqueStop) * 0.72f).coerceIn(0f, 1f)
+                val stop1 = (opaqueStop + (1f - opaqueStop) * 0.25f).coerceIn(0f, 1f)
+                val stop2 = (opaqueStop + (1f - opaqueStop) * 0.50f).coerceIn(0f, 1f)
+                val stop3 = (opaqueStop + (1f - opaqueStop) * 0.75f).coerceIn(0f, 1f)
                 drawRect(
                     brush = Brush.verticalGradient(
                         colorStops = arrayOf(
                             0f to Color.White,
                             opaqueStop to Color.White,
-                            stop1 to Color.White.copy(alpha = 0.90f),
-                            stop2 to Color.White.copy(alpha = 0.58f),
-                            stop3 to Color.White.copy(alpha = 0.22f),
+                            stop1 to Color.White.copy(alpha = 0.75f),
+                            stop2 to Color.White.copy(alpha = 0.50f),
+                            stop3 to Color.White.copy(alpha = 0.25f),
                             1f to Color.Transparent
                         )
                     ),
@@ -3032,8 +3036,41 @@ fun LyricPreviewScreen(
     var themeResolveRequestVersion by remember { mutableIntStateOf(0) }
     var coverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
     var displayedCoverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
-    var portraitVideoCoverPath by remember(sourceAudioPath) { mutableStateOf<String?>(null) }
+    var previousDisplayedCoverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
+    var pendingResolvedCoverThemePair by remember { mutableStateOf<CoverThemeColorPair?>(null) }
+    var themeResolvedSourceKey by remember { mutableStateOf<String?>(null) }
+    var displayedCoverBitmap by remember { mutableStateOf(initialCoverBitmap) }
+    var previousDisplayedCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var pendingResolvedCoverBitmap by remember { mutableStateOf(initialCoverBitmap) }
+    val coverVisualBlend = remember { Animatable(1f) }
+    var coverVisualBlendToken by remember { mutableIntStateOf(-1) }
+    var lastHandledVisualTrackKey by remember { mutableStateOf<String?>(null) }
+    var previousTrackUsedPortraitVideo by remember { mutableStateOf(false) }
+    var suppressMainImageCoverDuringVideoSwitch by remember { mutableStateOf(false) }
+    var portraitVideoCoverPath by remember(sourceAudioPath, audioPath, metadata.album) { mutableStateOf<String?>(null) }
+    var portraitVideoRenderPath by remember { mutableStateOf<String?>(null) }
+    var portraitVideoCoverResolved by remember(sourceAudioPath, audioPath, metadata.album) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val commitVisualAssets: (Bitmap?, CoverThemeColorPair?) -> Unit = commit@{ nextCover, nextTheme ->
+        val coverChanged = displayedCoverBitmap !== nextCover
+        val themeChanged = displayedCoverThemePair != nextTheme
+        if (!coverChanged && !themeChanged) return@commit
+        previousDisplayedCoverBitmap = displayedCoverBitmap
+        previousDisplayedCoverThemePair = displayedCoverThemePair
+        displayedCoverBitmap = nextCover
+        displayedCoverThemePair = nextTheme
+        coverVisualBlendToken += 1
+    }
+    LaunchedEffect(coverVisualBlendToken) {
+        if (coverVisualBlendToken < 0) return@LaunchedEffect
+        coverVisualBlend.snapTo(0f)
+        coverVisualBlend.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+        )
+        previousDisplayedCoverBitmap = null
+        previousDisplayedCoverThemePair = null
+    }
 
     DisposableEffect(keepScreenOnEnabled, isPlaying) {
         val activity = context as? ComponentActivity
@@ -3087,6 +3124,7 @@ fun LyricPreviewScreen(
             audioPath = sourceAudioPath
         )
     }
+    val isCurrentMetadataReady = metadataSourceKey == coverThemeCacheKey
     val rememberedLyricDisplaySelected = remember(initialLyricDisplaySelected) {
         initialLyricDisplaySelected ?: prefs.getBoolean(
             LyricPreviewActivity.KEY_LYRIC_DISPLAY_SELECTED,
@@ -3185,10 +3223,19 @@ fun LyricPreviewScreen(
         usePortraitPlaybackLayout &&
             portraitLyricDisplaySelected &&
             autoHidePlaybackControlsEnabled
+    val shouldSuppressMainImageCoverInstantlyOnTrackSwitch =
+        previousTrackUsedPortraitVideo &&
+            lastHandledVisualTrackKey != null &&
+            coverThemeCacheKey != lastHandledVisualTrackKey &&
+            usePortraitPlaybackLayout &&
+            !portraitLyricDisplaySelected
+    val effectiveSuppressMainImageCoverDuringVideoSwitch =
+        suppressMainImageCoverDuringVideoSwitch || shouldSuppressMainImageCoverInstantlyOnTrackSwitch
     val isPortraitCoverMode = usePortraitPlaybackLayout && !portraitLyricLayoutSelected
     val enablePortraitVideoCover = usePortraitPlaybackLayout && !isLargeScreenDevice
+    val hasPortraitVideoCover = enablePortraitVideoCover && !portraitVideoCoverPath.isNullOrBlank()
     val showPortraitVideoPreferred =
-        enablePortraitVideoCover && !portraitLyricDisplaySelected && !portraitVideoCoverPath.isNullOrBlank()
+        hasPortraitVideoCover && !portraitLyricDisplaySelected
     val portraitVideoCoverAlpha by animateFloatAsState(
         targetValue = if (showPortraitVideoPreferred) 1f else 0f,
         animationSpec = tween(durationMillis = 260),
@@ -3200,7 +3247,11 @@ fun LyricPreviewScreen(
         label = "sharedCoverVisibilityAlpha"
     )
     val portraitMainImageCoverAlpha by animateFloatAsState(
-        targetValue = if (showPortraitVideoPreferred) 0f else 1f,
+        targetValue = if (
+            hasPortraitVideoCover ||
+            showPortraitVideoPreferred ||
+            effectiveSuppressMainImageCoverDuringVideoSwitch
+        ) 0f else 1f,
         animationSpec = tween(durationMillis = 260),
         label = "portraitMainImageCoverAlpha"
     )
@@ -3311,6 +3362,43 @@ fun LyricPreviewScreen(
         }
         playbackControlsMenuExpanded = false
     }
+    LaunchedEffect(coverThemeCacheKey) {
+        val previousKey = lastHandledVisualTrackKey
+        if (previousKey == null) {
+            lastHandledVisualTrackKey = coverThemeCacheKey
+            return@LaunchedEffect
+        }
+        if (coverThemeCacheKey != previousKey) {
+            val shouldClearImageCoverImmediately =
+                previousTrackUsedPortraitVideo &&
+                    usePortraitPlaybackLayout &&
+                    !portraitLyricDisplaySelected
+            if (shouldClearImageCoverImmediately) {
+                displayedCoverBitmap = null
+                displayedCoverThemePair = null
+                pendingResolvedCoverBitmap = null
+                pendingResolvedCoverThemePair = null
+                coverThemePair = null
+                previousDisplayedCoverBitmap = null
+                previousDisplayedCoverThemePair = null
+            }
+            suppressMainImageCoverDuringVideoSwitch =
+                previousTrackUsedPortraitVideo &&
+                    usePortraitPlaybackLayout &&
+                    !portraitLyricDisplaySelected
+            previousTrackUsedPortraitVideo = false
+            lastHandledVisualTrackKey = coverThemeCacheKey
+        }
+    }
+    LaunchedEffect(enablePortraitVideoCover, portraitVideoCoverResolved, portraitVideoCoverPath) {
+        if (
+            enablePortraitVideoCover &&
+            portraitVideoCoverResolved &&
+            !portraitVideoCoverPath.isNullOrBlank()
+        ) {
+            previousTrackUsedPortraitVideo = true
+        }
+    }
     val clearLyricDisplaySelectionState: () -> Unit = {
         portraitLyricDisplaySelected = false
         landscapeLyricDisplaySelected = false
@@ -3334,7 +3422,11 @@ fun LyricPreviewScreen(
             onBack()
         }
     }
-    LaunchedEffect(sourceAudioPath, audioPath, metadata.album) {
+    LaunchedEffect(sourceAudioPath, audioPath, metadata.album, isCurrentMetadataReady) {
+        portraitVideoCoverResolved = false
+        if (!isCurrentMetadataReady) {
+            return@LaunchedEffect
+        }
         val resolvedAudioPath = sourceAudioPath.takeIf { it.isNotBlank() }
             ?: audioPath.takeIf { it.isNotBlank() }
         portraitVideoCoverPath = resolveLyricPreviewVideoCoverPath(
@@ -3342,6 +3434,21 @@ fun LyricPreviewScreen(
             audioPath = resolvedAudioPath,
             albumName = metadata.album
         )
+        portraitVideoCoverResolved = true
+    }
+    LaunchedEffect(portraitVideoCoverPath) {
+        val activePath = portraitVideoCoverPath
+        if (!activePath.isNullOrBlank()) {
+            portraitVideoRenderPath = activePath
+            return@LaunchedEffect
+        }
+        val currentRenderPath = portraitVideoRenderPath
+        if (!currentRenderPath.isNullOrBlank()) {
+            delay(300L)
+            if (portraitVideoCoverPath.isNullOrBlank()) {
+                portraitVideoRenderPath = null
+            }
+        }
     }
     var handledLyricDisplayResetToken by remember { mutableIntStateOf(lyricDisplayResetToken) }
     LaunchedEffect(lyricDisplayResetToken) {
@@ -3470,21 +3577,34 @@ fun LyricPreviewScreen(
         }
         if (metadataLoadRequestVersion != requestVersion) return@LaunchedEffect
         val fallbackCover = initialCoverBitmap
+        val resolvedCover = loaded.coverBitmap ?: fallbackCover
         metadata = loaded.copy(
             artist = loaded.artist.ifBlank { requestArtist.ifBlank { "未知艺术家" } },
-            coverBitmap = loaded.coverBitmap ?: fallbackCover
+            coverBitmap = resolvedCover
         )
         metadataSourceKey = requestKey
+        pendingResolvedCoverBitmap = resolvedCover
+        pendingResolvedCoverThemePair = null
+        themeResolvedSourceKey = null
+        coverThemePair = null
     }
     
     // 提取封面颜色（深浅两套一次性计算，主题切换时不重复取色）
     LaunchedEffect(metadata.coverBitmap, coverThemeCacheKey, metadataSourceKey) {
-        val cover = metadata.coverBitmap
-        if (cover == null || metadataSourceKey != coverThemeCacheKey) {
+        if (metadataSourceKey != coverThemeCacheKey) {
             return@LaunchedEffect
         }
+        val requestSourceKey = metadataSourceKey
         val requestVersion = themeResolveRequestVersion + 1
         themeResolveRequestVersion = requestVersion
+        val cover = metadata.coverBitmap
+        if (cover == null) {
+            if (themeResolveRequestVersion != requestVersion) return@LaunchedEffect
+            coverThemePair = null
+            pendingResolvedCoverThemePair = null
+            themeResolvedSourceKey = requestSourceKey
+            return@LaunchedEffect
+        }
         val resolvedPair = withContext(Dispatchers.IO) {
             resolveCachedCoverThemePair(
                 context = context,
@@ -3492,20 +3612,44 @@ fun LyricPreviewScreen(
                 cover = cover
             )
         }
-        if (themeResolveRequestVersion != requestVersion) return@LaunchedEffect
+        if (
+            themeResolveRequestVersion != requestVersion ||
+            metadataSourceKey != requestSourceKey ||
+            requestSourceKey != coverThemeCacheKey
+        ) {
+            return@LaunchedEffect
+        }
         coverThemePair = resolvedPair
-        if (resolvedPair != null) {
-            displayedCoverThemePair = resolvedPair
-        } else if (displayedCoverThemePair == null) {
-            displayedCoverThemePair = null
+        pendingResolvedCoverThemePair = resolvedPair
+        themeResolvedSourceKey = requestSourceKey
+    }
+    LaunchedEffect(
+        coverThemeCacheKey,
+        metadataSourceKey,
+        themeResolvedSourceKey,
+        pendingResolvedCoverBitmap,
+        pendingResolvedCoverThemePair,
+        enablePortraitVideoCover,
+        portraitVideoCoverResolved
+    ) {
+        val readyToCommit =
+            metadataSourceKey == coverThemeCacheKey &&
+                themeResolvedSourceKey == coverThemeCacheKey &&
+                (!enablePortraitVideoCover || portraitVideoCoverResolved)
+        if (!readyToCommit) return@LaunchedEffect
+        commitVisualAssets(pendingResolvedCoverBitmap, pendingResolvedCoverThemePair)
+        if (suppressMainImageCoverDuringVideoSwitch && portraitVideoCoverResolved) {
+            suppressMainImageCoverDuringVideoSwitch = false
         }
     }
-    val coverThemeColor = if (isDarkTheme) displayedCoverThemePair?.darkColor else displayedCoverThemePair?.lightColor
+    val currentThemeColor = if (isDarkTheme) displayedCoverThemePair?.darkColor else displayedCoverThemePair?.lightColor
+    val coverThemeColor = currentThemeColor
+    val visualAssetsReadyForCurrentTrack =
+        metadataSourceKey == coverThemeCacheKey &&
+            themeResolvedSourceKey == coverThemeCacheKey &&
+            (!enablePortraitVideoCover || portraitVideoCoverResolved)
     var coverVisualPlaying by remember { mutableStateOf(isPlaying) }
-    val shouldHoldCoverScaleForSwitch = isLyricLoading ||
-        metadataSourceKey != coverThemeCacheKey ||
-        metadata.coverBitmap == null ||
-        coverThemePair == null
+    val shouldHoldCoverScaleForSwitch = isLyricLoading || !visualAssetsReadyForCurrentTrack
     LaunchedEffect(isPlaying, shouldHoldCoverScaleForSwitch) {
         if (shouldHoldCoverScaleForSwitch) {
             if (coverVisualPlaying || isPlaying) {
@@ -4400,6 +4544,8 @@ fun LyricPreviewScreen(
     
     val rawBackgroundColor = coverThemeColor ?: MaterialTheme.colorScheme.background
     val backgroundColor = normalizeCoverThemeBackground(rawBackgroundColor, isDarkTheme)
+    val displayedVisualCoverBitmap = displayedCoverBitmap
+    val hasAnyVisualCoverBitmap = displayedVisualCoverBitmap != null
     val accentColor = if (isDarkTheme) {
         blendColorForUi(backgroundColor, Color.White, 0.42f)
     } else {
@@ -4420,11 +4566,11 @@ fun LyricPreviewScreen(
         minContrast = 2.8f
     )
     val useStaticCoverChrome =
-        pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR && metadata.coverBitmap != null
+        pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR && hasAnyVisualCoverBitmap
     val useDynamicCoverChrome =
         supportsDynamicCoverBackground &&
             pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW &&
-            metadata.coverBitmap != null
+            hasAnyVisualCoverBitmap
     val useRichCoverChrome = useStaticCoverChrome || useDynamicCoverChrome
     val chromeContainerColor = if (useRichCoverChrome) Color.Transparent else backgroundColor
     val edgeFadeTopBrush = Brush.verticalGradient(
@@ -4448,13 +4594,13 @@ fun LyricPreviewScreen(
             .background(backgroundColor)
     ) {
         StaticBlurLyricCoverBackground(
-            coverBitmap = metadata.coverBitmap,
+            coverBitmap = displayedVisualCoverBitmap,
             backgroundColor = backgroundColor,
             isDarkTheme = isDarkTheme,
             enabled = useStaticCoverChrome
         )
         DynamicLyricCoverBackground(
-            coverBitmap = metadata.coverBitmap,
+            coverBitmap = displayedVisualCoverBitmap,
             backgroundColor = backgroundColor,
             isDarkTheme = isDarkTheme,
             enabled = useDynamicCoverChrome
@@ -5139,7 +5285,7 @@ fun LyricPreviewScreen(
                                             .graphicsLayer {
                                                 translationY = with(density) { coverVerticalShift.toPx() }
                                             },
-                                        coverBitmap = metadata.coverBitmap,
+                                        coverBitmap = displayedVisualCoverBitmap,
                                         accentColor = accentColor,
                                         backgroundColor = backgroundColor,
                                         isPlaying = coverVisualPlaying,
@@ -5208,7 +5354,7 @@ fun LyricPreviewScreen(
                                                 modifier = Modifier
                                                     .fillMaxSize()
                                                     .padding(top = 13.dp),//封面与正在播放文字的间距
-                                                coverBitmap = metadata.coverBitmap,
+                                                coverBitmap = displayedVisualCoverBitmap,
                                                 accentColor = accentColor,
                                                 backgroundColor = backgroundColor,
                                                 isPlaying = coverVisualPlaying,
@@ -5318,31 +5464,30 @@ fun LyricPreviewScreen(
                             .asPaddingValues()
                             .calculateTopPadding() + 56.dp
                     }
-                    var portraitControlsTopPx by remember { mutableFloatStateOf(Float.NaN) }
                     val showPortraitVideoLayer =
                         enablePortraitVideoCover &&
-                            !portraitVideoCoverPath.isNullOrBlank() &&
+                            !portraitVideoRenderPath.isNullOrBlank() &&
                             (showPortraitVideoPreferred || portraitVideoCoverAlpha > 0.01f)
                     val portraitVideoCompositeAlpha =
                         (portraitVideoCoverAlpha * sharedCoverVisibilityAlpha).coerceIn(0f, 1f)
                     Box(modifier = Modifier.fillMaxSize()) {
-                        if (showPortraitVideoLayer && portraitVideoCoverPath != null) {
-                            val controlsTopPx = portraitControlsTopPx.takeIf { !it.isNaN() }
-                            val fallbackControlsTopPx = with(density) {
-                                (
-                                    screenConfig.screenHeightDp.dp -
-                                        if (portraitControlsPanelHeightPx > 0) {
-                                            portraitControlsPanelHeightPx.toDp()
-                                        } else {
-                                            228.dp
-                                        }
-                                    ).toPx()
-                            }
+                        if (showPortraitVideoLayer && portraitVideoRenderPath != null) {
                             val topGapPx = with(density) { 20.dp.toPx() }
-                            val availableHeightPx = ((controlsTopPx ?: fallbackControlsTopPx) - topGapPx)
-                                .coerceAtLeast(1f)
+                            val screenHeightPx = with(density) { screenConfig.screenHeightDp.dp.toPx() }
+                            val controlsPanelHeightPx = with(density) {
+                                if (portraitControlsPanelHeightPx > 0) {
+                                    portraitControlsPanelHeightPx.toDp().toPx()
+                                } else {
+                                    228.dp.toPx()
+                                }
+                            }
+                            val availableHeightPx = (screenHeightPx - controlsPanelHeightPx - topGapPx)
+                                .coerceIn(1f, screenHeightPx - topGapPx)
                             val availableHeightDp = with(density) { availableHeightPx.toDp() }
-                            Box(
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = isPortraitCoverMode,
+                                enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                                exit = fadeOut(animationSpec = tween(durationMillis = 160)),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .fillMaxWidth()
@@ -5350,13 +5495,19 @@ fun LyricPreviewScreen(
                                     .graphicsLayer { alpha = portraitVideoCompositeAlpha }
                             ) {
                                 LyricPreviewPortraitVideoCover(
-                                    videoPath = portraitVideoCoverPath!!,
+                                    videoPath = portraitVideoRenderPath!!,
                                     isActive = showPortraitVideoPreferred && isPlaying,
                                     // 视频自身底部做 alpha 渐隐，不影响其他组件层。
                                     contentAlpha = 1f,
                                     bottomFadeHeight = 260.dp,
-                                    modifier = Modifier.matchParentSize(),
-                                    onBoundsChanged = { }
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .testTag(sharedCoverId),
+                                    onBoundsChanged = if (shouldTrackPortraitMainCover) {
+                                        { rect -> onPrimaryCoverBoundsChanged?.invoke(rect) }
+                                    } else {
+                                        { }
+                                    }
                                 )
                             }
                         }
@@ -5410,7 +5561,7 @@ fun LyricPreviewScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 androidx.compose.animation.AnimatedVisibility(
-                                    visible = isPortraitCoverMode,
+                                    visible = isPortraitCoverMode && !hasPortraitVideoCover,
                                     enter = fadeIn(animationSpec = tween(durationMillis = 220)),
                                     exit = fadeOut(animationSpec = tween(durationMillis = 160)),
                                     modifier = Modifier.fillMaxSize()
@@ -5418,7 +5569,7 @@ fun LyricPreviewScreen(
                                     val centerCoverVisibilityScope = this
                                     LyricPreviewSideCover(
                                         modifier = Modifier.fillMaxSize(),
-                                        coverBitmap = metadata.coverBitmap,
+                                        coverBitmap = displayedVisualCoverBitmap,
                                         accentColor = accentColor,
                                         backgroundColor = backgroundColor,
                                         isPlaying = coverVisualPlaying,
@@ -5472,9 +5623,6 @@ fun LyricPreviewScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .onGloballyPositioned { coordinates ->
-                                            portraitControlsTopPx = coordinates.boundsInRoot().top
-                                        }
                                         .onSizeChanged { size ->
                                             if (size.height > 0) {
                                                 portraitControlsPanelHeightPx = size.height
@@ -5504,7 +5652,7 @@ fun LyricPreviewScreen(
                             LyricPreviewHeader(
                                 title = metadata.title,
                                 artist = metadata.artist,
-                                coverBitmap = metadata.coverBitmap,
+                                coverBitmap = displayedVisualCoverBitmap,
                                 onBackClick = handleBackRequest,
                                 onCoverClick = { clearLyricDisplaySelectionState() },
                                 onHeaderClick = {
@@ -8611,59 +8759,65 @@ fun LyricPreviewSideCover(
             coverWidth = (coverHeight * coverAspectRatio).coerceAtMost(coverMaxWidth)
         }
 
-        if (coverBitmap != null) {
-            Image(
-                bitmap = coverBitmap.asImageBitmap(),
-                contentDescription = "封面",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .width(coverWidth)
-                    .height(coverHeight)
-                    .testTag(sharedCoverId)
-                    .onGloballyPositioned { coordinates ->
-                        onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
-                    }
-                    .lyricPreviewSharedCoverElement(
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
-                        sharedCoverKey = sharedCoverKey
-                    )
-                    .graphicsLayer(
-                        scaleX = coverScale,
-                        scaleY = coverScale,
-                        alpha = normalizedCoverAlpha
-                    )
-                    .clip(RoundedCornerShape(16.dp))
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .width(coverWidth.coerceAtLeast(120.dp))
-                    .height(coverHeight.coerceAtLeast(120.dp))
-                    .testTag(sharedCoverId)
-                    .onGloballyPositioned { coordinates ->
-                        onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
-                    }
-                    .lyricPreviewSharedCoverElement(
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
-                        sharedCoverKey = sharedCoverKey
-                    )
-                    .graphicsLayer(
-                        scaleX = coverScale,
-                        scaleY = coverScale,
-                        alpha = normalizedCoverAlpha
-                    )
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(placeholderColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.img),
-                    contentDescription = "封面占位",
-                    tint = getHighContrastBlackOrWhite(placeholderColor),
-                    modifier = Modifier.size(42.dp)
+        Crossfade(
+            targetState = coverBitmap,
+            animationSpec = tween(durationMillis = 320),
+            label = "lyricPreviewSideCoverCrossfade"
+        ) { activeCover ->
+            if (activeCover != null) {
+                Image(
+                    bitmap = activeCover.asImageBitmap(),
+                    contentDescription = "封面",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .width(coverWidth)
+                        .height(coverHeight)
+                        .testTag(sharedCoverId)
+                        .onGloballyPositioned { coordinates ->
+                            onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                        }
+                        .lyricPreviewSharedCoverElement(
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                            sharedCoverKey = sharedCoverKey
+                        )
+                        .graphicsLayer(
+                            scaleX = coverScale,
+                            scaleY = coverScale,
+                            alpha = normalizedCoverAlpha
+                        )
+                        .clip(RoundedCornerShape(16.dp))
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .width(coverWidth.coerceAtLeast(120.dp))
+                        .height(coverHeight.coerceAtLeast(120.dp))
+                        .testTag(sharedCoverId)
+                        .onGloballyPositioned { coordinates ->
+                            onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                        }
+                        .lyricPreviewSharedCoverElement(
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                            sharedCoverKey = sharedCoverKey
+                        )
+                        .graphicsLayer(
+                            scaleX = coverScale,
+                            scaleY = coverScale,
+                            alpha = normalizedCoverAlpha
+                        )
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(placeholderColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.img),
+                        contentDescription = "封面占位",
+                        tint = getHighContrastBlackOrWhite(placeholderColor),
+                        modifier = Modifier.size(42.dp)
+                    )
+                }
             }
         }
     }
@@ -8781,61 +8935,67 @@ fun LyricPreviewHeader(
                 }
 
                 // 封面
-                if (coverBitmap != null) {
-                    Image(
-                        bitmap = coverBitmap.asImageBitmap(),
-                        contentDescription = "封面",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .then(
-                                if (onCoverClick != null) {
-                                    Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { onCoverClick() }
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .width(coverWidth)
-                            .height(coverHeight)
-                            .testTag(sharedCoverId)
-                            .onGloballyPositioned { coordinates ->
-                                onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
-                            }
-                            .lyricPreviewSharedCoverElement(
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
-                                sharedCoverKey = sharedCoverKey
-                            )
-                            .graphicsLayer(alpha = normalizedCoverAlpha)
-                            .clip(RoundedCornerShape(12.dp))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(75.dp)
-                            .testTag(sharedCoverId)
-                            .onGloballyPositioned { coordinates ->
-                                onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
-                            }
-                            .lyricPreviewSharedCoverElement(
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
-                                sharedCoverKey = sharedCoverKey
-                            )
-                            .graphicsLayer(alpha = normalizedCoverAlpha)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.img),
-                            contentDescription = "音乐",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                Crossfade(
+                    targetState = coverBitmap,
+                    animationSpec = tween(durationMillis = 320),
+                    label = "lyricPreviewHeaderCoverCrossfade"
+                ) { activeCover ->
+                    if (activeCover != null) {
+                        Image(
+                            bitmap = activeCover.asImageBitmap(),
+                            contentDescription = "封面",
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .size(36.dp)
-                                .align(Alignment.Center)
+                                .then(
+                                    if (onCoverClick != null) {
+                                        Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { onCoverClick() }
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .width(coverWidth)
+                                .height(coverHeight)
+                                .testTag(sharedCoverId)
+                                .onGloballyPositioned { coordinates ->
+                                    onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                                }
+                                .lyricPreviewSharedCoverElement(
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                                    sharedCoverKey = sharedCoverKey
+                                )
+                                .graphicsLayer(alpha = normalizedCoverAlpha)
+                                .clip(RoundedCornerShape(12.dp))
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(75.dp)
+                                .testTag(sharedCoverId)
+                                .onGloballyPositioned { coordinates ->
+                                    onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                                }
+                                .lyricPreviewSharedCoverElement(
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = sharedCoverAnimatedVisibilityScope,
+                                    sharedCoverKey = sharedCoverKey
+                                )
+                                .graphicsLayer(alpha = normalizedCoverAlpha)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.img),
+                                contentDescription = "音乐",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .align(Alignment.Center)
+                            )
+                        }
                     }
                 }
 
