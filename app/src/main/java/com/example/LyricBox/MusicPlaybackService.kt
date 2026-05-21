@@ -20,6 +20,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.datasource.BaseDataSource
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.ExoPlayer
@@ -36,6 +39,9 @@ import java.io.File
 import java.util.concurrent.Executors
 import android.view.KeyEvent
 import androidx.media3.common.util.UnstableApi
+import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class MusicPlaybackService : MediaSessionService() {
 
@@ -44,6 +50,11 @@ class MusicPlaybackService : MediaSessionService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val transcodeExecutor = Executors.newSingleThreadExecutor()
     private val artworkExecutor = Executors.newSingleThreadExecutor()
+    private val notificationDsdPlayer = DsdAudioTrackPlayer { state ->
+        mainHandler.post {
+            syncNotificationDsdState(state)
+        }
+    }
 
     @Volatile
     private var isTranscodingCurrentItem = false
@@ -56,6 +67,12 @@ class MusicPlaybackService : MediaSessionService() {
     private var lastTransitionSourcePath: String? = null
     private var lastTransitionIndex: Int = -1
     private var lastTransitionAtMs: Long = 0L
+    private var notificationDsdActive = false
+    private var notificationDsdPath: String? = null
+    private var notificationDsdIndex: Int = -1
+    private var notificationDsdPlaying = false
+    private var notificationDsdDurationMs = 0L
+    private var suppressNotificationDsdTransition = false
     @Volatile
     private var cachedDirectAlacDecodeSupport: Boolean? = null
     private var lastArtworkUpdatedSourcePath: String? = null
@@ -108,7 +125,7 @@ class MusicPlaybackService : MediaSessionService() {
         val renderersFactory = DefaultRenderersFactory(this).apply {
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         }
-        val dataSourceFactory = DefaultDataSource.Factory(this)
+        val dataSourceFactory = DsdSilenceDataSourceFactory(DefaultDataSource.Factory(this))
         val progressiveSourceFactory = ProgressiveMediaSource.Factory(dataSourceFactory)
 
         player = ExoPlayer.Builder(this, renderersFactory)
@@ -127,6 +144,25 @@ class MusicPlaybackService : MediaSessionService() {
                     lastTransitionSourcePath = mediaItem?.resolveOriginalAudioPath()
                     lastTransitionIndex = this@apply.currentMediaItemIndex
                     lastTransitionAtMs = SystemClock.elapsedRealtime()
+                    val transitionSourcePath = mediaItem?.resolveOriginalAudioPath()
+                    if (transitionSourcePath?.isDsfAudioPath() == true) {
+                        if (suppressNotificationDsdTransition ||
+                            (notificationDsdActive && notificationDsdPath == transitionSourcePath)
+                        ) {
+                            return
+                        }
+                        startNotificationDsdPlayback(
+                            player = this@apply,
+                            index = this@apply.currentMediaItemIndex,
+                            sourcePath = transitionSourcePath,
+                            shouldPlay = this@apply.playWhenReady || this@apply.isPlaying
+                        )
+                        return
+                    } else {
+                        if (!suppressNotificationDsdTransition) {
+                            stopNotificationDsdPlayback()
+                        }
+                    }
                     maybeHandleCurrentAlacPlayback(this@apply, reason = "transition_$reason")
                     maybeEnsureCurrentArtworkMetadata(this@apply)
                     if (lyriconEnabled) {
@@ -137,6 +173,15 @@ class MusicPlaybackService : MediaSessionService() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     val currentSourcePath = currentMediaItem?.resolveOriginalAudioPath()
+                    if (currentSourcePath?.isDsfAudioPath() == true) {
+                        startNotificationDsdPlayback(
+                            player = this@apply,
+                            index = currentMediaItemIndex,
+                            sourcePath = currentSourcePath,
+                            shouldPlay = playWhenReady || isPlaying
+                        )
+                        return
+                    }
                     val fallbackSourcePath = lastTransitionSourcePath
                     val preferLastTransition = !fallbackSourcePath.isNullOrBlank() &&
                         fallbackSourcePath != currentSourcePath &&
@@ -197,6 +242,9 @@ class MusicPlaybackService : MediaSessionService() {
                     val handled = when (keyEvent.keyCode) {
                         KeyEvent.KEYCODE_MEDIA_NEXT -> handleNotificationSkipNext(servicePlayer)
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> handleNotificationSkipPrevious(servicePlayer)
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> handleNotificationPlayPause()
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> handleNotificationPlay()
+                        KeyEvent.KEYCODE_MEDIA_PAUSE -> handleNotificationPause()
                         else -> false
                     }
                     return handled
@@ -210,6 +258,7 @@ class MusicPlaybackService : MediaSessionService() {
                 ): Int {
                     val servicePlayer = this@MusicPlaybackService.player ?: return SessionResult.RESULT_SUCCESS
                     val handled = when (playerCommand) {
+                        Player.COMMAND_PLAY_PAUSE -> handleNotificationPlayPause()
                         Player.COMMAND_SEEK_TO_NEXT -> handleNotificationSkipNext(servicePlayer)
                         Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> handleNotificationSkipNext(servicePlayer)
                         Player.COMMAND_SEEK_TO_PREVIOUS -> handleNotificationSkipPrevious(servicePlayer)
@@ -244,6 +293,7 @@ class MusicPlaybackService : MediaSessionService() {
             player.release()
             release()
         }
+        notificationDsdPlayer.stop()
         player = null
         mediaSession = null
         // 服务即将销毁，不需要再执行异步清理任务，直接同步清理或跳过
@@ -293,10 +343,18 @@ class MusicPlaybackService : MediaSessionService() {
 
     private fun pushLyriconPlayback(isSeek: Boolean) {
         val currentPlayer = player ?: return
-        val position = currentPlayer.currentPosition.coerceAtLeast(0L)
+        val position = if (notificationDsdActive) {
+            notificationDsdPlayer.currentPositionMs().coerceAtLeast(0L)
+        } else {
+            currentPlayer.currentPosition.coerceAtLeast(0L)
+        }
         lyriconBridge.updatePlayback(
             positionMs = position,
-            isPlaying = currentPlayer.isPlaying || currentPlayer.playWhenReady,
+            isPlaying = if (notificationDsdActive) {
+                notificationDsdPlaying
+            } else {
+                currentPlayer.isPlaying || currentPlayer.playWhenReady
+            },
             isSeek = isSeek
         )
     }
@@ -318,9 +376,13 @@ class MusicPlaybackService : MediaSessionService() {
         val fileName = runCatching { File(sourcePath).nameWithoutExtension }.getOrDefault("未知歌曲")
         val title = mediaTitle?.takeIf { it.isNotBlank() } ?: fileName
         val artist = mediaArtist?.takeIf { it.isNotBlank() } ?: "未知艺术家"
-        val duration = currentPlayer.duration
-            .takeIf { it > 0L && it != C.TIME_UNSET }
-            ?: 0L
+        val duration = if (notificationDsdActive && notificationDsdPath == sourcePath) {
+            notificationDsdDurationMs
+        } else {
+            currentPlayer.duration
+                .takeIf { it > 0L && it != C.TIME_UNSET }
+                ?: 0L
+        }
 
         lyricExecutor.execute {
             val rawLyrics = loadLyriconRawLyrics(sourcePath)
@@ -347,7 +409,7 @@ class MusicPlaybackService : MediaSessionService() {
     private fun handleNotificationSkipNext(player: ExoPlayer): Boolean {
         val count = player.mediaItemCount
         if (count <= 0) return false
-        val currentIndex = player.currentMediaItemIndex
+        val currentIndex = if (notificationDsdActive) notificationDsdIndex else player.currentMediaItemIndex
         if (currentIndex < 0) return false
         val manualNextIndex = resolveManualNextIndex(applicationContext, player, consume = true)
         if (manualNextIndex in 0 until count) {
@@ -378,11 +440,20 @@ class MusicPlaybackService : MediaSessionService() {
     private fun handleNotificationSkipPrevious(player: ExoPlayer): Boolean {
         val count = player.mediaItemCount
         if (count <= 0) return false
-        val currentIndex = player.currentMediaItemIndex
+        val currentIndex = if (notificationDsdActive) notificationDsdIndex else player.currentMediaItemIndex
         if (currentIndex < 0) return false
 
-        if (player.currentPosition > 5_000L) {
-            player.seekTo(currentIndex, 0L)
+        val currentPosition = if (notificationDsdActive) {
+            notificationDsdPlayer.currentPositionMs()
+        } else {
+            player.currentPosition
+        }
+        if (currentPosition > 5_000L) {
+            if (notificationDsdActive) {
+                notificationDsdPlayer.seekTo(0L)
+            } else {
+                player.seekTo(currentIndex, 0L)
+            }
             return true
         }
         if (player.repeatMode == Player.REPEAT_MODE_ONE) {
@@ -398,6 +469,126 @@ class MusicPlaybackService : MediaSessionService() {
         return true
     }
 
+    private fun handleNotificationPlayPause(): Boolean {
+        if (!notificationDsdActive) return false
+        return if (notificationDsdPlaying) {
+            handleNotificationPause()
+        } else {
+            handleNotificationPlay()
+        }
+    }
+
+    private fun handleNotificationPlay(): Boolean {
+        if (!notificationDsdActive) return false
+        if (notificationDsdPlayer.isActive) {
+            notificationDsdPlayer.resume()
+        } else {
+            val sourcePath = notificationDsdPath ?: return true
+            notificationDsdPlayer.play(sourcePath, startPositionMs = 0L, startPaused = false)
+        }
+        player?.playWhenReady = true
+        player?.play()
+        notificationDsdPlaying = true
+        if (lyriconEnabled) pushLyriconPlayback(isSeek = false)
+        return true
+    }
+
+    private fun handleNotificationPause(): Boolean {
+        if (!notificationDsdActive) return false
+        notificationDsdPlayer.pause()
+        player?.pause()
+        notificationDsdPlaying = false
+        if (lyriconEnabled) pushLyriconPlayback(isSeek = false)
+        return true
+    }
+
+    private fun startNotificationDsdPlayback(
+        player: ExoPlayer,
+        index: Int,
+        sourcePath: String,
+        shouldPlay: Boolean
+    ) {
+        if (index !in 0 until player.mediaItemCount) return
+        val sameTrack = notificationDsdActive && notificationDsdPath == sourcePath
+        val sourceItem = player.getMediaItemAt(index)
+        val startPositionMs = if (sameTrack) {
+            notificationDsdPlayer.currentPositionMs().coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        val durationMs = runCatching { notificationDsdPlayer.probeDurationMs(sourcePath) }
+            .getOrDefault(notificationDsdDurationMs.takeIf { it > 0L } ?: 1L)
+            .coerceAtLeast(1L)
+        val silenceUri = buildDsdSilenceUri(durationMs)
+        val silenceItem = sourceItem.buildUpon()
+            .setUri(silenceUri)
+            .build()
+        notificationDsdActive = true
+        notificationDsdPath = sourcePath
+        notificationDsdIndex = index
+        notificationDsdPlaying = shouldPlay
+        notificationDsdDurationMs = durationMs
+        suppressNotificationDsdTransition = true
+        try {
+            if (sourceItem.localConfiguration?.uri != silenceUri) {
+                player.replaceMediaItem(index, silenceItem)
+            }
+            player.stop()
+            player.seekToDefaultPosition(index)
+            player.prepare()
+            player.seekTo(index, startPositionMs)
+            player.playWhenReady = shouldPlay
+            if (shouldPlay) {
+                player.play()
+            }
+        } finally {
+            suppressNotificationDsdTransition = false
+        }
+        if (!sameTrack || !notificationDsdPlayer.isActive) {
+            notificationDsdPlayer.play(sourcePath, startPositionMs = startPositionMs, startPaused = !shouldPlay)
+        } else if (shouldPlay) {
+            notificationDsdPlayer.resume()
+        } else {
+            notificationDsdPlayer.pause()
+        }
+
+        maybeEnsureCurrentArtworkMetadata(player, force = true)
+        if (lyriconEnabled) {
+            pushLyriconSongForCurrentItem(forceReloadLyrics = true)
+            pushLyriconPlayback(isSeek = true)
+        }
+    }
+
+    private fun stopNotificationDsdPlayback() {
+        if (!notificationDsdActive && !notificationDsdPlayer.isActive) return
+        notificationDsdPlayer.stop()
+        notificationDsdActive = false
+        notificationDsdPath = null
+        notificationDsdIndex = -1
+        notificationDsdPlaying = false
+        notificationDsdDurationMs = 0L
+    }
+
+    private fun syncNotificationDsdState(state: DsdPlaybackState) {
+        if (!notificationDsdActive || state.path != notificationDsdPath) return
+        notificationDsdPlaying = state.isPlaying
+        if (state.durationMs > 0L) {
+            notificationDsdDurationMs = state.durationMs
+        }
+        if (state.errorMessage != null) {
+            Log.e("MusicPlaybackService", "Notification DSF playback failed: ${state.errorMessage}")
+            notificationDsdPlaying = false
+        }
+        if (state.hasEnded) {
+            notificationDsdPlaying = false
+            player?.let { handleNotificationSkipNext(it) }
+            return
+        }
+        if (lyriconEnabled) {
+            pushLyriconPlayback(isSeek = false)
+        }
+    }
+
     private fun playQueueItemWithPreTranscode(
         player: ExoPlayer,
         index: Int,
@@ -407,6 +598,16 @@ class MusicPlaybackService : MediaSessionService() {
         val targetItem = player.getMediaItemAt(index)
         val sourcePath = targetItem.resolveOriginalAudioPath()
         val shouldPlay = forcePlay || player.isPlaying || player.playWhenReady
+        if (sourcePath?.isDsfAudioPath() == true) {
+            startNotificationDsdPlayback(
+                player = player,
+                index = index,
+                sourcePath = sourcePath,
+                shouldPlay = shouldPlay
+            )
+            return
+        }
+        stopNotificationDsdPlayback()
 
         if (sourcePath.isNullOrBlank()) {
             player.seekToDefaultPosition(index)
@@ -457,12 +658,6 @@ class MusicPlaybackService : MediaSessionService() {
         val normalizedPath = sourcePath.trim()
         if (normalizedPath.isEmpty()) return sourcePath
         val extension = normalizedPath.substringAfterLast('.', "").lowercase()
-        if (extension == "dsf" || extension == "dff" || extension == "dsdiff") {
-            return PlaybackAlacTranscodeManager.ensureTranscodedPath(
-                context = applicationContext,
-                sourcePath = normalizedPath
-            ) ?: sourcePath
-        }
         if (extension != "m4a") return sourcePath
         if (supportsDirectAlacDecode()) return sourcePath
         val isDetectedAlac = PlaybackAlacTranscodeManager.isAlacEncodedM4a(normalizedPath)
@@ -866,6 +1061,132 @@ private fun MediaItem.ensurePlayable(): MediaItem {
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
+private const val DSD_SILENCE_SCHEME = "dsd-silence"
+private const val DSD_SILENCE_SAMPLE_RATE = 44_100
+private const val DSD_SILENCE_CHANNEL_COUNT = 2
+private const val DSD_SILENCE_BITS_PER_SAMPLE = 16
+
+private class DsdSilenceDataSourceFactory(
+    private val upstreamFactory: DataSource.Factory
+) : DataSource.Factory {
+    override fun createDataSource(): DataSource {
+        return DsdSilenceDataSource(upstreamFactory.createDataSource())
+    }
+}
+
+private class DsdSilenceDataSource(
+    private val upstream: DataSource
+) : BaseDataSource(false) {
+    private var silenceUri: Uri? = null
+    private var silenceHeader: ByteArray = ByteArray(0)
+    private var silenceLength: Long = 0L
+    private var readPosition: Long = 0L
+    private var openedSilence = false
+
+    override fun open(dataSpec: DataSpec): Long {
+        val uri = dataSpec.uri
+        if (uri.scheme != DSD_SILENCE_SCHEME) {
+            openedSilence = false
+            return upstream.open(dataSpec)
+        }
+
+        val durationUs = uri.getQueryParameter("durationUs")?.toLongOrNull()?.coerceAtLeast(1L)
+            ?: 1_000_000L
+        val frameSize = DSD_SILENCE_CHANNEL_COUNT * (DSD_SILENCE_BITS_PER_SAMPLE / 8)
+        val frameCount = ((durationUs * DSD_SILENCE_SAMPLE_RATE) / 1_000_000L).coerceAtLeast(1L)
+        val dataSize = (frameCount * frameSize).coerceAtMost(0xFFFF_F000L)
+        silenceHeader = buildSilentWavHeader(dataSize)
+        silenceLength = silenceHeader.size + dataSize
+        if (dataSpec.position > silenceLength) {
+            throw IOException("Position out of range: ${dataSpec.position} > $silenceLength")
+        }
+        readPosition = dataSpec.position
+        silenceUri = uri
+        openedSilence = true
+        transferInitializing(dataSpec)
+        transferStarted(dataSpec)
+        val available = silenceLength - readPosition
+        return if (dataSpec.length == C.LENGTH_UNSET.toLong()) {
+            available
+        } else {
+            minOf(available, dataSpec.length)
+        }
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (!openedSilence) {
+            return upstream.read(buffer, offset, length)
+        }
+        if (length == 0) return 0
+        val remaining = silenceLength - readPosition
+        if (remaining <= 0L) return C.RESULT_END_OF_INPUT
+        val bytesToRead = minOf(length.toLong(), remaining).toInt()
+        var written = 0
+        val headerSize = silenceHeader.size.toLong()
+        if (readPosition < headerSize) {
+            val headerBytes = minOf(bytesToRead.toLong(), headerSize - readPosition).toInt()
+            System.arraycopy(silenceHeader, readPosition.toInt(), buffer, offset, headerBytes)
+            readPosition += headerBytes
+            written += headerBytes
+        }
+        val zeroBytes = bytesToRead - written
+        if (zeroBytes > 0) {
+            buffer.fill(0, offset + written, offset + written + zeroBytes)
+            readPosition += zeroBytes
+            written += zeroBytes
+        }
+        bytesTransferred(written)
+        return written
+    }
+
+    override fun getUri(): Uri? {
+        return if (openedSilence) silenceUri else upstream.uri
+    }
+
+    override fun close() {
+        if (openedSilence) {
+            openedSilence = false
+            silenceUri = null
+            silenceHeader = ByteArray(0)
+            silenceLength = 0L
+            readPosition = 0L
+            transferEnded()
+        } else {
+            upstream.close()
+        }
+    }
+}
+
+private fun buildDsdSilenceUri(durationMs: Long): Uri {
+    val durationUs = durationMs.coerceAtLeast(1L) * 1_000L
+    return Uri.Builder()
+        .scheme(DSD_SILENCE_SCHEME)
+        .authority("audio")
+        .appendQueryParameter("durationUs", durationUs.toString())
+        .build()
+}
+
+private fun buildSilentWavHeader(dataSize: Long): ByteArray {
+    val byteRate = DSD_SILENCE_SAMPLE_RATE * DSD_SILENCE_CHANNEL_COUNT * (DSD_SILENCE_BITS_PER_SAMPLE / 8)
+    val blockAlign = DSD_SILENCE_CHANNEL_COUNT * (DSD_SILENCE_BITS_PER_SAMPLE / 8)
+    val riffSize = (36L + dataSize).coerceAtMost(0xFFFF_FFFFL)
+    return ByteBuffer.allocate(44)
+        .order(ByteOrder.LITTLE_ENDIAN)
+        .put("RIFF".toByteArray(Charsets.US_ASCII))
+        .putInt(riffSize.toInt())
+        .put("WAVE".toByteArray(Charsets.US_ASCII))
+        .put("fmt ".toByteArray(Charsets.US_ASCII))
+        .putInt(16)
+        .putShort(1)
+        .putShort(DSD_SILENCE_CHANNEL_COUNT.toShort())
+        .putInt(DSD_SILENCE_SAMPLE_RATE)
+        .putInt(byteRate)
+        .putShort(blockAlign.toShort())
+        .putShort(DSD_SILENCE_BITS_PER_SAMPLE.toShort())
+        .put("data".toByteArray(Charsets.US_ASCII))
+        .putInt(dataSize.coerceAtMost(0xFFFF_FFFFL).toInt())
+        .array()
+}
 
 private fun MediaItem.resolveOriginalAudioPath(): String? {
     val pathFromExtras = mediaMetadata.extras?.getString(EXTRA_AUDIO_PATH)
@@ -873,6 +1194,10 @@ private fun MediaItem.resolveOriginalAudioPath(): String? {
     val mediaIdPath = mediaId.takeIf { it.isNotBlank() }
     if (!mediaIdPath.isNullOrBlank()) return mediaIdPath
     return localConfiguration?.uri?.path?.takeIf { it.isNotBlank() }
+}
+
+private fun String.isDsfAudioPath(): Boolean {
+    return substringAfterLast('.', "").lowercase() == "dsf"
 }
 
 private fun resolvePlayableAudioUriForService(

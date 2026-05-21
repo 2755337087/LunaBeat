@@ -147,6 +147,10 @@ class DsdAudioTrackPlayer(
         return ((playedSamples * 1000L) / rate).coerceAtLeast(0L)
     }
 
+    fun probeDurationMs(path: String): Long {
+        return parseDsf(path).durationMs
+    }
+
     private fun runPlayback(info: DsfInfo) {
         var raf: RandomAccessFile? = null
         try {
