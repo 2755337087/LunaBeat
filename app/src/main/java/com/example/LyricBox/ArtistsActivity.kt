@@ -614,11 +614,16 @@ internal fun EmbeddedArtistsScreen(
             onClear = { searchQuery = "" },
             modifier = Modifier
                 .fillMaxWidth()
+                .lyricHorizontalSafeDrawingPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             focusRequester = searchFocusRequester
         )
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .lyricHorizontalSafeDrawingPadding()
+        ) {
             val listTopPadding = 8.dp
             when {
                 isLoading || isBuildingArtists -> {
@@ -1001,11 +1006,16 @@ private fun ArtistsScreen(
                 onClear = { searchQuery = "" },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .lyricHorizontalSafeDrawingPadding()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 focusRequester = searchFocusRequester
             )
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .lyricHorizontalSafeDrawingPadding()
+            ) {
                 val listTopPadding = 8.dp
                 when {
                     isLoading -> {
@@ -1291,6 +1301,7 @@ private fun ArtistDetailContent(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .lyricHorizontalSafeDrawingPadding()
                 .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -1621,6 +1632,7 @@ private fun AlbumDetailContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
+                        .lyricHorizontalSafeDrawingPadding()
                         .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -2420,6 +2432,7 @@ private fun TransparentArtistHeadBar(
             .fillMaxWidth()
             .background(backgroundColor)
             .statusBarsPadding()
+            .lyricHorizontalSafeDrawingPadding()
             .height(50.dp),
         contentAlignment = Alignment.CenterStart
     ) {

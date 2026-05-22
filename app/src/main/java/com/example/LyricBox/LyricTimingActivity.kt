@@ -6747,6 +6747,7 @@ fun CommonHeadBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .lyricHorizontalSafeDrawingPadding()
                 .height(50.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

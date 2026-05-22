@@ -13,7 +13,6 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.view.LayoutInflater
-import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import com.lonx.audiotag.rw.AudioTagReader
@@ -105,9 +104,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.airbnb.lottie.compose.*
 import com.example.LyricBox.lyrics.api.Netease163KeyCodec
 import com.example.LyricBox.ui.components.AutoMarqueeText
@@ -1356,41 +1352,10 @@ class LyricPreviewActivity : ComponentActivity() {
         }
     }
 
-    private fun applyEdgeToEdgeWindowCompat() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val layoutParams = window.attributes
-            if (layoutParams.layoutInDisplayCutoutMode !=
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            ) {
-                layoutParams.layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                window.attributes = layoutParams
-            }
-        }
-
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = android.graphics.Color.TRANSPARENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window.isStatusBarContrastEnforced = false
-            window.isNavigationBarContrastEnforced = false
-        }
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                window.decorView.systemUiVisibility or
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        }
-    }
-    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        applyEdgeToEdgeWindowCompat()
+        applyLyricEdgeToEdgeWindowCompat()
         
         val audioPath = intent.getStringExtra(EXTRA_AUDIO_PATH) ?: ""
         val sourceAudioPath = intent.getStringExtra(EXTRA_SOURCE_AUDIO_PATH) ?: audioPath
@@ -3591,19 +3556,15 @@ fun LyricPreviewScreen(
     }
     DisposableEffect(shouldHideSystemBarsForLandscapePhone) {
         val activity = context as? ComponentActivity
-        val controller = activity?.window?.let { window ->
-            WindowCompat.getInsetsController(window, window.decorView)
-        }
+        activity?.applyLyricEdgeToEdgeWindowCompat()
         if (shouldHideSystemBarsForLandscapePhone) {
-            controller?.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller?.hide(WindowInsetsCompat.Type.systemBars())
+            activity?.window?.hideLyricSystemBarsCompat()
         } else {
-            controller?.show(WindowInsetsCompat.Type.systemBars())
+            activity?.window?.showLyricSystemBarsCompat()
         }
         onDispose {
             if (shouldHideSystemBarsForLandscapePhone) {
-                controller?.show(WindowInsetsCompat.Type.systemBars())
+                activity?.window?.showLyricSystemBarsCompat()
             }
         }
     }

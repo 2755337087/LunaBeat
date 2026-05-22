@@ -987,6 +987,7 @@ class MusicLibraryActivity : ComponentActivity() {
             )
         }
         enableEdgeToEdge()
+        applyLyricEdgeToEdgeWindowCompat()
         
         val checkResult = PiracyChecker.checkAll(this)
         if (checkResult.isPirated) {
@@ -3092,26 +3093,30 @@ fun MusicLibraryScreen(
                     )
                 }
             )
-            
-            MusicLibraryBarSwitch(
-                isMultiSelectMode = isMultiSelectMode,
-                multiSelectActionBar = {
-                    val rangeSelectEnabled = lastSelectedIndices.size >= 2
-                    MultiSelectActionBar(
-                        onSelectAll = { selectAll() },
-                        onInvertSelection = { invertSelection() },
-                        onClearSelection = { clearSelection() },
-                        onRangeSelect = {
-                            if (rangeSelectEnabled) {
-                                val sorted = lastSelectedIndices.sorted()
-                                selectRange(sorted[0] + 1, sorted[1] + 1)
-                            }
-                        },
-                        rangeSelectEnabled = rangeSelectEnabled,
-                        onExit = { exitMultiSelectMode() }
-                    )
-                },
-                searchBar = {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .lyricHorizontalSafeDrawingPadding()
+            ) {
+                MusicLibraryBarSwitch(
+                    isMultiSelectMode = isMultiSelectMode,
+                    multiSelectActionBar = {
+                        val rangeSelectEnabled = lastSelectedIndices.size >= 2
+                        MultiSelectActionBar(
+                            onSelectAll = { selectAll() },
+                            onInvertSelection = { invertSelection() },
+                            onClearSelection = { clearSelection() },
+                            onRangeSelect = {
+                                if (rangeSelectEnabled) {
+                                    val sorted = lastSelectedIndices.sorted()
+                                    selectRange(sorted[0] + 1, sorted[1] + 1)
+                                }
+                            },
+                            rangeSelectEnabled = rangeSelectEnabled,
+                            onExit = { exitMultiSelectMode() }
+                        )
+                    },
+                    searchBar = {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3651,6 +3656,7 @@ fun MusicLibraryScreen(
                     }
                 }
             }
+        }
         }
 
         val embeddedArtistAudioFiles = allAudioFiles.toList()
