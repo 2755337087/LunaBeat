@@ -76,7 +76,11 @@ object SleepTimerStore {
     fun clear(context: Context) {
         context.getSharedPreferences(SLEEP_TIMER_PREFS, Context.MODE_PRIVATE)
             .edit()
-            .clear()
+            .remove(KEY_SLEEP_TIMER_ACTIVE)
+            .remove(KEY_SLEEP_TIMER_END_ELAPSED_MS)
+            .remove(KEY_SLEEP_TIMER_FINISH_CURRENT)
+            .remove(KEY_SLEEP_TIMER_WAITING_SONG_END)
+            .remove(KEY_SLEEP_TIMER_ANCHOR_PATH)
             .apply()
     }
 

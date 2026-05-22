@@ -4,7 +4,7 @@
     "type": "APK",
     "kind": "Directory"
   },
-  "applicationId": "com.example.LyricBox1",
+  "applicationId": "com.example.LyricBox",
   "variantName": "release",
   "elements": [
     {
@@ -12,7 +12,7 @@
       "filters": [],
       "attributes": [],
       "versionCode": 28,
-      "versionName": "2.0.3_beta03",
+      "versionName": "2.0.3_beta04",
       "outputFile": "app-release.apk"
     }
   ],
