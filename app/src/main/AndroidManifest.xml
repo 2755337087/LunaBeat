@@ -92,6 +92,11 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode"
             android:theme="@style/Theme.歌词转换" />
+        <activity
+            android:name=".ArtistsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode"
+            android:theme="@style/Theme.歌词转换" />
 
         <activity
             android:name=".MusicLibrarySettingsActivity"

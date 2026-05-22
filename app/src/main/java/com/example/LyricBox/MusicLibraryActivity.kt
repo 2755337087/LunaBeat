@@ -312,7 +312,7 @@ private val FILE_NAME_SORT_TRANSLITERATOR: Transliterator? by lazy(LazyThreadSaf
         .getOrNull()
 }
 
-private fun buildFileNameSortKey(value: String): String {
+internal fun buildFileNameSortKey(value: String): String {
     val source = value.trim()
     if (source.isEmpty()) return "~"
 
@@ -335,7 +335,7 @@ private fun buildFileNameSortKey(value: String): String {
     return normalized
 }
 
-private fun buildFileNameSortBucket(value: String): String {
+internal fun buildFileNameSortBucket(value: String): String {
     val firstLetter = buildFileNameSortKey(value)
         .firstOrNull { it.isLetter() }
         ?.uppercaseChar()
@@ -2742,11 +2742,23 @@ fun MusicLibraryScreen(
                     CustomDropdownMenu(
                         expanded = pageMenuExpanded,
                         onDismissRequest = { pageMenuExpanded = false },
-                        items = buildPageSwitchMenuItems(
-                            context = context,
-                            currentPage = AppPageDestination.MUSIC_LIBRARY,
-                            includeCurrentPage = false
-                        ),
+                        items = buildList {
+                            add(
+                                MenuItem(
+                                    title = "艺术家",
+                                    onClick = {
+                                        context.startActivity(Intent(context, ArtistsActivity::class.java))
+                                    }
+                                )
+                            )
+                            addAll(
+                                buildPageSwitchMenuItems(
+                                    context = context,
+                                    currentPage = AppPageDestination.MUSIC_LIBRARY,
+                                    includeCurrentPage = false
+                                )
+                            )
+                        },
                         anchorPosition = backButtonPosition ?: MenuAnchorPosition(0f, 0f)
                     )
                 },
