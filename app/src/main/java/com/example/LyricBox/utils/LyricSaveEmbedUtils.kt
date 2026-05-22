@@ -15,6 +15,16 @@ enum class LyricExportFormat {
 }
 
 object LyricSaveEmbedUtils {
+    private fun isBlankLyricLineForExport(lyricLine: LyricLine): Boolean {
+        return lyricLine.timeUnits.isEmpty() || lyricLine.timeUnits.all { it.text.isBlank() }
+    }
+
+    private fun firstExportStartTime(lyricLine: LyricLine, fallback: String): String {
+        return lyricLine.timeUnits.firstOrNull { it.text.isNotBlank() }?.startTime
+            ?: lyricLine.timeUnits.firstOrNull()?.startTime
+            ?: fallback
+    }
+
     fun buildWordLrc(lyricLines: List<LyricLine>): String {
         return buildWordLrcFromTimingPage(lyricLines)
     }
@@ -24,10 +34,15 @@ object LyricSaveEmbedUtils {
         showLineEndTime: Boolean
     ): String {
         return buildString {
+            var previousLineStartTime = "00:00.000"
             lyricLines.forEach { lyricLine ->
-                if (lyricLine.timeUnits.isEmpty()) return@forEach
+                if (isBlankLyricLineForExport(lyricLine)) {
+                    append("[$previousLineStartTime]\n")
+                    return@forEach
+                }
 
-                val startTime = lyricLine.timeUnits.first().startTime
+                val startTime = firstExportStartTime(lyricLine, previousLineStartTime)
+                previousLineStartTime = startTime
                 val endTime = lyricLine.timeUnits.last().endTime
                 val lineText = lyricLine.timeUnits.joinToString("") { it.text }
 

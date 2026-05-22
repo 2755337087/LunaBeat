@@ -31,9 +31,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -41,6 +46,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -283,7 +289,12 @@ fun SettingsScreen(
     var showArtistSeparatorDialog by remember { mutableStateOf(false) }
     
     var autoScan by remember { mutableStateOf(musicLibraryPrefs.getBoolean("autoScan", false)) }
+    var metadataSaveAutoClose by remember {
+        mutableStateOf(musicLibraryPrefs.getBoolean(PREF_KEY_METADATA_SAVE_AUTO_CLOSE, false))
+    }
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
+    var showArtistSplitWhitelistSheet by remember { mutableStateOf(false) }
+    var artistSplitWhitelist by remember { mutableStateOf(ArtistSplitWhitelistStore.load(context)) }
     var lyricShowTranslation by remember {
         mutableStateOf(
             lyricPreviewPrefs.getBoolean(
@@ -567,18 +578,6 @@ fun SettingsScreen(
             }
             
             item {
-                SettingsItem(
-                    title = "自定义元数据字段",
-                    summary = "设置要显示的自定义元数据字段",
-                    onClick = onNavigateToCustomMetadataFieldsSettings
-                )
-            }
-            
-            item {
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-            
-            item {
                 SettingsItemWithSwitch(
                     title = "进入音乐库时自动扫描",
                     summary = "开启后进入音乐库会自动扫描新文件",
@@ -622,7 +621,66 @@ fun SettingsScreen(
                     onClick = { showLyricSettingsSheet = true }
                 )
             }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "艺术家拆分白名单",
+                    summary = if (artistSplitWhitelist.isEmpty()) {
+                        "未添加"
+                    } else {
+                        "已添加 ${artistSplitWhitelist.size} 个艺术家"
+                    },
+                    onClick = { showArtistSplitWhitelistSheet = true }
+                )
+            }
             
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            item {
+                Text(
+                    text = "元数据编辑设置",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "自定义元数据字段",
+                    summary = "设置要显示的自定义元数据字段",
+                    onClick = onNavigateToCustomMetadataFieldsSettings
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItemWithSwitch(
+                    title = "保存后自动关闭",
+                    summary = "开启后保存成功会直接退出编辑页，不显示操作成功对话框",
+                    checked = metadataSaveAutoClose,
+                    onCheckedChange = { newValue ->
+                        metadataSaveAutoClose = newValue
+                        musicLibraryPrefs.edit()
+                            .putBoolean(PREF_KEY_METADATA_SAVE_AUTO_CLOSE, newValue)
+                            .apply()
+                    }
+                )
+            }
+
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -1053,6 +1111,18 @@ fun SettingsScreen(
             accentColor = MaterialTheme.colorScheme.primary
         )
     }
+
+    if (showArtistSplitWhitelistSheet) {
+        ArtistSplitWhitelistBottomSheet(
+            whitelist = artistSplitWhitelist,
+            onDismiss = { showArtistSplitWhitelistSheet = false },
+            onWhitelistChange = { updatedWhitelist ->
+                val normalized = ArtistSplitWhitelistStore.normalize(updatedWhitelist)
+                artistSplitWhitelist = normalized
+                ArtistSplitWhitelistStore.save(context, normalized)
+            }
+        )
+    }
 }
 
 @Composable
@@ -1170,6 +1240,153 @@ fun DarkModeDialog(
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArtistSplitWhitelistBottomSheet(
+    whitelist: List<String>,
+    onDismiss: () -> Unit,
+    onWhitelistChange: (List<String>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var inputText by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf("") }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "艺术家拆分白名单",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = {
+                    inputText = it
+                    errorText = ""
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("新增艺术家") },
+                placeholder = { Text("一行一个艺术家") },
+                minLines = 3,
+                maxLines = 6
+            )
+
+            if (errorText.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = errorText,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { inputText = "" },
+                    modifier = Modifier.weight(1f),
+                    enabled = inputText.isNotBlank()
+                ) {
+                    Text("清空")
+                }
+                Button(
+                    onClick = {
+                        val newArtists = ArtistSplitWhitelistStore.parseInput(inputText)
+                        if (newArtists.isEmpty()) {
+                            errorText = "请输入要添加的艺术家"
+                            return@Button
+                        }
+
+                        val merged = ArtistSplitWhitelistStore.normalize(whitelist + newArtists)
+                        if (merged.size == whitelist.size) {
+                            errorText = "没有可添加的新艺术家"
+                            return@Button
+                        }
+
+                        onWhitelistChange(merged)
+                        inputText = ""
+                        errorText = ""
+                        Toast.makeText(context, "已添加 ${merged.size - whitelist.size} 个艺术家", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("添加")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "当前白名单",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (whitelist.isEmpty()) {
+                Text(
+                    text = "暂无艺术家",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                whitelist.forEach { artist ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = artist,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                onWhitelistChange(
+                                    whitelist.filterNot {
+                                        it.equals(artist, ignoreCase = true)
+                                    }
+                                )
+                            }
+                        ) {
+                            Text("删除")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable

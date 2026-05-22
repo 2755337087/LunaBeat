@@ -39,6 +39,32 @@ fun buildPlayerLyricPreviewPayload(
     )
 }
 
+fun buildPlayerLyricPreviewPayloadFromContent(
+    lyricsContent: String
+): PlayerLyricPreviewPayload? {
+    val trimmed = lyricsContent.trim()
+    if (trimmed.isEmpty()) return null
+
+    val format = detectLyricsFormat(trimmed)
+    val lyricLines = parseLyricsLinesForPlayer(trimmed, format)
+    if (lyricLines.isEmpty()) return null
+
+    val previewLines = convertLyricsToPreviewLinesForPlayer(lyricLines)
+    if (previewLines.isEmpty()) return null
+
+    val creators = if (format == 3) {
+        runCatching { LyricParsingUtils.parseSongwritersFromTtml(trimmed) }
+            .getOrDefault(emptyList())
+    } else {
+        emptyList()
+    }
+
+    return PlayerLyricPreviewPayload(
+        lines = previewLines,
+        creators = creators
+    )
+}
+
 private fun resolveLyricsContentForPlayer(
     context: Context,
     audioPath: String,

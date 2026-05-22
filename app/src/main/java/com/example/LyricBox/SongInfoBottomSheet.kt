@@ -87,10 +87,15 @@ fun SongInfoBottomSheet(
     onEditLyricsFromPreview: (() -> Unit)? = null,
     onEditMetadataFromSheet: ((AudioFile) -> Unit)? = null,
     onSearchNavigateDone: (() -> Unit)? = null,
+    onOpenLyricTimingFromSheet: ((AudioFile, SongInfoState, String?, String) -> Unit)? = null,
     onOpenSleepTimer: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val musicLibraryPrefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
+    val autoDetectEmbeddedLyricsType = remember {
+        musicLibraryPrefs.getBoolean("autoDetectEmbeddedLyricsType", false)
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val fallbackPlaybackController = if (onPlayNext == null) rememberMusicPlaybackController() else null
     var infoState by remember {
@@ -231,7 +236,8 @@ fun SongInfoBottomSheet(
                 SongInfoActionItem(title = "查看专辑、艺术家", onClick = {
                     val artists = extractAllArtistsForSheet(
                         title = infoState.title,
-                        artist = infoState.artist
+                        artist = infoState.artist,
+                        artistSplitWhitelist = ArtistSplitWhitelistStore.load(context)
                     )
                     if (artists.isEmpty() && infoState.album.isBlank()) {
                     } else if (onViewArtists != null) {
@@ -261,7 +267,30 @@ fun SongInfoBottomSheet(
                 SongInfoActionItem(
                     title = "去打轴界面编辑歌词",
                     onClick = {
-                        showLyricsSourceSheet = true
+                        handleMusicLibraryItemLyricsAction(
+                            scope = scope,
+                            context = context,
+                            audio = audio,
+                            autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
+                            onShowOptions = {
+                                showLyricsSourceSheet = true
+                            },
+                            onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
+                                if (onOpenLyricTimingFromSheet != null) {
+                                    onOpenLyricTimingFromSheet(targetAudio, infoState, lyricsContent, format)
+                                } else {
+                                    launchLyricTimingEditorFromSongInfo(
+                                        context = context,
+                                        audio = targetAudio,
+                                        songInfo = infoState,
+                                        lyricsContent = lyricsContent,
+                                        lyricsFormatLabel = format
+                                    )
+                                }
+                                onDismiss()
+                                onEditLyricsFromPreview?.invoke()
+                            }
+                        )
                     }
                 )
                 SongInfoActionItem(
@@ -319,6 +348,7 @@ fun SongInfoBottomSheet(
     if (showLyricsSourceSheet) {
         AudioOptionsDialog(
             audio = audio,
+            autoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType,
             initialCoverBitmap = coverBitmap,
             onDismiss = {
                 showLyricsSourceSheet = false
@@ -326,13 +356,17 @@ fun SongInfoBottomSheet(
             },
             onEditLyrics = { lyricsContent, lyricsFormat ->
                 showLyricsSourceSheet = false
-                launchLyricTimingEditorFromSongInfo(
-                    context = context,
-                    audio = audio,
-                    songInfo = infoState,
-                    lyricsContent = lyricsContent,
-                    lyricsFormatLabel = lyricsFormat
-                )
+                if (onOpenLyricTimingFromSheet != null) {
+                    onOpenLyricTimingFromSheet(audio, infoState, lyricsContent, lyricsFormat)
+                } else {
+                    launchLyricTimingEditorFromSongInfo(
+                        context = context,
+                        audio = audio,
+                        songInfo = infoState,
+                        lyricsContent = lyricsContent,
+                        lyricsFormatLabel = lyricsFormat
+                    )
+                }
                 onDismiss()
                 onEditLyricsFromPreview?.invoke()
             },
@@ -515,21 +549,20 @@ private fun loadCoverFromCache(cachePath: String?): Bitmap? {
     }
 }
 
-private fun extractAllArtistsForSheet(title: String, artist: String): List<String> {
-    fun splitArtists(raw: String): List<String> {
-        return raw
-            .replace("／", "/")
-            .replace("；", ";")
-            .replace("，", ",")
-            .split("/", "&", ";", ",", "、")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-    }
-
-    val base = splitArtists(artist)
+private fun extractAllArtistsForSheet(
+    title: String,
+    artist: String,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
+    val base = ArtistNameSplitter.split(artist, artistSplitWhitelist)
     val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
     val titleArtists = featPattern.findAll(title)
-        .flatMap { match -> splitArtists(match.groupValues.getOrElse(1) { "" }).asSequence() }
+        .flatMap { match ->
+            ArtistNameSplitter.split(
+                match.groupValues.getOrElse(1) { "" },
+                artistSplitWhitelist
+            ).asSequence()
+        }
         .toList()
 
     return (base + titleArtists)

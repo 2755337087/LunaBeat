@@ -7,6 +7,7 @@ private const val KEY_ENABLED_METADATA_FIELDS = "enabledMetadataFields"
 private const val KEY_CUSTOM_METADATA_FIELDS = "customMetadataFields"
 private const val KEY_VISIBLE_METADATA_FIELDS_ORDER = "visibleMetadataFieldsOrder"
 private const val KEY_HIDDEN_METADATA_FIELDS_ORDER = "hiddenMetadataFieldsOrder"
+const val PREF_KEY_METADATA_SAVE_AUTO_CLOSE = "metadataSaveAutoClose"
 private val DEFAULT_HIDDEN_CUSTOM_FIELD_NAMES = listOf("language", "rate")
 
 const val CUSTOM_METADATA_FIELD_PREFIX = "custom:"

@@ -846,6 +846,7 @@ private fun MusicPlayerControlPanel(
     onSongInfoClick: () -> Unit,
     onArtistsClick: (List<String>) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val controlScale = if (isLandscape) 1.12f else 1f
     val panelPaddingH = if (isLandscape) 20.dp else 16.dp
     val panelPaddingV = if (isLandscape) 18.dp else 14.dp
@@ -876,7 +877,11 @@ private fun MusicPlayerControlPanel(
                     .clickable {
                         val title = controller.currentTitle.ifBlank { currentAudio?.displayTitle.orEmpty() }
                         val artist = controller.currentArtist.ifBlank { currentAudio?.displayArtist.orEmpty() }
-                        val artists = extractAllArtistsForPlayer(title, artist)
+                        val artists = extractAllArtistsForPlayer(
+                            title,
+                            artist,
+                            ArtistSplitWhitelistStore.load(context)
+                        )
                         if (artists.isNotEmpty()) {
                             onArtistsClick(artists)
                         }
@@ -1159,21 +1164,20 @@ private fun PlayerBottomActionButton(
     }
 }
 
-private fun extractAllArtistsForPlayer(title: String, artist: String): List<String> {
-    fun splitArtists(raw: String): List<String> {
-        return raw
-            .replace("／", "/")
-            .replace("；", ";")
-            .replace("，", ",")
-            .split("/", "&", ";", ",", "、")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-    }
-
-    val base = splitArtists(artist)
+private fun extractAllArtistsForPlayer(
+    title: String,
+    artist: String,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
+    val base = ArtistNameSplitter.split(artist, artistSplitWhitelist)
     val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
     val titleArtists = featPattern.findAll(title)
-        .flatMap { match -> splitArtists(match.groupValues.getOrElse(1) { "" }).asSequence() }
+        .flatMap { match ->
+            ArtistNameSplitter.split(
+                match.groupValues.getOrElse(1) { "" },
+                artistSplitWhitelist
+            ).asSequence()
+        }
         .toList()
 
     return (base + titleArtists)

@@ -152,6 +152,25 @@ private const val PLAYED_LINE_BLUR_RADIUS = 2f
 private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
 private const val COMPANION_AUDIO_LOG_TAG = "LyricPreviewCompanion"
+private const val PREVIEW_LYRICS_REFRESH_LOG_TAG = "PreviewLyricsRefresh"
+
+private fun sanitizeLyricLogText(value: String?, maxLength: Int = 80): String {
+    val compact = value
+        ?.replace("\r", " ")
+        ?.replace("\n", " ")
+        ?.replace("\t", " ")
+        ?.trim()
+        .orEmpty()
+    return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
+}
+
+private fun summarizeLyricsContentForLog(lyricsContent: String?): String {
+    return if (lyricsContent == null) {
+        "content=null"
+    } else {
+        "len=${lyricsContent.length} hash=${lyricsContent.hashCode()} first=\"${sanitizeLyricLogText(lyricsContent)}\""
+    }
+}
 
 private fun resolveNowPlayingCommentText(rawComment: String): String? {
     val trimmed = rawComment.trim()
@@ -233,6 +252,18 @@ data class NewPreviewLyricLine(
     val isInterlude: Boolean = false, // 新增：是否是间奏行
     val backgroundPlacement: Int = 0 // -1: 主句上方背景歌词, 1: 主句下方背景歌词, 0: 非背景/未知
 )
+
+private fun buildPreviewLyricLineItemKey(index: Int, line: NewPreviewLyricLine): String {
+    return "lyric-$index-${line.hashCode()}"
+}
+
+private fun summarizePreviewLyricLinesForLog(lines: List<NewPreviewLyricLine>): String {
+    val firstText = lines.firstOrNull()
+        ?.words
+        ?.joinToString(separator = "") { it.text }
+        .orEmpty()
+    return "count=${lines.size} hash=${lines.hashCode()} first=\"${sanitizeLyricLogText(firstText)}\""
+}
 
 // 检测是否为逐行歌词
 fun NewPreviewLyricLine.isLineByLineLyric(): Boolean {
@@ -1407,12 +1438,114 @@ class LyricPreviewActivity : ComponentActivity() {
             if (preferSharedBootstrap) emptyList() else reorganizedLines
         )
         val previewLyricsLoadingState = mutableStateOf(preferSharedBootstrap)
+        val previewMetadataRefreshTokenState = mutableIntStateOf(0)
         val companionAudioPathState = mutableStateOf<String?>(null)
         Log.d(
             COMPANION_AUDIO_LOG_TAG,
             "onCreate source=${previewSourceAudioPathState.value} companion=${companionAudioPathState.value ?: "null"}"
         )
         val companionSwitchingState = mutableStateOf(false)
+
+        fun refreshCurrentPreviewAudioData() {
+            val requestSourcePath = previewSourceAudioPathState.value
+                .ifBlank { previewAudioPathState.value }
+            if (requestSourcePath.isBlank()) {
+                Log.d(PREVIEW_LYRICS_REFRESH_LOG_TAG, "refreshFromFile skipped: blank source")
+                return
+            }
+
+            val requestMediaStoreId = previewMediaStoreIdState.longValue
+            lifecycleScope.launch {
+                previewLyricsLoadingState.value = true
+                Log.d(
+                    PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                    "refreshFromFile start path=$requestSourcePath mediaStoreId=$requestMediaStoreId token=${previewMetadataRefreshTokenState.intValue}"
+                )
+                try {
+                    val payload = withContext(Dispatchers.IO) {
+                        buildPlayerLyricPreviewPayload(
+                            context = this@LyricPreviewActivity,
+                            audioPath = requestSourcePath,
+                            mediaStoreId = requestMediaStoreId
+                        )
+                    }
+                    if (
+                        requestSourcePath == previewSourceAudioPathState.value ||
+                        requestSourcePath == previewAudioPathState.value
+                    ) {
+                        val parsedLines = payload?.lines ?: emptyList()
+                        val reorganizedLines = reorganizeLyricsWithBackground(parsedLines)
+                        Log.d(
+                            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                            "refreshFromFile parsed=${summarizePreviewLyricLinesForLog(parsedLines)} reorganized=${summarizePreviewLyricLinesForLog(reorganizedLines)} creators=${payload?.creators?.size ?: 0}"
+                        )
+                        previewLyricLinesState.value = reorganizedLines
+                        previewCreatorsState.value = payload?.creators ?: emptyList()
+                        previewMetadataRefreshTokenState.intValue += 1
+                        Log.d(
+                            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                            "refreshFromFile applied token=${previewMetadataRefreshTokenState.intValue} state=${summarizePreviewLyricLinesForLog(previewLyricLinesState.value)}"
+                        )
+
+                        val resolvedCompanion = withContext(Dispatchers.IO) {
+                            resolveCompanionAudioPath(requestSourcePath)
+                        }
+                        companionAudioPathState.value = resolvedCompanion
+                        Log.d(
+                            COMPANION_AUDIO_LOG_TAG,
+                            "refresh source=$requestSourcePath companion=${resolvedCompanion ?: "null"}"
+                        )
+                    } else {
+                        Log.d(
+                            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                            "refreshFromFile ignored stale result request=$requestSourcePath currentSource=${previewSourceAudioPathState.value} currentAudio=${previewAudioPathState.value}"
+                        )
+                    }
+                } finally {
+                    if (
+                        requestSourcePath == previewSourceAudioPathState.value ||
+                        requestSourcePath == previewAudioPathState.value
+                    ) {
+                        previewLyricsLoadingState.value = false
+                    }
+                }
+            }
+        }
+
+        fun applyReturnedPreviewLyricsContent(lyricsContent: String) {
+            if (lyricsContent.isBlank()) {
+                Log.d(PREVIEW_LYRICS_REFRESH_LOG_TAG, "applyReturned skipped: blank content")
+                return
+            }
+
+            lifecycleScope.launch {
+                previewLyricsLoadingState.value = true
+                Log.d(
+                    PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                    "applyReturned start ${summarizeLyricsContentForLog(lyricsContent)} token=${previewMetadataRefreshTokenState.intValue}"
+                )
+                try {
+                    val payload = withContext(Dispatchers.Default) {
+                        buildPlayerLyricPreviewPayloadFromContent(lyricsContent)
+                    }
+                    val parsedLines = payload?.lines ?: emptyList()
+                    val reorganizedLines = reorganizeLyricsWithBackground(parsedLines)
+                    Log.d(
+                        PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                        "applyReturned parsed=${summarizePreviewLyricLinesForLog(parsedLines)} reorganized=${summarizePreviewLyricLinesForLog(reorganizedLines)} creators=${payload?.creators?.size ?: 0}"
+                    )
+                    previewLyricLinesState.value = reorganizedLines
+                    previewCreatorsState.value = payload?.creators ?: emptyList()
+                    previewMetadataRefreshTokenState.intValue += 1
+                    Log.d(
+                        PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                        "applyReturned applied token=${previewMetadataRefreshTokenState.intValue} state=${summarizePreviewLyricLinesForLog(previewLyricLinesState.value)}"
+                    )
+                } finally {
+                    previewLyricsLoadingState.value = false
+                }
+            }
+        }
 
         lifecycleScope.launch(Dispatchers.IO) {
             val resolvedCompanion = resolveCompanionAudioPath(previewSourceAudioPathState.value)
@@ -1498,6 +1631,7 @@ class LyricPreviewActivity : ComponentActivity() {
                     sourceMediaStoreId = previewMediaStoreIdState.longValue,
                     lyricLines = previewLyricLinesState.value,
                     isLyricLoading = previewLyricsLoadingState.value,
+                    metadataRefreshToken = previewMetadataRefreshTokenState.intValue,
                     applyInitialSeek = !useSharedPlayback,
                     creators = previewCreatorsState.value,
                     audioDuration = previewAudioDuration,
@@ -1639,7 +1773,13 @@ class LyricPreviewActivity : ComponentActivity() {
                     },
                     enableSongInfoSheet = !isTimingPreviewEntry,
                     playbackCompleted = playbackCompleted,
-                    onPlaybackCompletedHandled = { playbackCompleted = false }
+                    onPlaybackCompletedHandled = { playbackCompleted = false },
+                    onApplyPreviewLyricsContent = { lyricsContent ->
+                        applyReturnedPreviewLyricsContent(lyricsContent)
+                    },
+                    onRefreshPreviewData = {
+                        refreshCurrentPreviewAudioData()
+                    }
                 )
             }
         }
@@ -2859,6 +2999,7 @@ fun LyricPreviewScreen(
     initialArtistText: String = "未知艺术家",
     lyricLines: List<NewPreviewLyricLine>,
     isLyricLoading: Boolean = false,
+    metadataRefreshToken: Int = 0,
     applyInitialSeek: Boolean = true,
     creators: List<String> = emptyList(),
     audioDuration: Long,
@@ -2884,6 +3025,8 @@ fun LyricPreviewScreen(
     enableSongInfoSheet: Boolean = true,
     playbackCompleted: Boolean = false,
     onPlaybackCompletedHandled: () -> Unit = {},
+    onApplyPreviewLyricsContent: (String) -> Unit = {},
+    onRefreshPreviewData: () -> Unit = {},
     showChrome: Boolean = true,
     enableBackHandler: Boolean = true,
     sharedCoverId: String = "music_cover",
@@ -3035,6 +3178,7 @@ fun LyricPreviewScreen(
     var pendingArtistSheetArtists by remember { mutableStateOf(listOf<String>()) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var pendingResetLyricDisplayOnResume by remember { mutableStateOf(false) }
+    var pendingPreviewDataRefreshOnResume by remember { mutableStateOf(false) }
     var customFontOptions by remember { mutableStateOf(LyricCustomFontStore.loadOptions(context)) }
     var selectedCustomFontId by remember { mutableStateOf(LyricCustomFontStore.getSelectedFontId(context)) }
     var lyricFontFamily by remember { mutableStateOf<FontFamily?>(null) }
@@ -3555,7 +3699,11 @@ fun LyricPreviewScreen(
         }
     }
     val showArtistInfoSheet: () -> Unit = {
-        val artists = extractLyricPreviewArtistsForSheet(metadata.title, metadata.artist)
+        val artists = extractLyricPreviewArtistsForSheet(
+            metadata.title,
+            metadata.artist,
+            ArtistSplitWhitelistStore.load(context)
+        )
         if (artists.isNotEmpty()) {
             pendingArtistSheetAlbum = metadata.album
             pendingArtistSheetArtists = artists
@@ -3580,6 +3728,81 @@ fun LyricPreviewScreen(
         }
     }
 
+    val lyricTimingEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        pendingPreviewDataRefreshOnResume = false
+        val returnedLyrics = result.data?.getStringExtra("lyricsContent")
+        Log.d(
+            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+            "timingResult resultCode=${result.resultCode} ${summarizeLyricsContentForLog(returnedLyrics)}"
+        )
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            if (!returnedLyrics.isNullOrBlank()) {
+                onApplyPreviewLyricsContent(returnedLyrics)
+            } else {
+                onRefreshPreviewData()
+            }
+        } else {
+            onRefreshPreviewData()
+        }
+    }
+
+    val metadataEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        pendingPreviewDataRefreshOnResume = false
+        val returnedLyrics = result.data?.getStringExtra("lyricsContent")
+        Log.d(
+            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+            "metadataResult resultCode=${result.resultCode} ${summarizeLyricsContentForLog(returnedLyrics)}"
+        )
+        if (result.resultCode == android.app.Activity.RESULT_OK && !returnedLyrics.isNullOrBlank()) {
+            onApplyPreviewLyricsContent(returnedLyrics)
+        } else {
+            onRefreshPreviewData()
+        }
+    }
+
+    fun launchLyricTimingFromPreviewSongInfo(
+        targetAudio: AudioFile,
+        songInfo: SongInfoState,
+        lyricsContent: String?,
+        lyricsFormatLabel: String
+    ) {
+        pendingResetLyricDisplayOnResume = true
+        pendingPreviewDataRefreshOnResume = false
+        val intent = Intent(context, LyricTimingActivity::class.java).apply {
+            putExtra("audioPath", targetAudio.path)
+            putExtra("lyricsContent", lyricsContent)
+            putExtra("sourceTitle", songInfo.title.ifBlank { targetAudio.displayTitle })
+            putExtra("sourceArtist", songInfo.artist.ifBlank { targetAudio.displayArtist })
+            putExtra("lyricsFormat", lyricsFormatLabel)
+            putExtra(LyricTimingActivity.EXTRA_MEDIA_STORE_ID, targetAudio.mediaStoreId)
+        }
+        lyricTimingEditorLauncher.launch(intent)
+    }
+
+    LaunchedEffect(audioPath, sourceAudioPath) {
+        fun samePath(left: String, right: String): Boolean {
+            val normalizedLeft = left.trim().replace('\\', '/')
+            val normalizedRight = right.trim().replace('\\', '/')
+            return normalizedLeft.isNotEmpty() && normalizedLeft == normalizedRight
+        }
+
+        AudioMetadataUpdateBus.updates.collect { updatedPath ->
+            val matches = samePath(updatedPath, sourceAudioPath) || samePath(updatedPath, audioPath)
+            Log.d(
+                PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                "metadataBus updated=$updatedPath source=$sourceAudioPath audio=$audioPath matches=$matches"
+            )
+            if (matches) {
+                pendingPreviewDataRefreshOnResume = false
+                onRefreshPreviewData()
+            }
+        }
+    }
+
     LaunchedEffect(selectedCustomFontId, customFontOptions.size) {
         val withLoading = hasFontInitialized
         if (withLoading) {
@@ -3599,7 +3822,7 @@ fun LyricPreviewScreen(
     }
     
     // 加载音频元数据
-    LaunchedEffect(sourceAudioPath, title, sourceMediaStoreId, initialCoverBitmap, initialArtistText) {
+    LaunchedEffect(sourceAudioPath, title, sourceMediaStoreId, initialCoverBitmap, initialArtistText, metadataRefreshToken) {
         val requestVersion = metadataLoadRequestVersion + 1
         metadataLoadRequestVersion = requestVersion
         val requestSourcePath = sourceAudioPath
@@ -3718,6 +3941,12 @@ fun LyricPreviewScreen(
     val processedLyricLines = remember(lyricLines) {
         detectAndInsertInterludeLines(lyricLines)
     }
+    LaunchedEffect(lyricLines, processedLyricLines) {
+        Log.d(
+            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+            "composeLines input=${summarizePreviewLyricLinesForLog(lyricLines)} processed=${summarizePreviewLyricLinesForLog(processedLyricLines)} loading=$isLyricLoading"
+        )
+    }
     
     // 懒列表状态
     val lazyListState = rememberLazyListState()
@@ -3825,6 +4054,10 @@ fun LyricPreviewScreen(
                         portraitControlsVisible = true
                         portraitControlsAutoHideJob?.cancel()
                         portraitControlsAutoHideJob = null
+                    }
+                    if (pendingPreviewDataRefreshOnResume) {
+                        pendingPreviewDataRefreshOnResume = false
+                        onRefreshPreviewData()
                     }
                     if (appWentBackground) {
                         appWentBackground = false
@@ -4815,7 +5048,11 @@ fun LyricPreviewScreen(
                                     Spacer(modifier = Modifier.height(landscapeTopPlaceholder))
                                 }
                             }
-                            itemsIndexed(processedLyricLines) { index, line ->
+                            itemsIndexed(
+                                processedLyricLines,
+                                key = { index, line -> buildPreviewLyricLineItemKey(index, line) }
+                            ) { index, line ->
+                            val lyricLineItemKey = buildPreviewLyricLineItemKey(index, line)
                             val nextLine = if (index < processedLyricLines.size - 1) processedLyricLines[index + 1] else null
                             // 判断背景歌词是否应该显示（用于渲染和模糊距离计算）
                             val shouldShowBackground = if (line.isBackground) {
@@ -4888,7 +5125,7 @@ fun LyricPreviewScreen(
                                     customTypeface = lyricTypeface,
                                     lyricDisplayMode = lyricDisplayMode,
                                     lookaheadScope = this@LookaheadScope,
-                                    itemKey = "${line.begin}-${line.end}-$index",
+                                    itemKey = lyricLineItemKey,
                                     isManualScrolling = isUserScrolling,
                                     stiffness = dynamicStiffness,
                                     forceReset = seekResetCounter,
@@ -5821,7 +6058,7 @@ fun LyricPreviewScreen(
             }
         }
 
-        val previewSongInfoAudio = remember(audioPath, metadata.title, metadata.artist, audioDuration) {
+        val previewSongInfoAudio = remember(audioPath, metadata.title, metadata.artist, metadata.album, audioDuration, sourceMediaStoreId) {
             val file = File(audioPath)
             AudioFile(
                 path = audioPath,
@@ -5830,7 +6067,8 @@ fun LyricPreviewScreen(
                 album = metadata.album,
                 duration = audioDuration.coerceAtLeast(0L),
                 fileSize = if (file.exists()) file.length() else 0L,
-                lastModified = if (file.exists()) file.lastModified() else 0L
+                lastModified = if (file.exists()) file.lastModified() else 0L,
+                mediaStoreId = sourceMediaStoreId
             )
         }
         val previewSongInfoIsFavorite = remember(showSongInfoSheet, previewSongInfoAudio.path) {
@@ -5930,14 +6168,22 @@ fun LyricPreviewScreen(
                 onEditLyricsFromPreview = {
                     pendingResetLyricDisplayOnResume = true
                 },
+                onOpenLyricTimingFromSheet = { targetAudio, songInfo, lyricsContent, lyricsFormat ->
+                    launchLyricTimingFromPreviewSongInfo(
+                        targetAudio = targetAudio,
+                        songInfo = songInfo,
+                        lyricsContent = lyricsContent,
+                        lyricsFormatLabel = lyricsFormat
+                    )
+                },
                 onEditMetadataFromSheet = { audioToEdit ->
-                    val activity = context as? android.app.Activity ?: return@SongInfoBottomSheet
                     pendingResetLyricDisplayOnResume = true
-                    val editIntent = Intent(activity, SongMetadataEditActivity::class.java).apply {
+                    pendingPreviewDataRefreshOnResume = false
+                    val editIntent = Intent(context, SongMetadataEditActivity::class.java).apply {
                         putExtra(SongMetadataEditActivity.EXTRA_AUDIO_PATH, audioToEdit.path)
                         putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audioToEdit.mediaStoreId)
                     }
-                    activity.startActivity(editIntent)
+                    metadataEditorLauncher.launch(editIntent)
                 },
                 onOpenSleepTimer = {
                     showSongInfoSheet = false
@@ -5983,21 +6229,20 @@ fun LyricPreviewScreen(
     }
 }
 
-private fun extractLyricPreviewArtistsForSheet(title: String, artist: String): List<String> {
-    fun splitArtists(raw: String): List<String> {
-        return raw
-            .replace("／", "/")
-            .replace("；", ";")
-            .replace("，", ",")
-            .split("/", "&", ";", ",", "、")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-    }
-
-    val base = splitArtists(artist)
+private fun extractLyricPreviewArtistsForSheet(
+    title: String,
+    artist: String,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
+    val base = ArtistNameSplitter.split(artist, artistSplitWhitelist)
     val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
     val titleArtists = featPattern.findAll(title)
-        .flatMap { match -> splitArtists(match.groupValues.getOrElse(1) { "" }).asSequence() }
+        .flatMap { match ->
+            ArtistNameSplitter.split(
+                match.groupValues.getOrElse(1) { "" },
+                artistSplitWhitelist
+            ).asSequence()
+        }
         .toList()
 
     return (base + titleArtists)

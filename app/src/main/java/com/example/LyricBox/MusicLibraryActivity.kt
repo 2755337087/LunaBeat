@@ -299,11 +299,38 @@ private const val ALBUM_SEARCH_PREFIX_ASCII = "#专辑:"
 private const val SEARCH_HISTORY_PREFS_KEY = "music_library_recent_search_history"
 private const val SEARCH_HISTORY_LIMIT = 5
 private const val EXTERNAL_AUDIO_LOG_TAG = "MusicLibraryExternal"
+private const val PREVIEW_LYRICS_REFRESH_LOG_TAG = "PreviewLyricsRefresh"
 private const val PREF_SONG_CLICK_ACTION_CONFIRMED = "songClickActionConfirmed"
 private const val STARTUP_APP_SETTINGS_PREFS_NAME = "AppSettings"
 private const val STARTUP_NOTICE_SNOOZE_DATE_KEY = "noticeSnoozeDate"
 private const val FILE_NAME_SORT_KEY_CACHE_SIZE = 4096
 private val FILE_NAME_SORT_KEY_SPACE_REGEX = Regex("\\s+")
+
+private fun sanitizeInlinePreviewLyricLogText(value: String?, maxLength: Int = 80): String {
+    val compact = value
+        ?.replace("\r", " ")
+        ?.replace("\n", " ")
+        ?.replace("\t", " ")
+        ?.trim()
+        .orEmpty()
+    return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
+}
+
+private fun summarizeInlinePreviewLyricsContentForLog(lyricsContent: String?): String {
+    return if (lyricsContent == null) {
+        "content=null"
+    } else {
+        "len=${lyricsContent.length} hash=${lyricsContent.hashCode()} first=\"${sanitizeInlinePreviewLyricLogText(lyricsContent)}\""
+    }
+}
+
+private fun summarizeInlinePreviewLyricLinesForLog(lines: List<NewPreviewLyricLine>): String {
+    val firstText = lines.firstOrNull()
+        ?.words
+        ?.joinToString(separator = "") { it.text }
+        .orEmpty()
+    return "count=${lines.size} hash=${lines.hashCode()} first=\"${sanitizeInlinePreviewLyricLogText(firstText)}\""
+}
 private val FILE_NAME_SORT_KEY_CACHE = LruCache<String, String>(FILE_NAME_SORT_KEY_CACHE_SIZE)
 private val FILE_NAME_SORT_KEY_LOCK = Any()
 private val FILE_NAME_SORT_TRANSLITERATOR: Transliterator? by lazy(LazyThreadSafetyMode.NONE) {
@@ -411,7 +438,7 @@ private fun Int.toLyricFormatLabel(): String {
     return LYRIC_FORMAT_OPTIONS[safeIndex]
 }
 
-private fun handleMusicLibraryItemLyricsAction(
+internal fun handleMusicLibraryItemLyricsAction(
     scope: CoroutineScope,
     context: Context,
     audio: AudioFile,
@@ -1771,12 +1798,76 @@ fun MusicLibraryScreen(
     var lyricPreviewCreators by remember { mutableStateOf<List<String>>(emptyList()) }
     var lyricPreviewLoading by remember { mutableStateOf(false) }
     var lyricPreviewLoadedPath by remember { mutableStateOf<String?>(null) }
+    var inlineMetadataRefreshToken by remember { mutableIntStateOf(0) }
     var inlineCompanionAudioPath by remember { mutableStateOf<String?>(null) }
     var inlineCompanionSwitching by remember { mutableStateOf(false) }
     var miniPlayerCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var miniBarBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var miniBarBaseTop by remember { mutableStateOf<Float?>(null) }
     val sharedCoverId = "music_cover"
+
+    suspend fun reloadInlineLyricPreviewFromFile(reason: String, force: Boolean = false) {
+        val audioPath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
+        if (audioPath.isNullOrBlank()) {
+            Log.d(PREVIEW_LYRICS_REFRESH_LOG_TAG, "inlineRefreshFromFile skipped reason=$reason blank current path")
+            return
+        }
+        if (!force && lyricPreviewLoadedPath == audioPath) {
+            Log.d(PREVIEW_LYRICS_REFRESH_LOG_TAG, "inlineRefreshFromFile skipped reason=$reason alreadyLoaded path=$audioPath")
+            return
+        }
+
+        lyricPreviewLoading = true
+        val resolvedMediaStoreId = playbackController.currentMediaStoreId
+        Log.d(
+            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+            "inlineRefreshFromFile start reason=$reason force=$force path=$audioPath mediaStoreId=$resolvedMediaStoreId"
+        )
+        val payload = withContext(Dispatchers.IO) {
+            buildPlayerLyricPreviewPayload(
+                context = context,
+                audioPath = audioPath,
+                mediaStoreId = resolvedMediaStoreId
+            )
+        }
+        val reorganizedLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
+        lyricPreviewLines = reorganizedLines
+        lyricPreviewCreators = payload?.creators ?: emptyList()
+        lyricPreviewLoadedPath = audioPath
+        inlineMetadataRefreshToken += 1
+        lyricPreviewLoading = false
+        Log.d(
+            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+            "inlineRefreshFromFile applied reason=$reason token=$inlineMetadataRefreshToken lines=${summarizeInlinePreviewLyricLinesForLog(reorganizedLines)} creators=${lyricPreviewCreators.size}"
+        )
+    }
+
+    fun applyInlineReturnedLyricsContent(lyricsContent: String) {
+        if (lyricsContent.isBlank()) {
+            Log.d(PREVIEW_LYRICS_REFRESH_LOG_TAG, "inlineApplyReturned skipped blank content")
+            return
+        }
+        scope.launch {
+            lyricPreviewLoading = true
+            Log.d(
+                PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                "inlineApplyReturned start ${summarizeInlinePreviewLyricsContentForLog(lyricsContent)}"
+            )
+            val payload = withContext(Dispatchers.Default) {
+                buildPlayerLyricPreviewPayloadFromContent(lyricsContent)
+            }
+            val reorganizedLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
+            lyricPreviewLines = reorganizedLines
+            lyricPreviewCreators = payload?.creators ?: emptyList()
+            lyricPreviewLoadedPath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
+            inlineMetadataRefreshToken += 1
+            lyricPreviewLoading = false
+            Log.d(
+                PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                "inlineApplyReturned applied token=$inlineMetadataRefreshToken loadedPath=${lyricPreviewLoadedPath ?: "null"} lines=${summarizeInlinePreviewLyricLinesForLog(reorganizedLines)} creators=${lyricPreviewCreators.size}"
+            )
+        }
+    }
     
     val allAudioFiles = remember { mutableStateListOf<AudioFile>() }
     val displayAudioFiles = remember { mutableStateListOf<AudioFile>() }
@@ -2434,24 +2525,11 @@ fun MusicLibraryScreen(
             miniPlayerExpandProgress = 0f
             showInlineLyricPreview = false
             inlineLyricDisplayResetToken = 0
+            inlineMetadataRefreshToken = 0
             return@LaunchedEffect
         }
 
-        if (lyricPreviewLoadedPath == audioPath) return@LaunchedEffect
-
-        lyricPreviewLoading = true
-        val resolvedMediaStoreId = playbackController.currentMediaStoreId
-        val payload = withContext(Dispatchers.IO) {
-            buildPlayerLyricPreviewPayload(
-                context = context,
-                audioPath = audioPath,
-                mediaStoreId = resolvedMediaStoreId
-            )
-        }
-        lyricPreviewLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
-        lyricPreviewCreators = payload?.creators ?: emptyList()
-        lyricPreviewLoadedPath = audioPath
-        lyricPreviewLoading = false
+        reloadInlineLyricPreviewFromFile(reason = "trackChanged", force = false)
     }
 
     LaunchedEffect(currentPlayingAudioPath) {
@@ -3876,6 +3954,7 @@ fun MusicLibraryScreen(
                         initialArtistText = playbackController.currentArtist.ifBlank { "未知艺术家" },
                         lyricLines = lyricPreviewLines,
                         isLyricLoading = lyricPreviewLoading,
+                        metadataRefreshToken = inlineMetadataRefreshToken,
                         applyInitialSeek = false,
                         creators = lyricPreviewCreators,
                         audioDuration = playbackController.durationMs.coerceAtLeast(0L),
@@ -3936,7 +4015,15 @@ fun MusicLibraryScreen(
                         enableBackHandler = false,
                         sharedCoverId = sharedCoverId,
                         showCoverContent = true,
-                        onPrimaryCoverBoundsChanged = null
+                        onPrimaryCoverBoundsChanged = null,
+                        onApplyPreviewLyricsContent = { lyricsContent ->
+                            applyInlineReturnedLyricsContent(lyricsContent)
+                        },
+                        onRefreshPreviewData = {
+                            scope.launch {
+                                reloadInlineLyricPreviewFromFile(reason = "previewScreen", force = true)
+                            }
+                        }
                     )
                 }
             }

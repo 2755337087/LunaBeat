@@ -22,6 +22,23 @@ object LyricParsingUtils {
         return rawMillis.take(3).padEnd(3, '0')
     }
 
+    private fun decodeXmlEntities(text: String): String {
+        val withHexEntities = Regex("""&#x([0-9a-fA-F]+);""").replace(text) { match ->
+            val codePoint = match.groupValues[1].toIntOrNull(16)
+            codePoint?.let { runCatching { String(Character.toChars(it)) }.getOrNull() } ?: match.value
+        }
+        val withNumericEntities = Regex("""&#(\d+);""").replace(withHexEntities) { match ->
+            val codePoint = match.groupValues[1].toIntOrNull()
+            codePoint?.let { runCatching { String(Character.toChars(it)) }.getOrNull() } ?: match.value
+        }
+        return withNumericEntities
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    }
+
     private fun stripNonTimestampBracketTags(line: String, keepBgLineTag: Boolean = false): String {
         val trimmed = line.trim()
         if (keepBgLineTag && bgLineRegex.matches(trimmed)) {
@@ -412,7 +429,7 @@ object LyricParsingUtils {
             val songwriterMatches = songwriterPattern.findAll(songwritersContent)
             
             for (match in songwriterMatches) {
-                val creator = match.groupValues[1].trim()
+                val creator = decodeXmlEntities(match.groupValues[1].trim())
                 if (creator.isNotEmpty()) {
                     songwriters.add(creator)
                     Log.d("LyricTiming", "找到创作者: $creator")
@@ -493,7 +510,7 @@ object LyricParsingUtils {
                     val bgSpans = mutableListOf<Triple<String, String, String>>()
                     for (spanMatch in bgSpanMatches) {
                         val spanTag = spanMatch.groups[0]!!.value.substringBefore(">")
-                        var spanContent = spanMatch.groups[1]!!.value
+                        var spanContent = decodeXmlEntities(spanMatch.groups[1]!!.value)
                         
                         val beginMatch = Regex("""begin="([^"]+)"""").find(spanTag)
                         val endMatch = Regex("""end="([^"]+)"""").find(spanTag)
@@ -519,7 +536,7 @@ object LyricParsingUtils {
                 val spans = mutableListOf<Triple<String, String, String>>()
                 for (spanMatch in spanMatches) {
                     val spanTag = spanMatch.groups[0]!!.value.substringBefore(">")
-                    val spanContent = spanMatch.groups[1]!!.value
+                    val spanContent = decodeXmlEntities(spanMatch.groups[1]!!.value)
                     
                     val beginMatch = Regex("""begin="([^"]+)"""").find(spanTag)
                     val endMatch = Regex("""end="([^"]+)"""").find(spanTag)
@@ -552,20 +569,20 @@ object LyricParsingUtils {
                 
                 if (isReplacementType || hasTimestampSpans) {
                     // type="replacement" 格式或包含时间戳 span：直接移除所有 XML 标签，保留纯文本和空格
-                    val plainText = fullText.replace(Regex("<[^>]+>"), "").trim()
+                    val plainText = decodeXmlEntities(fullText.replace(Regex("<[^>]+>"), "").trim())
                     mainTranslations[key] = plainText
                 } else {
                     // 普通格式
                     // 提取主翻译（去掉span标签及其内容）
                     val bgSpanPattern = Regex("<span[^>]*ttm:role=\"x-bg\"[^>]*>.*?</span>", RegexOption.DOT_MATCHES_ALL)
-                    val mainText = bgSpanPattern.replace(fullText, "").trim()
+                    val mainText = decodeXmlEntities(bgSpanPattern.replace(fullText, "").trim())
                     mainTranslations[key] = mainText
                     
                     // 提取背景翻译
                     val bgSpanContentPattern = Regex("<span[^>]*ttm:role=\"x-bg\"[^>]*>(.*?)</span>", RegexOption.DOT_MATCHES_ALL)
                     val bgSpanMatch = bgSpanContentPattern.find(fullText)
                     if (bgSpanMatch != null) {
-                        val bgText = bgSpanMatch.groupValues[1].trim().removePrefix("(").removeSuffix(")")
+                        val bgText = decodeXmlEntities(bgSpanMatch.groupValues[1].trim().removePrefix("(").removeSuffix(")"))
                         bgTranslations[key] = bgText
                     }
                 }
@@ -677,7 +694,7 @@ object LyricParsingUtils {
             val transSpanPattern = Regex("""<span[^>]*ttm:role="x-translation"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
             val mainTransMatch = transSpanPattern.find(pContent)
             if (mainTransMatch != null) {
-                mainTranslation = mainTransMatch.groupValues[1].trim()
+                mainTranslation = decodeXmlEntities(mainTransMatch.groupValues[1].trim())
             }
             
             val mainContentWithoutTrans = pContent
@@ -696,7 +713,7 @@ object LyricParsingUtils {
                 for ((idx, spanMatch) in mainSpanMatches.withIndex()) {
                     val spanFullTag = spanFullMatches[idx].groups[0]!!.value
                     val spanTag = spanFullTag.substringBefore(">")
-                    val spanContent = spanMatch.groups[1]!!.value
+                    val spanContent = decodeXmlEntities(spanMatch.groups[1]!!.value)
                     
                     val beginMatch = Regex("""begin="([^"]+)"""").find(spanTag)
                     val endMatch = Regex("""end="([^"]+)"""").find(spanTag)
@@ -722,7 +739,7 @@ object LyricParsingUtils {
                     }
                 }
             } else {
-                val plainText = mainContentWithoutTrans.trim()
+                val plainText = decodeXmlEntities(mainContentWithoutTrans.trim())
                 if (plainText.isNotEmpty()) {
                     mainTimeUnits.add(LyricTimeUnit(plainText, beginTimeP, endTimeP))
                 }
@@ -806,7 +823,7 @@ object LyricParsingUtils {
             if (bgContent.isNotEmpty()) {
                 val bgTransMatch = transSpanPattern.find(bgContent)
                 if (bgTransMatch != null) {
-                    bgTranslation = bgTransMatch.groupValues[1].trim()
+                    bgTranslation = decodeXmlEntities(bgTransMatch.groupValues[1].trim())
                 }
                 
                 val bgContentWithoutTrans = bgContent
@@ -821,7 +838,7 @@ object LyricParsingUtils {
                     for ((idx, spanMatch) in bgSpanMatches.withIndex()) {
                         val spanFullTag = bgSpanFullMatches[idx].groups[0]!!.value
                         val spanTag = spanFullTag.substringBefore(">")
-                        var spanContent = spanMatch.groups[1]!!.value
+                        var spanContent = decodeXmlEntities(spanMatch.groups[1]!!.value)
                         
                         val beginMatch = Regex("""begin="([^"]+)"""").find(spanTag)
                         val endMatch = Regex("""end="([^"]+)"""").find(spanTag)
@@ -968,7 +985,7 @@ object LyricParsingUtils {
         
         for (spanMatch in spanMatches) {
             val spanTag = spanMatch.groups[0]!!.value.substringBefore(">")
-            val spanContent = spanMatch.groups[1]!!.value
+            val spanContent = decodeXmlEntities(spanMatch.groups[1]!!.value)
             
             val beginMatch = Regex("""begin="([^"]+)"""").find(spanTag)
             val endMatch = Regex("""end="([^"]+)"""").find(spanTag)
@@ -982,7 +999,7 @@ object LyricParsingUtils {
         }
         
         if (timeUnits.isEmpty()) {
-            val text = content.replace(Regex("<[^>]+>"), "").trim()
+            val text = decodeXmlEntities(content.replace(Regex("<[^>]+>"), "").trim())
             if (text.isNotEmpty()) {
                 timeUnits.add(LyricTimeUnit(text, "00:00.000", "00:00.000"))
             }

@@ -82,6 +82,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,6 +118,7 @@ import java.io.FileNotFoundException
 import java.io.OutputStream
 
 private const val TAG = "SongMetadataEdit"
+private const val PREVIEW_LYRICS_REFRESH_LOG_TAG = "PreviewLyricsRefresh"
 private const val REQUEST_CODE_SEARCH_METADATA = 1001
 private const val REQUEST_CODE_LYRIC_TIMING = 1002
 private const val REQUEST_CODE_UCROP = 1004
@@ -127,6 +129,24 @@ private const val ACCOMPANIMENT_TREE_URI_KEY = "music_sing_tree_uri"
 private const val ALBUM_VIDEO_DIR_NAME = ".album_video"
 private val ALBUM_VIDEO_EXTENSION_CANDIDATES = listOf("mp4", "m4v", "mov", "mkv", "webm")
 private const val ALBUM_VIDEO_WRITE_EXTENSION = "mp4"
+
+private fun sanitizeMetadataLyricLogText(value: String?, maxLength: Int = 80): String {
+    val compact = value
+        ?.replace("\r", " ")
+        ?.replace("\n", " ")
+        ?.replace("\t", " ")
+        ?.trim()
+        .orEmpty()
+    return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
+}
+
+private fun summarizeMetadataLyricsContentForLog(lyricsContent: String?): String {
+    return if (lyricsContent == null) {
+        "content=null"
+    } else {
+        "len=${lyricsContent.length} hash=${lyricsContent.hashCode()} first=\"${sanitizeMetadataLyricLogText(lyricsContent)}\""
+    }
+}
 
 private fun readAudioDurationMillis(audioPath: String): Long {
     var retriever: MediaMetadataRetriever? = null
@@ -401,13 +421,18 @@ class SongMetadataEditActivity : ComponentActivity() {
                         onUnsavedChangesChanged = { hasUnsavedChanges ->
                             hasUnsavedChangesState = hasUnsavedChanges
                         },
-                        onDataSaved = {
+                        onDataSaved = { savedLyrics ->
                             hasUnsavedChangesState = false
+                            Log.d(
+                                PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                                "metadataSaved path=$audioPath mediaStoreId=$mediaStoreId ${summarizeMetadataLyricsContentForLog(savedLyrics)}"
+                            )
                             setResult(
                                 RESULT_OK,
                                 Intent().apply {
                                     putExtra(EXTRA_AUDIO_PATH, audioPath)
                                     putExtra(EXTRA_MEDIA_STORE_ID, mediaStoreId)
+                                    savedLyrics?.let { putExtra("lyricsContent", it) }
                                 }
                             )
                             AudioMetadataUpdateBus.notifyPathUpdated(audioPath)
@@ -482,7 +507,16 @@ class SongMetadataEditActivity : ComponentActivity() {
         if (requestCode == REQUEST_CODE_SEARCH_METADATA && resultCode == RESULT_OK) {
             searchResultData = data
         } else if (requestCode == REQUEST_CODE_LYRIC_TIMING) {
-            lyricTimingReturnNonce = System.currentTimeMillis()
+            val lyricsContent = data?.getStringExtra("lyricsContent")
+            Log.d(
+                PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                "metadataTimingResult resultCode=$resultCode ${summarizeMetadataLyricsContentForLog(lyricsContent)}"
+            )
+            if (resultCode == RESULT_OK && !lyricsContent.isNullOrBlank()) {
+                importedLyrics = lyricsContent
+            } else {
+                lyricTimingReturnNonce = System.currentTimeMillis()
+            }
         } else if (requestCode == REQUEST_CODE_VERBATIM_LYRICS && resultCode == RESULT_OK) {
             val lyricsContent = data?.getStringExtra("lyricsContent")
             if (lyricsContent != null) {
@@ -832,7 +866,7 @@ fun SongMetadataEditScreen(
     selectedPaths: ArrayList<String>?,
     onCheckUnsavedChanges: (Boolean) -> Unit,
     onUnsavedChangesChanged: (Boolean) -> Unit,
-    onDataSaved: () -> Unit,
+    onDataSaved: (String?) -> Unit,
     onSearchMetadata: (String, Boolean) -> Unit,
     onOpenLyricTiming: (String?, String) -> Unit,
     onOpenVerbatimLyricsSearch: (String) -> Unit,
@@ -944,6 +978,9 @@ fun SongMetadataEditScreen(
     
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val autoDetectEmbeddedLyricsType = remember { prefs.getBoolean("autoDetectEmbeddedLyricsType", false) }
+    val metadataSaveAutoClose = remember {
+        prefs.getBoolean(PREF_KEY_METADATA_SAVE_AUTO_CLOSE, false)
+    }
     val cachedLyricsDialogAudio = remember(audioPath) {
         audioPath?.let { currentPath ->
             loadMusicLibraryCache(context).firstOrNull { it.path == currentPath }
@@ -1337,8 +1374,12 @@ fun SongMetadataEditScreen(
                         IntentSenderRequest.Builder(recoverableIntentSender!!).build()
                     )
                 } else if (!isBatchCancelled) {
-                    showBatchCompleteDialog = true
-                    onDataSaved()
+                    onDataSaved(null)
+                    if (metadataSaveAutoClose) {
+                        onExit()
+                    } else {
+                        showBatchCompleteDialog = true
+                    }
                 }
             }
         } else {
@@ -1433,8 +1474,7 @@ fun SongMetadataEditScreen(
                         errorMessage = renameError ?: "重命名失败"
                         showErrorDialog = true
                     } else {
-                        showSuccessDialog = true
-                        onDataSaved()
+                        onDataSaved(lyrics)
                         modifiedField = ModifiedField()
                         // 更新自定义字段的原始值
                         customFieldValues.forEach { (field, value) ->
@@ -1459,6 +1499,11 @@ fun SongMetadataEditScreen(
                             customFields = customFieldValues.toMap()
                         )
                         originalCoverBitmap = coverBitmap
+                        if (metadataSaveAutoClose) {
+                            onExit()
+                        } else {
+                            showSuccessDialog = true
+                        }
                     }
                 } else if (result.needPermission) {
                     showPermissionDialog = true
@@ -1779,6 +1824,10 @@ fun SongMetadataEditScreen(
     
     LaunchedEffect(importedLyrics) {
         if (importedLyrics != null) {
+            Log.d(
+                PREVIEW_LYRICS_REFRESH_LOG_TAG,
+                "metadataImportedLyricsApplied ${summarizeMetadataLyricsContentForLog(importedLyrics)}"
+            )
             lyrics = importedLyrics
             modifiedField = modifiedField.copy(lyrics = true, canRedoLyrics = false)
             onImportedLyricsConsumed()
@@ -1790,6 +1839,10 @@ fun SongMetadataEditScreen(
         val refreshed = withContext(Dispatchers.IO) {
             com.example.LyricBox.utils.AudioMetadataReader.readLyrics(context, audioPath!!, mediaStoreId)
         } ?: ""
+        Log.d(
+            PREVIEW_LYRICS_REFRESH_LOG_TAG,
+            "metadataFallbackReadAfterTiming path=$audioPath mediaStoreId=$mediaStoreId ${summarizeMetadataLyricsContentForLog(refreshed)}"
+        )
         lyrics = refreshed
         originalData = originalData?.copy(lyrics = refreshed)
         modifiedField = modifiedField.copy(lyrics = false, canRedoLyrics = false)
@@ -3214,57 +3267,65 @@ fun SongMetadataEditScreen(
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable { shiftInputFocusRequester.requestFocus() }
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        TextButton(
+                            onClick = {
+                                val current = shiftTimestampInput.trim().toLongOrNull() ?: 0L
+                                shiftTimestampInput = (current - 100L).toString()
+                            }
+                        ) { Text("-") }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { shiftInputFocusRequester.requestFocus() }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            TextButton(
-                                onClick = {
-                                    val current = shiftTimestampInput.trim().toLongOrNull() ?: 0L
-                                    shiftTimestampInput = (current - 100L).toString()
-                                }
-                            ) { Text("-") }
-                            Spacer(modifier = Modifier.width(8.dp))
                             BasicTextField(
                                 value = shiftTimestampInput,
                                 onValueChange = { shiftTimestampInput = it },
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxWidth()
                                     .focusRequester(shiftInputFocusRequester),
                                 singleLine = true,
                                 textStyle = androidx.compose.ui.text.TextStyle(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontSize = 16.sp
+                                    fontSize = 16.sp,
+                                    textAlign = TextAlign.Center
                                 ),
                                 decorationBox = { innerTextField ->
-                                    if (shiftTimestampInput.isBlank()) {
-                                        Text(
-                                            text = "请输入毫秒数",
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
-                                            fontSize = 16.sp
-                                        )
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (shiftTimestampInput.isBlank()) {
+                                            Text(
+                                                text = "请输入毫秒数",
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                                                fontSize = 16.sp,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                        innerTextField()
                                     }
-                                    innerTextField()
                                 }
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            TextButton(
-                                onClick = {
-                                    val current = shiftTimestampInput.trim().toLongOrNull() ?: 0L
-                                    shiftTimestampInput = (current + 100L).toString()
-                                }
-                            ) { Text("+") }
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                val current = shiftTimestampInput.trim().toLongOrNull() ?: 0L
+                                shiftTimestampInput = (current + 100L).toString()
+                            }
+                        ) { Text("+") }
                     }
                 }
             },

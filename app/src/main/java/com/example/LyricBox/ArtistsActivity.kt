@@ -310,6 +310,10 @@ internal fun EmbeddedArtistsScreen(
             acc * 31L + audio.path.hashCode().toLong() + audio.lastModified
         }
     }
+    val artistSplitWhitelist = remember { ArtistSplitWhitelistStore.load(context) }
+    val artistSplitWhitelistFingerprint = remember(artistSplitWhitelist) {
+        ArtistSplitWhitelistStore.fingerprint(artistSplitWhitelist)
+    }
 
     val visibleArtists by remember {
         derivedStateOf {
@@ -332,10 +336,10 @@ internal fun EmbeddedArtistsScreen(
         searchQuery = ""
     }
 
-    LaunchedEffect(audioFingerprint) {
+    LaunchedEffect(audioFingerprint, artistSplitWhitelistFingerprint) {
         isBuildingArtists = true
         artists = withContext(Dispatchers.Default) {
-            buildArtistInfos(audioFiles)
+            buildArtistInfos(audioFiles, artistSplitWhitelist)
         }
         isBuildingArtists = false
     }
@@ -435,6 +439,7 @@ internal fun EmbeddedArtistDetailScreen(
     onAlbumClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var isLoading by remember { mutableStateOf(true) }
     var detailInfo by remember { mutableStateOf<ArtistDetailInfo?>(null) }
     var avatarRefreshVersion by remember(artistName) { mutableStateOf(0) }
@@ -463,11 +468,15 @@ internal fun EmbeddedArtistDetailScreen(
             acc * 31L + audio.path.hashCode().toLong() + audio.lastModified
         }
     }
-    val detailCacheKey = remember(artistName, audioFingerprint) {
-        buildArtistDetailCacheKey(artistName, audioFingerprint)
+    val artistSplitWhitelist = remember { ArtistSplitWhitelistStore.load(context) }
+    val artistSplitWhitelistFingerprint = remember(artistSplitWhitelist) {
+        ArtistSplitWhitelistStore.fingerprint(artistSplitWhitelist)
+    }
+    val detailCacheKey = remember(artistName, audioFingerprint, artistSplitWhitelistFingerprint) {
+        buildArtistDetailCacheKey(artistName, audioFingerprint, artistSplitWhitelistFingerprint)
     }
 
-    LaunchedEffect(artistName, audioFingerprint) {
+    LaunchedEffect(artistName, audioFingerprint, artistSplitWhitelistFingerprint) {
         artistDetailInfoMemoryCache[detailCacheKey]?.let { cached ->
             detailInfo = cached
             isLoading = false
@@ -477,7 +486,8 @@ internal fun EmbeddedArtistDetailScreen(
         val loadedDetail = withContext(Dispatchers.Default) {
             buildArtistDetailInfo(
                 audioFiles = audioFiles,
-                artistName = artistName
+                artistName = artistName,
+                artistSplitWhitelist = artistSplitWhitelist
             )
         }
         detailInfo = loadedDetail
@@ -649,6 +659,10 @@ private fun ArtistsScreen(
     var isLoading by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    val artistSplitWhitelist = remember { ArtistSplitWhitelistStore.load(context) }
+    val artistSplitWhitelistFingerprint = remember(artistSplitWhitelist) {
+        ArtistSplitWhitelistStore.fingerprint(artistSplitWhitelist)
+    }
     var sortType by rememberSaveable {
         mutableStateOf(
             runCatching {
@@ -681,10 +695,10 @@ private fun ArtistsScreen(
         searchQuery = ""
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(artistSplitWhitelistFingerprint) {
         isLoading = true
         val loadedArtists = withContext(Dispatchers.IO) {
-            buildArtistInfos(musicLibraryCacheStore(context).loadAllPaged())
+            buildArtistInfos(musicLibraryCacheStore(context).loadAllPaged(), artistSplitWhitelist)
         }
         artists.clear()
         artists.addAll(loadedArtists)
@@ -829,6 +843,10 @@ private fun ArtistDetailScreen(
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var favoritePaths by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val artistSplitWhitelist = remember { ArtistSplitWhitelistStore.load(context) }
+    val artistSplitWhitelistFingerprint = remember(artistSplitWhitelist) {
+        ArtistSplitWhitelistStore.fingerprint(artistSplitWhitelist)
+    }
     var avatarRefreshVersion by remember(artistName) { mutableStateOf(0) }
     var headBarCollapsed by remember(artistName) { mutableStateOf(false) }
     val animatedHeadBarProgress by animateFloatAsState(
@@ -851,12 +869,13 @@ private fun ArtistDetailScreen(
         onSaved = { avatarRefreshVersion += 1 }
     )
 
-    LaunchedEffect(artistName) {
+    LaunchedEffect(artistName, artistSplitWhitelistFingerprint) {
         isLoading = true
         detailInfo = withContext(Dispatchers.IO) {
             buildArtistDetailInfo(
                 audioFiles = musicLibraryCacheStore(context).loadAllPaged(),
-                artistName = artistName
+                artistName = artistName,
+                artistSplitWhitelist = artistSplitWhitelist
             )
         }
         isLoading = false
@@ -1261,6 +1280,7 @@ private fun AlbumDetailContent(
     val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 24.dp + miniPlayerExtraBottomPadding
     val coverAudio = detail.coverAudio
     val targetSizePx = with(density) { 900.dp.toPx().toInt().coerceAtLeast(480) }
+    val artistSplitWhitelist = remember { ArtistSplitWhitelistStore.load(context) }
     var coverBitmap by remember(detail.name, coverAudio?.path, coverAudio?.coverCachePath) {
         mutableStateOf<Bitmap?>(null)
     }
@@ -1378,6 +1398,7 @@ private fun AlbumDetailContent(
                     ) {
                         albumDetailSongItems(
                             detail = detail,
+                            artistSplitWhitelist = artistSplitWhitelist,
                             onSongClick = onSongClick,
                             onSongMoreClick = onSongMoreClick,
                             containerColor = listContainerColor,
@@ -1415,6 +1436,7 @@ private fun AlbumDetailContent(
                     }
                     albumDetailSongItems(
                         detail = detail,
+                        artistSplitWhitelist = artistSplitWhitelist,
                         onSongClick = onSongClick,
                         onSongMoreClick = onSongMoreClick,
                         containerColor = listContainerColor,
@@ -1437,6 +1459,7 @@ private fun AlbumDetailContent(
 
 private fun androidx.compose.foundation.lazy.LazyListScope.albumDetailSongItems(
     detail: AlbumDetailInfo,
+    artistSplitWhitelist: Collection<String>,
     onSongClick: (AudioFile) -> Unit,
     onSongMoreClick: (AudioFile) -> Unit,
     containerColor: Color,
@@ -1455,7 +1478,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.albumDetailSongItems(
             containerColor = containerColor,
             contentColor = contentColor,
             accentColor = accentColor,
-            showArtist = shouldShowAlbumSongArtist(detail.albumArtist, songInfo.artistName),
+            showArtist = shouldShowAlbumSongArtist(detail.albumArtist, songInfo.artistName, artistSplitWhitelist),
             modifier = itemModifier
         )
     }
@@ -2856,12 +2879,15 @@ private fun EmptyArtistsState(
     }
 }
 
-private fun buildArtistInfos(audioFiles: List<AudioFile>): List<ArtistInfo> {
+private fun buildArtistInfos(
+    audioFiles: List<AudioFile>,
+    artistSplitWhitelist: Collection<String>
+): List<ArtistInfo> {
     val titleComparator = audioTitleComparator()
     val accumulators = linkedMapOf<String, ArtistAccumulator>()
 
     audioFiles.sortedWith(titleComparator).forEach { audio ->
-        val artistNames = artistNamesForAudio(audio)
+        val artistNames = artistNamesForAudio(audio, artistSplitWhitelist)
         artistNames.forEach { artistName ->
             val key = artistName.lowercase(Locale.ROOT)
             val accumulator = accumulators.getOrPut(key) {
@@ -2887,14 +2913,15 @@ private fun buildArtistInfos(audioFiles: List<AudioFile>): List<ArtistInfo> {
 
 private fun buildArtistDetailInfo(
     audioFiles: List<AudioFile>,
-    artistName: String
+    artistName: String,
+    artistSplitWhitelist: Collection<String>
 ): ArtistDetailInfo? {
     val normalizedName = artistName.trim()
     if (normalizedName.isEmpty()) return null
 
     val titleComparator = audioTitleComparator()
     val songs = audioFiles
-        .filter { audio -> audioMatchesArtist(audio, normalizedName) }
+        .filter { audio -> audioMatchesArtist(audio, normalizedName, artistSplitWhitelist) }
         .sortedWith(titleComparator)
     if (songs.isEmpty()) return null
 
@@ -2918,7 +2945,7 @@ private fun buildArtistDetailInfo(
 
     return ArtistDetailInfo(
         name = songs
-            .flatMap { artistNamesForAudio(it) }
+            .flatMap { artistNamesForAudio(it, artistSplitWhitelist) }
             .firstOrNull { it.equals(normalizedName, ignoreCase = true) }
             ?: normalizedName,
         songs = songs,
@@ -3014,16 +3041,23 @@ private fun titleComparatorByAlbumSong(): Comparator<AlbumSongInfo> {
     )
 }
 
-private fun artistNamesForAudio(audio: AudioFile): List<String> {
-    return splitArtistNames(audio.artist)
+private fun artistNamesForAudio(
+    audio: AudioFile,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
+    return splitArtistNames(audio.artist, artistSplitWhitelist)
         .ifEmpty { listOf(audio.displayArtist) }
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinctBy { it.lowercase(Locale.ROOT) }
 }
 
-private fun audioMatchesArtist(audio: AudioFile, artistName: String): Boolean {
-    return artistNamesForAudio(audio).any { it.equals(artistName, ignoreCase = true) }
+private fun audioMatchesArtist(
+    audio: AudioFile,
+    artistName: String,
+    artistSplitWhitelist: Collection<String>
+): Boolean {
+    return artistNamesForAudio(audio, artistSplitWhitelist).any { it.equals(artistName, ignoreCase = true) }
 }
 
 private fun parseAlbumTrackSortValue(trackRaw: String): Int {
@@ -3048,12 +3082,16 @@ private fun normalizedTrackNumberLabel(trackRaw: String): String {
         ?: Regex("""\d+""").find(trackRaw)?.value.orEmpty()
 }
 
-private fun shouldShowAlbumSongArtist(albumArtist: String, songArtist: String): Boolean {
+private fun shouldShowAlbumSongArtist(
+    albumArtist: String,
+    songArtist: String,
+    artistSplitWhitelist: Collection<String>
+): Boolean {
     val normalizedSongArtist = songArtist.trim()
     if (normalizedSongArtist.isEmpty()) return false
-    val albumArtists = splitArtistNames(albumArtist)
+    val albumArtists = splitArtistNames(albumArtist, artistSplitWhitelist)
         .ifEmpty { albumArtist.trim().takeIf { it.isNotEmpty() }?.let { listOf(it) } ?: emptyList() }
-    val songArtists = splitArtistNames(normalizedSongArtist)
+    val songArtists = splitArtistNames(normalizedSongArtist, artistSplitWhitelist)
         .ifEmpty { listOf(normalizedSongArtist) }
     return !(albumArtists.size == 1 &&
         songArtists.size == 1 &&
@@ -3158,18 +3196,19 @@ private fun sortArtistInfos(
     }
 }
 
-private fun splitArtistNames(raw: String): List<String> {
-    return raw
-        .replace("／", "/")
-        .replace("；", ";")
-        .replace("，", ",")
-        .split("/", "&", ";", ",", "、")
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
+private fun splitArtistNames(
+    raw: String,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
+    return ArtistNameSplitter.split(raw, artistSplitWhitelist)
 }
 
-private fun buildArtistDetailCacheKey(artistName: String, audioFingerprint: Long): String {
-    return "${artistName.trim().lowercase(Locale.ROOT)}#$audioFingerprint"
+private fun buildArtistDetailCacheKey(
+    artistName: String,
+    audioFingerprint: Long,
+    artistSplitWhitelistFingerprint: String
+): String {
+    return "${artistName.trim().lowercase(Locale.ROOT)}#$audioFingerprint#$artistSplitWhitelistFingerprint"
 }
 
 private fun buildArtistAvatarCacheKey(
