@@ -699,6 +699,13 @@ enum class SortOrder(val displayName: String) {
     DESC("反序")
 }
 
+private enum class MusicLibraryInternalPage {
+    SONGS,
+    ARTISTS,
+    ARTIST_DETAIL,
+    ALBUM_DETAIL
+}
+
 enum class FieldMatchMode {
     SUPPLEMENT, OVERWRITE
 }
@@ -874,11 +881,16 @@ class MusicLibraryActivity : ComponentActivity() {
     private var _refreshMetadataPath by mutableStateOf<String?>(null)
     private var initialSearchQueryState by mutableStateOf("")
     private var initialSearchRequestState by mutableIntStateOf(0)
+    private var initialArtistNameState by mutableStateOf("")
+    private var initialAlbumNameState by mutableStateOf("")
+    private var initialLibraryPageRequestState by mutableIntStateOf(0)
     private var inlinePreviewRequestState by mutableIntStateOf(0)
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
         const val EXTRA_INITIAL_SEARCH_QUERY = "initial_search_query"
+        const val EXTRA_INITIAL_ARTIST_NAME = "initial_artist_name"
+        const val EXTRA_INITIAL_ALBUM_NAME = "initial_album_name"
         const val EXTRA_OPEN_INLINE_PREVIEW = "open_inline_preview"
         const val REQUEST_CODE_EDIT_METADATA = 200
         
@@ -961,6 +973,7 @@ class MusicLibraryActivity : ComponentActivity() {
         if (initialSearchQueryState.isNotBlank()) {
             initialSearchRequestState += 1
         }
+        applyInitialLibraryPageIntent(intent)
         if (intent.getBooleanExtra(EXTRA_OPEN_INLINE_PREVIEW, false)) {
             inlinePreviewRequestState += 1
         }
@@ -1045,6 +1058,9 @@ class MusicLibraryActivity : ComponentActivity() {
                         MusicLibraryScreen(
                             initialSearchQuery = initialSearchQueryState,
                             initialSearchRequestVersion = initialSearchRequestState,
+                            initialArtistName = initialArtistNameState,
+                            initialAlbumName = initialAlbumNameState,
+                            initialLibraryPageRequestVersion = initialLibraryPageRequestState,
                             initialInlinePreviewRequestVersion = inlinePreviewRequestState,
                             onBack = { finish() },
                             onOpenSettings = {
@@ -1118,6 +1134,7 @@ class MusicLibraryActivity : ComponentActivity() {
                 initialSearchQueryState = incomingSearch
                 initialSearchRequestState += 1
             }
+            applyInitialLibraryPageIntent(it)
             if (it.getBooleanExtra(EXTRA_OPEN_INLINE_PREVIEW, false)) {
                 inlinePreviewRequestState += 1
             }
@@ -1125,6 +1142,17 @@ class MusicLibraryActivity : ComponentActivity() {
             if (externalPath != null) {
                 loadExternalAudioFile(externalPath)
             }
+        }
+    }
+
+    private fun applyInitialLibraryPageIntent(intent: Intent) {
+        if (!intent.hasExtra(EXTRA_INITIAL_ARTIST_NAME) && !intent.hasExtra(EXTRA_INITIAL_ALBUM_NAME)) {
+            return
+        }
+        initialArtistNameState = intent.getStringExtra(EXTRA_INITIAL_ARTIST_NAME).orEmpty()
+        initialAlbumNameState = intent.getStringExtra(EXTRA_INITIAL_ALBUM_NAME).orEmpty()
+        if (initialArtistNameState.isNotBlank() || initialAlbumNameState.isNotBlank()) {
+            initialLibraryPageRequestState += 1
         }
     }
     
@@ -1694,6 +1722,9 @@ private fun currentDateToken(): String {
 fun MusicLibraryScreen(
     initialSearchQuery: String = "",
     initialSearchRequestVersion: Int = 0,
+    initialArtistName: String = "",
+    initialAlbumName: String = "",
+    initialLibraryPageRequestVersion: Int = 0,
     initialInlinePreviewRequestVersion: Int = 0,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -1802,7 +1833,13 @@ fun MusicLibraryScreen(
     var searchBoxFocused by remember { mutableStateOf(false) }
     var searchQueryApplied by remember { mutableStateOf(searchQuery.trim()) }
     var lastAppliedInitialSearchRequest by remember { mutableIntStateOf(-1) }
+    var lastAppliedInitialLibraryPageRequest by remember { mutableIntStateOf(-1) }
     var isSearching by remember { mutableStateOf(false) }
+    var internalPage by rememberSaveable { mutableStateOf(MusicLibraryInternalPage.SONGS) }
+    var internalArtistName by rememberSaveable { mutableStateOf("") }
+    var internalArtistDetailTab by rememberSaveable { mutableStateOf(ArtistDetailTab.SONGS) }
+    var internalAlbumName by rememberSaveable { mutableStateOf("") }
+    var internalAlbumReturnPage by rememberSaveable { mutableStateOf(MusicLibraryInternalPage.SONGS) }
     val favoritePaths = remember { mutableStateSetOf<String>() }
     val albumTrackSortCache = remember { mutableMapOf<String, Int>() }
     var trackSortWarmupJob by remember { mutableStateOf<Job?>(null) }
@@ -2248,6 +2285,33 @@ fun MusicLibraryScreen(
         animateMiniPlayerProgressTo(0f)
     }
 
+    fun openInternalAlbumDetail(albumName: String) {
+        val normalizedAlbumName = albumName.trim()
+        if (normalizedAlbumName.isBlank()) return
+        internalAlbumReturnPage = internalPage
+        internalAlbumName = normalizedAlbumName
+        internalPage = MusicLibraryInternalPage.ALBUM_DETAIL
+    }
+
+    fun openInternalArtistDetail(artistName: String) {
+        val normalizedArtistName = artistName.trim()
+        if (normalizedArtistName.isBlank()) return
+        internalArtistName = normalizedArtistName
+        internalArtistDetailTab = ArtistDetailTab.SONGS
+        internalAlbumName = ""
+        internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+        internalPage = MusicLibraryInternalPage.ARTIST_DETAIL
+    }
+
+    fun closeInternalAlbumDetail() {
+        val returnPage = internalAlbumReturnPage
+            .takeIf { it != MusicLibraryInternalPage.ALBUM_DETAIL }
+            ?: MusicLibraryInternalPage.SONGS
+        internalPage = returnPage
+        internalAlbumName = ""
+        internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+    }
+
     fun updateMiniPlayerDragProgress(deltaY: Float) {
         miniPlayerSettleJob?.cancel()
         showInlineLyricPreview = true
@@ -2274,6 +2338,7 @@ fun MusicLibraryScreen(
 
     BackHandler(
         enabled = miniPlayerExpandProgress > 0f ||
+            internalPage != MusicLibraryInternalPage.SONGS ||
             showSearchHistoryPopup ||
             searchQuery.isNotBlank() ||
             isMultiSelectMode
@@ -2285,6 +2350,19 @@ fun MusicLibraryScreen(
             } else {
                 closeInlineLyricPreview()
             }
+            return@BackHandler
+        }
+        if (internalPage == MusicLibraryInternalPage.ALBUM_DETAIL) {
+            closeInternalAlbumDetail()
+            return@BackHandler
+        }
+        if (internalPage == MusicLibraryInternalPage.ARTIST_DETAIL) {
+            internalPage = MusicLibraryInternalPage.ARTISTS
+            internalArtistName = ""
+            return@BackHandler
+        }
+        if (internalPage == MusicLibraryInternalPage.ARTISTS) {
+            internalPage = MusicLibraryInternalPage.SONGS
             return@BackHandler
         }
         if (showSearchHistoryPopup) {
@@ -2307,6 +2385,25 @@ fun MusicLibraryScreen(
         lastAppliedInitialSearchRequest = initialSearchRequestVersion
         searchQuery = initialSearchQuery
         updateDisplayFiles()
+    }
+
+    LaunchedEffect(initialLibraryPageRequestVersion, initialArtistName, initialAlbumName) {
+        if (initialLibraryPageRequestVersion == lastAppliedInitialLibraryPageRequest) return@LaunchedEffect
+        lastAppliedInitialLibraryPageRequest = initialLibraryPageRequestVersion
+        val targetAlbum = initialAlbumName.trim()
+        val targetArtist = initialArtistName.trim()
+        if (targetAlbum.isNotBlank()) {
+            searchQuery = ""
+            updateDisplayFiles()
+            internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+            internalAlbumName = targetAlbum
+            internalArtistName = ""
+            internalPage = MusicLibraryInternalPage.ALBUM_DETAIL
+        } else if (targetArtist.isNotBlank()) {
+            searchQuery = ""
+            updateDisplayFiles()
+            openInternalArtistDetail(targetArtist)
+        }
     }
 
     LaunchedEffect(searchQuery) {
@@ -2747,7 +2844,12 @@ fun MusicLibraryScreen(
                                 MenuItem(
                                     title = "艺术家",
                                     onClick = {
-                                        context.startActivity(Intent(context, ArtistsActivity::class.java))
+                                        pageMenuExpanded = false
+                                        exitMultiSelectMode()
+                                        internalPage = MusicLibraryInternalPage.ARTISTS
+                                        internalArtistName = ""
+                                        internalAlbumName = ""
+                                        internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
                                     }
                                 )
                             )
@@ -3388,6 +3490,90 @@ fun MusicLibraryScreen(
                 }
             }
         }
+
+        val embeddedArtistAudioFiles = allAudioFiles.toList()
+        val embeddedMiniPlayerPadding = if (showMiniPlayer && !isMultiSelectMode) {
+            miniPlayerHeight + 12.dp
+        } else {
+            0.dp
+        }
+        AnimatedContent(
+            targetState = internalPage,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(180)) togetherWith
+                    fadeOut(animationSpec = tween(160))).using(
+                    SizeTransform(clip = false) { _, _ -> tween(durationMillis = 0) }
+                )
+            },
+            label = "musicLibraryInternalPage"
+        ) { page ->
+            when (page) {
+                MusicLibraryInternalPage.SONGS -> Box(Modifier.fillMaxSize())
+                MusicLibraryInternalPage.ARTISTS -> {
+                    EmbeddedArtistsScreen(
+                        audioFiles = embeddedArtistAudioFiles,
+                        isLoading = isLoadingCache && embeddedArtistAudioFiles.isEmpty(),
+                        miniPlayerExtraBottomPadding = embeddedMiniPlayerPadding,
+                        onBack = {
+                            internalPage = MusicLibraryInternalPage.SONGS
+                            internalArtistName = ""
+                            internalAlbumName = ""
+                            internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+                        },
+                        onArtistClick = { artistName ->
+                            openInternalArtistDetail(artistName)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                MusicLibraryInternalPage.ARTIST_DETAIL -> {
+                    EmbeddedArtistDetailScreen(
+                        audioFiles = embeddedArtistAudioFiles,
+                        artistName = internalArtistName,
+                        miniPlayerExtraBottomPadding = embeddedMiniPlayerPadding,
+                        onBack = {
+                            internalPage = MusicLibraryInternalPage.ARTISTS
+                            internalAlbumName = ""
+                            internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+                        },
+                        onSongClick = { queue, audio ->
+                            playbackController.playQueue(queue, audio.path)
+                        },
+                        onSongMoreClick = { audio ->
+                            selectedSongInfoAudio = audio
+                            showSongInfoSheet = true
+                        },
+                        selectedTab = internalArtistDetailTab,
+                        onTabSelected = { tab ->
+                            internalArtistDetailTab = tab
+                        },
+                        onAlbumClick = { albumName ->
+                            openInternalAlbumDetail(albumName)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                MusicLibraryInternalPage.ALBUM_DETAIL -> {
+                    EmbeddedAlbumDetailScreen(
+                        audioFiles = embeddedArtistAudioFiles,
+                        albumName = internalAlbumName,
+                        miniPlayerExtraBottomPadding = embeddedMiniPlayerPadding,
+                        onBack = {
+                            closeInternalAlbumDetail()
+                        },
+                        onSongClick = { queue, audio ->
+                            playbackController.playQueue(queue, audio.path)
+                        },
+                        onSongMoreClick = { audio ->
+                            selectedSongInfoAudio = audio
+                            showSongInfoSheet = true
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
         
         val fabHeight = 56.dp
         val showScanPanel = showScanProgressPopup || showScanComplete
@@ -3515,15 +3701,27 @@ fun MusicLibraryScreen(
                 }
             }
         }
+        val miniPlayerDockAlignment = if (isInlinePreviewLandscape) {
+            Alignment.BottomEnd
+        } else {
+            Alignment.BottomCenter
+        }
         AnimatedVisibility(
             visible = showMiniPlayer && !isMultiSelectMode,
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(miniPlayerDockAlignment)
                 .navigationBarsPadding()
                 .padding(
                     start = 12.dp,
                     end = 12.dp,
                     bottom = 8.dp
+                )
+                .then(
+                    if (isInlinePreviewLandscape) {
+                        Modifier.widthIn(max = 420.dp)
+                    } else {
+                        Modifier
+                    }
                 ),
             enter = fadeIn(animationSpec = tween(220)),
             exit = fadeOut(animationSpec = tween(180))
@@ -3814,8 +4012,7 @@ fun MusicLibraryScreen(
             },
             onViewAlbum = { albumName ->
                 showSongInfoSheet = false
-                searchQuery = "$ALBUM_SEARCH_PREFIX_FULL$albumName"
-                updateDisplayFiles()
+                openInternalAlbumDetail(albumName)
             },
             onViewArtists = { albumName, artists ->
                 if (artists.isNotEmpty() || albumName.isNotBlank()) {
@@ -3879,14 +4076,12 @@ fun MusicLibraryScreen(
             artists = pendingArtistCandidates,
             onDismiss = { showArtistSelectionSheet = false },
             onSelectAlbum = { albumName ->
-                searchQuery = "$ALBUM_SEARCH_PREFIX_FULL$albumName"
-                updateDisplayFiles()
+                openInternalAlbumDetail(albumName)
                 showArtistSelectionSheet = false
                 showSongInfoSheet = false
             },
             onSelectArtist = { artist ->
-                searchQuery = artist
-                updateDisplayFiles()
+                openInternalArtistDetail(artist)
                 showArtistSelectionSheet = false
                 showSongInfoSheet = false
             }

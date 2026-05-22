@@ -446,6 +446,8 @@ private fun MusicPlayerScreen(
             onViewArtists = { albumName, artists ->
                 pendingAlbum = albumName
                 pendingArtists = artists
+                showSongInfoSheet = false
+                selectedSongInfoAudio = null
                 showArtistSheet = true
             },
             onOpenSleepTimer = {
@@ -478,7 +480,7 @@ private fun MusicPlayerScreen(
             onSelectAlbum = { albumName ->
                 showArtistSheet = false
                 val intent = Intent(context, MusicLibraryActivity::class.java).apply {
-                    putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, "#专辑：$albumName")
+                    putExtra(MusicLibraryActivity.EXTRA_INITIAL_ALBUM_NAME, albumName)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     if (context !is Activity) {
@@ -490,7 +492,7 @@ private fun MusicPlayerScreen(
             onSelectArtist = { artist ->
                 showArtistSheet = false
                 val intent = Intent(context, MusicLibraryActivity::class.java).apply {
-                    putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, artist)
+                    putExtra(MusicLibraryActivity.EXTRA_INITIAL_ARTIST_NAME, artist)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     if (context !is Activity) {

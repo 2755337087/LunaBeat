@@ -3525,11 +3525,26 @@ fun LyricPreviewScreen(
     val landscapeSafeAreaInsets = WindowInsets.safeDrawing.only(
         WindowInsetsSides.Horizontal + WindowInsetsSides.Vertical
     )
-    val openMusicLibrarySearch: (String) -> Unit = { query ->
-        val normalizedQuery = query.trim()
-        if (normalizedQuery.isNotBlank()) {
+    fun openMusicLibraryAlbum(albumName: String) {
+        val normalizedAlbumName = albumName.trim()
+        if (normalizedAlbumName.isNotBlank()) {
             val intent = Intent(context, MusicLibraryActivity::class.java).apply {
-                putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, normalizedQuery)
+                putExtra(MusicLibraryActivity.EXTRA_INITIAL_ALBUM_NAME, normalizedAlbumName)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (context !is android.app.Activity) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            context.startActivity(intent)
+        }
+    }
+
+    fun openMusicLibraryArtist(artistName: String) {
+        val normalizedArtistName = artistName.trim()
+        if (normalizedArtistName.isNotBlank()) {
+            val intent = Intent(context, MusicLibraryActivity::class.java).apply {
+                putExtra(MusicLibraryActivity.EXTRA_INITIAL_ARTIST_NAME, normalizedArtistName)
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 if (context !is android.app.Activity) {
@@ -5955,12 +5970,12 @@ fun LyricPreviewScreen(
                 onDismiss = { showArtistSelectionSheet = false },
                 onSelectAlbum = { albumName ->
                     showArtistSelectionSheet = false
-                    openMusicLibrarySearch("#专辑：$albumName")
+                    openMusicLibraryAlbum(albumName)
                     onBack()
                 },
                 onSelectArtist = { artist ->
                     showArtistSelectionSheet = false
-                    openMusicLibrarySearch(artist)
+                    openMusicLibraryArtist(artist)
                     onBack()
                 }
             )

@@ -357,13 +357,13 @@ fun SongInfoBottomSheet(
                 if (onViewAlbum != null) {
                     onViewAlbum(albumName)
                 } else {
-                    launchMusicLibrarySearch(context, "#专辑：$albumName")
+                    launchMusicLibraryAlbum(context, albumName)
                 }
                 onSearchNavigateDone?.invoke()
             },
             onSelectArtist = { artist ->
                 showArtistSelectionSheet = false
-                launchMusicLibrarySearch(context, artist)
+                launchMusicLibraryArtist(context, artist)
                 onSearchNavigateDone?.invoke()
             }
         )
@@ -569,11 +569,25 @@ private fun shareAudioFile(context: Context, audio: AudioFile) {
     }
 }
 
-private fun launchMusicLibrarySearch(context: Context, query: String) {
-    val normalizedQuery = query.trim()
-    if (normalizedQuery.isEmpty()) return
+private fun launchMusicLibraryAlbum(context: Context, albumName: String) {
+    val normalizedAlbumName = albumName.trim()
+    if (normalizedAlbumName.isEmpty()) return
     val intent = Intent(context, MusicLibraryActivity::class.java).apply {
-        putExtra(MusicLibraryActivity.EXTRA_INITIAL_SEARCH_QUERY, normalizedQuery)
+        putExtra(MusicLibraryActivity.EXTRA_INITIAL_ALBUM_NAME, normalizedAlbumName)
+        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+    context.startActivity(intent)
+}
+
+private fun launchMusicLibraryArtist(context: Context, artistName: String) {
+    val normalizedArtistName = artistName.trim()
+    if (normalizedArtistName.isEmpty()) return
+    val intent = Intent(context, MusicLibraryActivity::class.java).apply {
+        putExtra(MusicLibraryActivity.EXTRA_INITIAL_ARTIST_NAME, normalizedArtistName)
         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
         if (context !is Activity) {
