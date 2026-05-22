@@ -280,6 +280,18 @@ fun SettingsScreen(
     val currentArtistSeparator = remember { mutableStateOf(savedArtistSeparator) }
     var tempVibrationIntensity by remember { mutableStateOf(savedVibrationIntensity ?: "weak") }
     val currentVibrationIntensity = remember { mutableStateOf(savedVibrationIntensity ?: "weak") }
+    var tempMiniPlayerBackgroundMode by remember {
+        mutableStateOf(getSavedMiniPlayerBackgroundMode(context))
+    }
+    val currentMiniPlayerBackgroundMode = remember {
+        mutableStateOf(getSavedMiniPlayerBackgroundMode(context))
+    }
+    var tempMiniPlayerLandscapeAlignment by remember {
+        mutableStateOf(getSavedMiniPlayerLandscapeAlignment(context))
+    }
+    val currentMiniPlayerLandscapeAlignment = remember {
+        mutableStateOf(getSavedMiniPlayerLandscapeAlignment(context))
+    }
     
     var showCoverSizeDialog by remember { mutableStateOf(false) }
     var showQmCoverSizeDialog by remember { mutableStateOf(false) }
@@ -287,6 +299,8 @@ fun SettingsScreen(
     var showAMRegionDialog by remember { mutableStateOf(false) }
     var showAMTokenDialog by remember { mutableStateOf(false) }
     var showArtistSeparatorDialog by remember { mutableStateOf(false) }
+    var showMiniPlayerBackgroundDialog by remember { mutableStateOf(false) }
+    var showMiniPlayerLandscapeAlignmentDialog by remember { mutableStateOf(false) }
     
     var autoScan by remember { mutableStateOf(musicLibraryPrefs.getBoolean("autoScan", false)) }
     var metadataSaveAutoClose by remember {
@@ -684,6 +698,49 @@ fun SettingsScreen(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
+
+            item {
+                Text(
+                    text = "主页设置",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "播放控制条背景",
+                    summary = getMiniPlayerBackgroundModeLabel(currentMiniPlayerBackgroundMode.value),
+                    onClick = {
+                        tempMiniPlayerBackgroundMode = currentMiniPlayerBackgroundMode.value
+                        showMiniPlayerBackgroundDialog = true
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "横屏、平板模式下播放条默认位置",
+                    summary = getMiniPlayerLandscapeAlignmentLabel(currentMiniPlayerLandscapeAlignment.value),
+                    onClick = {
+                        tempMiniPlayerLandscapeAlignment = currentMiniPlayerLandscapeAlignment.value
+                        showMiniPlayerLandscapeAlignmentDialog = true
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
             
             item {
                 Text(
@@ -974,6 +1031,38 @@ fun SettingsScreen(
                 currentVibrationIntensity.value = tempVibrationIntensity
                 prefs.edit().putString("vibrationIntensity", tempVibrationIntensity).apply()
                 showVibrationIntensityDialog = false
+            }
+        )
+    }
+
+    if (showMiniPlayerBackgroundDialog) {
+        MiniPlayerBackgroundDialog(
+            currentValue = tempMiniPlayerBackgroundMode,
+            onValueChange = { tempMiniPlayerBackgroundMode = it },
+            onDismiss = { showMiniPlayerBackgroundDialog = false },
+            onConfirm = {
+                val normalized = normalizeMiniPlayerBackgroundMode(tempMiniPlayerBackgroundMode)
+                currentMiniPlayerBackgroundMode.value = normalized
+                musicLibraryPrefs.edit()
+                    .putInt(KEY_MINI_PLAYER_BACKGROUND_MODE, normalized)
+                    .apply()
+                showMiniPlayerBackgroundDialog = false
+            }
+        )
+    }
+
+    if (showMiniPlayerLandscapeAlignmentDialog) {
+        MiniPlayerLandscapeAlignmentDialog(
+            currentValue = tempMiniPlayerLandscapeAlignment,
+            onValueChange = { tempMiniPlayerLandscapeAlignment = it },
+            onDismiss = { showMiniPlayerLandscapeAlignmentDialog = false },
+            onConfirm = {
+                val normalized = normalizeMiniPlayerLandscapeAlignment(tempMiniPlayerLandscapeAlignment)
+                currentMiniPlayerLandscapeAlignment.value = normalized
+                musicLibraryPrefs.edit()
+                    .putInt(KEY_MINI_PLAYER_LANDSCAPE_ALIGNMENT, normalized)
+                    .apply()
+                showMiniPlayerLandscapeAlignmentDialog = false
             }
         )
     }
@@ -2061,6 +2150,124 @@ fun VibrationIntensityDialog(
                             fontSize = 16.sp
                         )
                         if (key == "weak") {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "(默认)",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+fun MiniPlayerBackgroundDialog(
+    currentValue: Int,
+    onValueChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val options = listOf(
+        MINI_PLAYER_BACKGROUND_MODE_DEFAULT to "默认",
+        MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR to "封面取色",
+        MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR to "封面模糊"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("播放控制条背景") },
+        text = {
+            Column {
+                options.forEach { (value, displayName) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueChange(value) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = normalizeMiniPlayerBackgroundMode(currentValue) == value,
+                            onClick = { onValueChange(value) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = displayName,
+                            fontSize = 16.sp
+                        )
+                        if (value == DEFAULT_MINI_PLAYER_BACKGROUND_MODE) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "(默认)",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+fun MiniPlayerLandscapeAlignmentDialog(
+    currentValue: Int,
+    onValueChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val options = listOf(
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_END to "居右",
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_CENTER to "居中",
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_START to "居左"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("横屏、平板模式下播放条默认位置") },
+        text = {
+            Column {
+                options.forEach { (value, displayName) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueChange(value) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = normalizeMiniPlayerLandscapeAlignment(currentValue) == value,
+                            onClick = { onValueChange(value) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = displayName,
+                            fontSize = 16.sp
+                        )
+                        if (value == DEFAULT_MINI_PLAYER_LANDSCAPE_ALIGNMENT) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "(默认)",

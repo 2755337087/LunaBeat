@@ -724,9 +724,8 @@ fun AudioMetadataSearchScreen(
                         enabled = !isSearching
                     ) {
                         if (isSearching) {
-                            CircularProgressIndicator(
+                            LoadingIndicator(
                                 modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
@@ -1889,9 +1888,8 @@ fun CoverOnlySearchScreen(
                     enabled = !isSearching
                 ) {
                     if (isSearching) {
-                        CircularProgressIndicator(
+                        LoadingIndicator(
                             modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     } else {

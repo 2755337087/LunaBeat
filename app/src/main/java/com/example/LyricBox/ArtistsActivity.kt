@@ -95,6 +95,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -258,6 +259,14 @@ private val artistAvatarBitmapCache = android.util.LruCache<String, Bitmap>(24)
 private val artistDetailInfoMemoryCache = mutableMapOf<String, ArtistDetailInfo>()
 private val edgeTranslucentHeight = 10.dp
 
+private fun Modifier.blockClickThrough(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent()
+        }
+    }
+}
+
 @Composable
 private fun EdgeTranslucent(
     modifier: Modifier = Modifier,
@@ -347,6 +356,7 @@ internal fun EmbeddedArtistsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .blockClickThrough()
             .background(MaterialTheme.colorScheme.background)
     ) {
         CommonHeadBar(
@@ -498,6 +508,7 @@ internal fun EmbeddedArtistDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .blockClickThrough()
             .background(MaterialTheme.colorScheme.background)
     ) {
         when {
@@ -598,6 +609,7 @@ internal fun EmbeddedAlbumDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .blockClickThrough()
             .background(MaterialTheme.colorScheme.background)
     ) {
         when {
@@ -2253,6 +2265,7 @@ private fun rememberArtistImagePickerController(
 ): ArtistImagePickerController {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val cropThemeColors = rememberAppUCropThemeColors()
     var dialogState by remember { mutableStateOf<MediaSaveDialogState?>(null) }
     var pendingSourceImageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -2317,16 +2330,11 @@ private fun rememberArtistImagePickerController(
         val destinationUri = Uri.fromFile(
             File(context.cacheDir, "artist_avatar_${System.currentTimeMillis()}.png")
         )
-        val options = com.yalantis.ucrop.UCrop.Options().apply {
-            setToolbarTitle("裁剪艺术家图片")
-            setCompressionFormat(Bitmap.CompressFormat.PNG)
-            setCompressionQuality(100)
-            setFreeStyleCropEnabled(true)
-            val primaryColor = android.graphics.Color.parseColor("#6650a4")
-            setToolbarColor(primaryColor)
-            setToolbarWidgetColor(android.graphics.Color.WHITE)
-            setActiveControlsWidgetColor(primaryColor)
-        }
+        val options = createAppImageCropOptions(
+            title = "裁剪艺术家图片",
+            compressionFormat = Bitmap.CompressFormat.PNG,
+            themeColors = cropThemeColors
+        )
         val cropIntent = com.yalantis.ucrop.UCrop.of(uri, destinationUri)
             .withOptions(options)
             .getIntent(context)

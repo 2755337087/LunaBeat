@@ -58,6 +58,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.MusicPlaybackController
+import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR
+import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_COVER_COLOR
+import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_SOLID
 import com.example.LyricBox.buildCoverThemeCacheKey
 import com.example.LyricBox.colorLuminance
 import com.example.LyricBox.CoverThemeColorPair
@@ -83,6 +86,7 @@ fun GlobalMiniPlayerBar(
     onBarBoundsChanged: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
     onCoverBoundsChanged: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
     onCoverBitmapChanged: ((Bitmap?) -> Unit)? = null,
+    backgroundStyle: Int = MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -139,13 +143,17 @@ fun GlobalMiniPlayerBar(
     LaunchedEffect(coverBitmap) {
         onCoverBitmapChanged?.invoke(coverBitmap)
     }
-    LaunchedEffect(coverBitmap) {
-        blurredPanelBitmap = withContext(Dispatchers.Default) {
-            coverBitmap?.let { source ->
-                createMiniPlayerStaticBlurBackgroundBitmap(
-                    source = source
-                )
+    LaunchedEffect(coverBitmap, backgroundStyle) {
+        blurredPanelBitmap = if (backgroundStyle == MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR) {
+            withContext(Dispatchers.Default) {
+                coverBitmap?.let { source ->
+                    createMiniPlayerStaticBlurBackgroundBitmap(
+                        source = source
+                    )
+                }
             }
+        } else {
+            null
         }
     }
     LaunchedEffect(coverThemeCacheKey, coverBitmap) {
@@ -171,8 +179,16 @@ fun GlobalMiniPlayerBar(
     }
     val coverThemeColor = if (isDarkTheme) displayedCoverThemePair?.darkColor else displayedCoverThemePair?.lightColor
 
-    val rawColor = coverThemeColor ?: MaterialTheme.colorScheme.background
-    val targetPanelColor = normalizeCoverThemeBackground(rawColor, isDarkTheme)
+    val coverBasedPanelColor = run {
+        val rawColor = coverThemeColor ?: MaterialTheme.colorScheme.background
+        normalizeCoverThemeBackground(rawColor, isDarkTheme)
+    }
+    val targetPanelColor = when (backgroundStyle) {
+        MINI_PLAYER_BACKGROUND_STYLE_SOLID,
+        MINI_PLAYER_BACKGROUND_STYLE_COVER_COLOR,
+        MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR -> coverBasedPanelColor
+        else -> coverBasedPanelColor
+    }
     val panelColor by animateColorAsState(
         targetValue = targetPanelColor,
         animationSpec = tween(durationMillis = 360),
@@ -185,6 +201,7 @@ fun GlobalMiniPlayerBar(
     val miniContentAlpha = (1f - normalizedExpandProgress).coerceIn(0f, 1f)
     val normalizedCoverAlpha = coverAlpha.coerceIn(0f, 1f)
     val blurredBackgroundImage = remember(blurredPanelBitmap) { blurredPanelBitmap?.asImageBitmap() }
+    val shouldDrawBlurBackground = backgroundStyle == MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR
     val blurredBackgroundScrim = if (isDarkTheme) {
         Color.Black.copy(alpha = 0.56f)
     } else {
@@ -215,7 +232,7 @@ fun GlobalMiniPlayerBar(
             .background(panelColor)
             .drawWithContent {
                 val backgroundImage = blurredBackgroundImage
-                if (backgroundImage != null && size.width > 1f && size.height > 1f) {
+                if (shouldDrawBlurBackground && backgroundImage != null && size.width > 1f && size.height > 1f) {
                     val dstWidth = size.width.roundToInt().coerceAtLeast(1)
                     val dstHeight = size.height.roundToInt().coerceAtLeast(1)
                     val srcWidth = backgroundImage.width

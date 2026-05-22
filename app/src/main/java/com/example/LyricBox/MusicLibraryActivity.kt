@@ -1802,9 +1802,22 @@ fun MusicLibraryScreen(
     var inlineCompanionAudioPath by remember { mutableStateOf<String?>(null) }
     var inlineCompanionSwitching by remember { mutableStateOf(false) }
     var miniPlayerCoverBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var miniPlayerBackgroundMode by remember { mutableStateOf(getSavedMiniPlayerBackgroundMode(context)) }
+    var lyricPageBackgroundModeForMiniPlayer by remember {
+        mutableStateOf(getSavedLyricPageBackgroundModeForMiniPlayer(context))
+    }
+    var miniPlayerLandscapeAlignment by remember {
+        mutableStateOf(getSavedMiniPlayerLandscapeAlignment(context))
+    }
     var miniBarBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var miniBarBaseTop by remember { mutableStateOf<Float?>(null) }
     val sharedCoverId = "music_cover"
+
+    fun refreshMiniPlayerAppearancePrefs() {
+        miniPlayerBackgroundMode = getSavedMiniPlayerBackgroundMode(context)
+        lyricPageBackgroundModeForMiniPlayer = getSavedLyricPageBackgroundModeForMiniPlayer(context)
+        miniPlayerLandscapeAlignment = getSavedMiniPlayerLandscapeAlignment(context)
+    }
 
     suspend fun reloadInlineLyricPreviewFromFile(reason: String, force: Boolean = false) {
         val audioPath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
@@ -2221,6 +2234,11 @@ fun MusicLibraryScreen(
         screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val isInlinePreviewLargeScreen =
         screenConfig.smallestScreenWidthDp >= 600 || screenConfig.screenWidthDp >= 900
+    val useWideMiniPlayerDock = isInlinePreviewLandscape || isInlinePreviewLargeScreen
+    val miniPlayerBackgroundStyle = resolveMiniPlayerBackgroundStyle(
+        backgroundMode = miniPlayerBackgroundMode,
+        pageBackgroundMode = lyricPageBackgroundModeForMiniPlayer
+    )
     val portraitExpandedDragMaxY = previewScreenHeightPx * 0.72f
     val landscapeLargeScreenDragMaxY = previewScreenHeightPx * 0.72f
 
@@ -2595,12 +2613,38 @@ fun MusicLibraryScreen(
     }
     
     val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(prefs, lyricPreviewPrefs) {
+        val musicLibraryPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (
+                key == KEY_MINI_PLAYER_BACKGROUND_MODE ||
+                key == KEY_MINI_PLAYER_LANDSCAPE_ALIGNMENT
+            ) {
+                refreshMiniPlayerAppearancePrefs()
+            }
+        }
+        val lyricPreviewPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (
+                key == LyricPreviewActivity.KEY_PAGE_BACKGROUND_MODE ||
+                key == LyricPreviewActivity.KEY_DYNAMIC_COVER_BACKGROUND
+            ) {
+                lyricPageBackgroundModeForMiniPlayer = getSavedLyricPageBackgroundModeForMiniPlayer(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(musicLibraryPrefsListener)
+        lyricPreviewPrefs.registerOnSharedPreferenceChangeListener(lyricPreviewPrefsListener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(musicLibraryPrefsListener)
+            lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPreviewPrefsListener)
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 songClickAction = prefs.getString("songClickAction", "") ?: ""
                 hasConfirmedSongClickAction = prefs.getBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, false)
                 autoDetectEmbeddedLyricsType = prefs.getBoolean("autoDetectEmbeddedLyricsType", false)
+                refreshMiniPlayerAppearancePrefs()
                 val pathToRefresh = activity.getRefreshMetadataPath()
                 if (pathToRefresh != null) {
                     scope.launch {
@@ -3126,7 +3170,7 @@ fun MusicLibraryScreen(
                                         Box(modifier = Modifier.weight(1f)) {
                                             if (searchQuery.isEmpty()) {
                                                 Text(
-                                                    text = "搜索歌曲、艺术家、专辑或“#收藏歌曲”",
+                                                    text = "搜索歌曲、艺术家、专辑",
                                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                                     fontSize = 16.sp
                                                 )
@@ -3779,8 +3823,12 @@ fun MusicLibraryScreen(
                 }
             }
         }
-        val miniPlayerDockAlignment = if (isInlinePreviewLandscape) {
-            Alignment.BottomEnd
+        val miniPlayerDockAlignment = if (useWideMiniPlayerDock) {
+            when (miniPlayerLandscapeAlignment) {
+                MINI_PLAYER_LANDSCAPE_ALIGNMENT_CENTER -> Alignment.BottomCenter
+                MINI_PLAYER_LANDSCAPE_ALIGNMENT_START -> Alignment.BottomStart
+                else -> Alignment.BottomEnd
+            }
         } else {
             Alignment.BottomCenter
         }
@@ -3795,7 +3843,7 @@ fun MusicLibraryScreen(
                     bottom = 8.dp
                 )
                 .then(
-                    if (isInlinePreviewLandscape) {
+                    if (useWideMiniPlayerDock) {
                         Modifier.widthIn(max = 420.dp)
                     } else {
                         Modifier
@@ -3821,6 +3869,7 @@ fun MusicLibraryScreen(
                 expandProgress = miniPlayerExpandProgress,
                 sharedCoverId = sharedCoverId,
                 coverAlpha = 1f,
+                backgroundStyle = miniPlayerBackgroundStyle,
                 onBarBoundsChanged = { bounds ->
                     miniBarBounds = bounds
                     if (miniPlayerExpandProgress <= 0.01f || miniBarBaseTop == null) {

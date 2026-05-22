@@ -461,7 +461,7 @@ class SongMetadataEditActivity : ComponentActivity() {
                             }
                             startActivityForResult(intent, REQUEST_CODE_VERBATIM_LYRICS)
                         },
-                        onStartCrop = { uri -> startCrop(uri) },
+                        onStartCrop = { uri, cropThemeColors -> startCrop(uri, cropThemeColors) },
                         croppedBitmap = croppedBitmap,
                         onCroppedBitmapConsumed = { croppedBitmap = null },
                         onExit = {
@@ -538,22 +538,15 @@ class SongMetadataEditActivity : ComponentActivity() {
         }
     }
     
-    fun startCrop(uri: Uri) {
+    fun startCrop(uri: Uri, cropThemeColors: AppUCropThemeColors) {
         val destinationFileName = "cropped_cover.jpg"
         val destinationUri = Uri.fromFile(File(cacheDir, destinationFileName))
-        
-        val options = com.yalantis.ucrop.UCrop.Options()
-        options.setToolbarTitle("裁剪封面")
-        options.setCompressionFormat(Bitmap.CompressFormat.JPEG)
-        options.setCompressionQuality(100)
-        options.withAspectRatio(1f, 1f)
-        options.setFreeStyleCropEnabled(true)
-        
-        // 使用主题色美化裁剪界面
-        val primaryColor = android.graphics.Color.parseColor("#6650a4")
-        options.setToolbarColor(primaryColor)
-        options.setToolbarWidgetColor(android.graphics.Color.WHITE)
-        options.setActiveControlsWidgetColor(primaryColor)
+
+        val options = createAppImageCropOptions(
+            title = "裁剪封面",
+            compressionFormat = Bitmap.CompressFormat.JPEG,
+            themeColors = cropThemeColors
+        )
         
         com.yalantis.ucrop.UCrop.of(uri, destinationUri)
             .withOptions(options)
@@ -870,7 +863,7 @@ fun SongMetadataEditScreen(
     onSearchMetadata: (String, Boolean) -> Unit,
     onOpenLyricTiming: (String?, String) -> Unit,
     onOpenVerbatimLyricsSearch: (String) -> Unit,
-    onStartCrop: (Uri) -> Unit,
+    onStartCrop: (Uri, AppUCropThemeColors) -> Unit,
     croppedBitmap: Bitmap?,
     onCroppedBitmapConsumed: () -> Unit,
     onExit: () -> Unit,
@@ -883,6 +876,7 @@ fun SongMetadataEditScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val cropThemeColors = rememberAppUCropThemeColors()
     
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
@@ -3150,7 +3144,7 @@ fun SongMetadataEditScreen(
                 showCoverPreview = false
                 coverBitmap?.let { bitmap ->
                     saveBitmapToTempUri(bitmap)?.let { uri ->
-                        onStartCrop(uri)
+                        onStartCrop(uri, cropThemeColors)
                     }
                 }
             }
