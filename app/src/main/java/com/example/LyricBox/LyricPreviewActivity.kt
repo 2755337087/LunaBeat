@@ -266,18 +266,21 @@ private fun summarizePreviewLyricLinesForLog(lines: List<NewPreviewLyricLine>): 
 }
 
 // 检测是否为逐行歌词
-fun NewPreviewLyricLine.isLineByLineLyric(): Boolean {
+fun NewPreviewLyricLine.isLineByLineLyric(allowFirstWordZeroBegin: Boolean = false): Boolean {
     // 特征4：当前歌词行只存在1个歌词单元（word）
     if (words.size == 1) {
         return true
     }
     
     // 检查其他特征
-    for (word in words) {
+    for ((index, word) in words.withIndex()) {
         // 特征1：歌词无结束时间（end == 0）
         // 特征2：歌词行结束时间为0
         // 特征3：歌词中包含为0的开始或者结束时间
-        if (word.end == 0L || word.begin == 0L) {
+        if (word.end == 0L) {
+            return true
+        }
+        if (word.begin == 0L && !(allowFirstWordZeroBegin && index == 0)) {
             return true
         }
     }
@@ -434,7 +437,8 @@ private fun tokenizeForceWordText(text: String): List<String> {
 private fun buildForceWordWords(
     line: NewPreviewLyricLine,
     nextLine: NewPreviewLyricLine?,
-    songDuration: Long
+    songDuration: Long,
+    allowFirstWordZeroBegin: Boolean = false
 ): List<NewPreviewLyricWord> {
     if (line.words.isEmpty()) return emptyList()
 
@@ -454,7 +458,7 @@ private fun buildForceWordWords(
         )
     }
 
-    if (!line.isLineByLineLyric()) {
+    if (!line.isLineByLineLyric(allowFirstWordZeroBegin = allowFirstWordZeroBegin)) {
         return normalizedWords
     }
 
@@ -496,6 +500,81 @@ private fun buildForceWordWords(
             begin = begin,
             end = end,
             duration = (end - begin).coerceAtLeast(1L)
+        )
+    }
+}
+
+private data class DefaultCharacterLyricToken(
+    val text: String,
+    val transliteration: String
+)
+
+private fun buildDefaultCharacterWords(
+    line: NewPreviewLyricLine,
+    nextLine: NewPreviewLyricLine?,
+    songDuration: Long
+): List<NewPreviewLyricWord> {
+    if (line.words.isEmpty()) return emptyList()
+
+    val forceLineEnd = resolveForceWordLineEnd(line, nextLine, songDuration)
+    val normalizedLineBegin = line.begin.coerceAtLeast(0L)
+    val lineStart = line.words.firstOrNull()?.begin?.takeIf { it > 0L } ?: normalizedLineBegin
+    val tokens = line.words.flatMap { word ->
+        word.text.mapIndexed { charIndex, char ->
+            val transliteration = if (word.charTransliterations.isNotEmpty()) {
+                word.charTransliterations[charIndex].orEmpty()
+            } else if (word.text.length == 1 && !char.isWhitespace()) {
+                word.transliteration
+            } else {
+                ""
+            }
+            DefaultCharacterLyricToken(
+                text = char.toString(),
+                transliteration = transliteration
+            )
+        }
+    }
+    if (tokens.isEmpty()) return line.words
+
+    val timedTokenIndices = tokens.indices.filter { tokens[it].text.isNotBlank() }
+    if (timedTokenIndices.isEmpty()) {
+        return tokens.map {
+            NewPreviewLyricWord(
+                text = it.text,
+                begin = lineStart,
+                end = lineStart,
+                transliteration = it.transliteration,
+                charTransliterations = emptyMap()
+            )
+        }
+    }
+
+    val lineEnd = maxOf(forceLineEnd, lineStart + timedTokenIndices.size.toLong())
+    val timedCount = timedTokenIndices.size
+    val boundsByTokenIndex = mutableMapOf<Int, Pair<Long, Long>>()
+    timedTokenIndices.forEachIndexed { order, tokenIndex ->
+        val begin = lineStart + ((lineEnd - lineStart) * order) / timedCount
+        var end = lineStart + ((lineEnd - lineStart) * (order + 1)) / timedCount
+        if (end <= begin) end = begin + 1L
+        boundsByTokenIndex[tokenIndex] = begin to end
+    }
+
+    var cursor = lineStart
+    return tokens.mapIndexed { index, token ->
+        val bounds = boundsByTokenIndex[index]
+        val (begin, end) = if (bounds != null) {
+            cursor = bounds.second
+            bounds
+        } else {
+            cursor to cursor
+        }
+        NewPreviewLyricWord(
+            text = token.text,
+            begin = begin,
+            end = end,
+            duration = end - begin,
+            transliteration = token.transliteration,
+            charTransliterations = emptyMap()
         )
     }
 }
@@ -2310,6 +2389,58 @@ fun getNextLineIsDuet(lyricLines: List<NewPreviewLyricLine>, currentIndex: Int):
     return false // 默认返回false
 }
 
+private fun findPreviousLyricRenderReferenceIndex(
+    lyricLines: List<NewPreviewLyricLine>,
+    currentIndex: Int
+): Int? {
+    for (index in currentIndex - 1 downTo 0) {
+        if (!lyricLines[index].isInterlude) return index
+    }
+    return null
+}
+
+private fun findNextLyricRenderReferenceIndex(
+    lyricLines: List<NewPreviewLyricLine>,
+    currentIndex: Int
+): Int? {
+    for (index in currentIndex + 1 until lyricLines.size) {
+        if (!lyricLines[index].isInterlude) return index
+    }
+    return null
+}
+
+private fun resolveDefaultLyricLineByLineModes(
+    lyricLines: List<NewPreviewLyricLine>
+): List<Boolean> {
+    if (lyricLines.isEmpty()) return emptyList()
+
+    val resolvedModes = MutableList(lyricLines.size) { false }
+    val firstLyricLineIndex = lyricLines.indexOfFirst { !it.isInterlude }
+    lyricLines.forEachIndexed { index, line ->
+        val sourceLineByLine = line.isLineByLineLyric(
+            allowFirstWordZeroBegin = index == firstLyricLineIndex
+        )
+        resolvedModes[index] = when {
+            line.isInterlude -> false
+            !sourceLineByLine -> false
+            else -> {
+                val previousIndex = findPreviousLyricRenderReferenceIndex(lyricLines, index)
+                if (previousIndex != null) {
+                    resolvedModes[previousIndex]
+                } else {
+                    val nextIndex = findNextLyricRenderReferenceIndex(lyricLines, index)
+                    nextIndex?.let {
+                        lyricLines[it].isLineByLineLyric(
+                            allowFirstWordZeroBegin = it == firstLyricLineIndex
+                        )
+                    } ?: true
+                }
+            }
+        }
+    }
+    return resolvedModes
+}
+
 private fun pickBestPaletteSwatch(
     swatches: List<androidx.palette.graphics.Palette.Swatch>,
     score: (swatch: androidx.palette.graphics.Palette.Swatch, maxPopulation: Int) -> Float
@@ -3941,6 +4072,12 @@ fun LyricPreviewScreen(
     val processedLyricLines = remember(lyricLines) {
         detectAndInsertInterludeLines(lyricLines)
     }
+    val defaultLyricLineByLineModes = remember(processedLyricLines) {
+        resolveDefaultLyricLineByLineModes(processedLyricLines)
+    }
+    val firstLyricLineIndex = remember(processedLyricLines) {
+        processedLyricLines.indexOfFirst { !it.isInterlude }
+    }
     LaunchedEffect(lyricLines, processedLyricLines) {
         Log.d(
             PREVIEW_LYRICS_REFRESH_LOG_TAG,
@@ -5124,6 +5261,8 @@ fun LyricPreviewScreen(
                                     fontFamily = lyricFontFamily,
                                     customTypeface = lyricTypeface,
                                     lyricDisplayMode = lyricDisplayMode,
+                                    defaultLineByLine = defaultLyricLineByLineModes.getOrNull(index),
+                                    allowFirstWordZeroBegin = index == firstLyricLineIndex,
                                     lookaheadScope = this@LookaheadScope,
                                     itemKey = lyricLineItemKey,
                                     isManualScrolling = isUserScrolling,
@@ -6798,6 +6937,8 @@ fun LyricLineView(
     fontFamily: FontFamily? = null,
     customTypeface: Typeface? = null,
     lyricDisplayMode: Int = LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
+    defaultLineByLine: Boolean? = null,
+    allowFirstWordZeroBegin: Boolean = false,
     lookaheadScope: androidx.compose.ui.layout.LookaheadScope,
     itemKey: Any,
     isManualScrolling: Boolean,
@@ -6949,21 +7090,36 @@ fun LyricLineView(
         minContrast = 3.4f
     )
     
+    val sourceLineByLine = line.isLineByLineLyric(
+        allowFirstWordZeroBegin = allowFirstWordZeroBegin
+    )
     val isLineByLine = when (lyricDisplayMode) {
         LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD -> false
         LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE -> true
-        else -> line.isLineByLineLyric()
+        else -> defaultLineByLine ?: sourceLineByLine
     }
-    val normalizedWords = remember(line.words, nextLine?.begin, songDuration, lyricDisplayMode) {
-        if (lyricDisplayMode != LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD) {
-            line.words
-        } else {
-            buildForceWordWords(line, nextLine, songDuration)
+    val useDefaultCharacterWords =
+        lyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT &&
+            sourceLineByLine &&
+            !isLineByLine
+    val normalizedWords = remember(line, nextLine?.begin, songDuration, lyricDisplayMode, useDefaultCharacterWords) {
+        when {
+            lyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD ->
+                buildForceWordWords(
+                    line = line,
+                    nextLine = nextLine,
+                    songDuration = songDuration,
+                    allowFirstWordZeroBegin = allowFirstWordZeroBegin
+                )
+            useDefaultCharacterWords ->
+                buildDefaultCharacterWords(line, nextLine, songDuration)
+            else ->
+                line.words
         }
     }
     val effectiveEnd = if (isLineByLine) {
         getEffectiveEndTime(line, nextLine)
-    } else if (lyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD) {
+    } else if (lyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD || useDefaultCharacterWords) {
         resolveForceWordLineEnd(line, nextLine, songDuration)
     } else {
         line.end

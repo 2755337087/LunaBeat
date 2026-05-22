@@ -50,6 +50,61 @@ fun buildCoverThemeCacheKey(
     }
 }
 
+fun invalidateCoverThemePairCache(context: Context, cacheKey: String) {
+    val normalizedKey = cacheKey.takeIf { it.isNotBlank() } ?: return
+    val versionedKey = versionCoverThemeCacheKey(normalizedKey)
+    synchronized(localThemePairCache) {
+        localThemePairCache.remove(versionedKey)
+    }
+    context.getSharedPreferences(COVER_THEME_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(COVER_THEME_LIGHT_PREFIX + versionedKey)
+        .remove(COVER_THEME_DARK_PREFIX + versionedKey)
+        .apply()
+}
+
+fun invalidateCoverThemeCachesForAudio(
+    context: Context,
+    audioPath: String?,
+    mediaStoreId: Long = -1L,
+    coverCachePath: String? = null
+) {
+    buildCoverThemeCacheKeys(
+        coverCachePath = coverCachePath,
+        mediaId = mediaStoreId.takeIf { it > 0L }?.toString(),
+        audioPath = audioPath
+    ).forEach { cacheKey ->
+        invalidateCoverThemePairCache(context, cacheKey)
+    }
+}
+
+fun refreshCoverThemeCachesForAudio(
+    context: Context,
+    audioPath: String?,
+    mediaStoreId: Long = -1L,
+    coverCachePath: String? = null,
+    cover: Bitmap?
+): CoverThemeColorPair? {
+    val cacheKeys = buildCoverThemeCacheKeys(
+        coverCachePath = coverCachePath,
+        mediaId = mediaStoreId.takeIf { it > 0L }?.toString(),
+        audioPath = audioPath
+    )
+    cacheKeys.forEach { cacheKey ->
+        invalidateCoverThemePairCache(context, cacheKey)
+    }
+    val bitmap = cover ?: return null
+    val computed = extractCoverThemePair(bitmap)
+    cacheKeys.forEach { cacheKey ->
+        val versionedKey = versionCoverThemeCacheKey(cacheKey)
+        writeCoverThemePairCache(context, versionedKey, computed)
+        synchronized(localThemePairCache) {
+            localThemePairCache.put(versionedKey, computed)
+        }
+    }
+    return computed
+}
+
 fun resolveCachedCoverThemePair(
     context: Context,
     cacheKey: String,
@@ -59,7 +114,7 @@ fun resolveCachedCoverThemePair(
         val bitmap = cover ?: return null
         "bitmap:${buildPaletteCacheKey(bitmap)}"
     }
-    val versionedKey = "$COVER_THEME_ALGO_VERSION|$resolvedKey"
+    val versionedKey = versionCoverThemeCacheKey(resolvedKey)
     synchronized(localThemePairCache) {
         localThemePairCache.get(versionedKey)?.let { return it }
     }
@@ -76,6 +131,28 @@ fun resolveCachedCoverThemePair(
         localThemePairCache.put(versionedKey, computed)
     }
     return computed
+}
+
+private fun versionCoverThemeCacheKey(cacheKey: String): String {
+    return "$COVER_THEME_ALGO_VERSION|$cacheKey"
+}
+
+private fun buildCoverThemeCacheKeys(
+    coverCachePath: String?,
+    mediaId: String?,
+    audioPath: String?
+): List<String> {
+    return buildList {
+        if (!coverCachePath.isNullOrBlank()) {
+            add(buildCoverThemeCacheKey(coverCachePath = coverCachePath, mediaId = null, audioPath = null))
+        }
+        if (!mediaId.isNullOrBlank()) {
+            add(buildCoverThemeCacheKey(coverCachePath = null, mediaId = mediaId, audioPath = null))
+        }
+        if (!audioPath.isNullOrBlank()) {
+            add(buildCoverThemeCacheKey(coverCachePath = null, mediaId = null, audioPath = audioPath))
+        }
+    }.distinct()
 }
 
 fun extractMutedCoverColor(cover: Bitmap, preferDark: Boolean): Color? {

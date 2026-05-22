@@ -6787,9 +6787,18 @@ fun CommonHeadBar(
                 label = "titleAnimation"
             ) { targetTitle ->
                 val interactionSource = remember { MutableInteractionSource() }
+                var useCompactTitle by remember(targetTitle) { mutableStateOf(false) }
+                val titleTextStyle = if (useCompactTitle) {
+                    MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 20.sp
+                    )
+                } else {
+                    MaterialTheme.typography.titleLarge
+                }
                 Text(
                     text = targetTitle,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = titleTextStyle,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -6804,8 +6813,13 @@ fun CommonHeadBar(
                             }
                         ),
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { layoutResult ->
+                        if (!useCompactTitle && (layoutResult.lineCount > 1 || layoutResult.hasVisualOverflow)) {
+                            useCompactTitle = true
+                        }
+                    }
                 )
             }
             

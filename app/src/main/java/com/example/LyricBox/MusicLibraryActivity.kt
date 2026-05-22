@@ -1944,6 +1944,7 @@ fun MusicLibraryScreen(
     var internalArtistDetailTab by rememberSaveable { mutableStateOf(ArtistDetailTab.SONGS) }
     var internalAlbumName by rememberSaveable { mutableStateOf("") }
     var internalAlbumReturnPage by rememberSaveable { mutableStateOf(MusicLibraryInternalPage.SONGS) }
+    val internalArtistsListState = rememberLazyListState()
     val favoritePaths = remember { mutableStateSetOf<String>() }
     val albumTrackSortCache = remember { mutableMapOf<String, Int>() }
     var trackSortWarmupJob by remember { mutableStateOf<Job?>(null) }
@@ -2856,10 +2857,13 @@ fun MusicLibraryScreen(
             var previousFirstVisibleIndex by remember { mutableStateOf(0) }
             var hasShownHint by remember { mutableStateOf(false) }
             
-            val listState = if (displayAudioFiles.isNotEmpty() || isScanning) {
-                rememberLazyListState()
-            } else {
-                rememberLazyListState()
+            val listState = rememberLazyListState()
+            val musicListColumnCount = remember(screenConfig.orientation, screenConfig.screenWidthDp) {
+                if (screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                    (screenConfig.screenWidthDp / 360).coerceIn(2, 4)
+                } else {
+                    1
+                }
             }
             
             LaunchedEffect(showDoubleTapHint) {
@@ -2871,7 +2875,7 @@ fun MusicLibraryScreen(
             
             LaunchedEffect(listState.firstVisibleItemIndex) {
                 val currentIndex = listState.firstVisibleItemIndex
-                if (!hasShownHint && currentIndex >= 14 && currentIndex > previousFirstVisibleIndex) {
+                if (!hasShownHint && currentIndex * musicListColumnCount >= 14 && currentIndex > previousFirstVisibleIndex) {
                     hasShownHint = true
                     showDoubleTapHint = true
                 }
@@ -2917,6 +2921,7 @@ fun MusicLibraryScreen(
                 pendingLocateAudioPath,
                 isUpdatingDisplayList,
                 displayAudioFiles.size,
+                musicListColumnCount,
                 listState.firstVisibleItemIndex
             ) {
                 val targetPath = pendingLocateAudioPath ?: return@LaunchedEffect
@@ -2924,16 +2929,17 @@ fun MusicLibraryScreen(
 
                 val targetIndex = displayAudioFiles.indexOfFirst { it.path == targetPath }
                 if (targetIndex < 0) return@LaunchedEffect
+                val targetRowIndex = targetIndex / musicListColumnCount
 
                 val viewportHeightPx = listState.layoutInfo.viewportSize.height
                 val desiredUpperBandMin = (viewportHeightPx * 0.18f).toInt()
                 val desiredUpperBandMax = (viewportHeightPx * 0.42f).toInt()
                 val estimatedItemHeightPx = with(density) { 84.dp.roundToPx().coerceAtLeast(1) }
-                val leadItemCount = ((viewportHeightPx * 0.30f).toInt() / estimatedItemHeightPx).coerceAtLeast(2)
-                val anchorIndex = (targetIndex - leadItemCount).coerceAtLeast(0)
+                val leadRowCount = ((viewportHeightPx * 0.30f).toInt() / estimatedItemHeightPx).coerceAtLeast(2)
+                val anchorIndex = (targetRowIndex - leadRowCount).coerceAtLeast(0)
 
                 val visibleRange = listState.layoutInfo.visibleItemsInfo
-                val currentTargetInfo = visibleRange.firstOrNull { it.index == targetIndex }
+                val currentTargetInfo = visibleRange.firstOrNull { it.index == targetRowIndex }
                 val inDesiredBand = currentTargetInfo?.offset?.let { it in desiredUpperBandMin..desiredUpperBandMax } == true
 
                 if (!inDesiredBand) {
@@ -2962,26 +2968,31 @@ fun MusicLibraryScreen(
                         expanded = pageMenuExpanded,
                         onDismissRequest = { pageMenuExpanded = false },
                         items = buildList {
-                            add(
-                                MenuItem(
-                                    title = "艺术家",
-                                    onClick = {
-                                        pageMenuExpanded = false
-                                        exitMultiSelectMode()
-                                        internalPage = MusicLibraryInternalPage.ARTISTS
-                                        internalArtistName = ""
-                                        internalAlbumName = ""
-                                        internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
-                                    }
-                                )
+                            val artistMenuItem = MenuItem(
+                                title = "艺术家",
+                                onClick = {
+                                    pageMenuExpanded = false
+                                    exitMultiSelectMode()
+                                    internalPage = MusicLibraryInternalPage.ARTISTS
+                                    internalArtistName = ""
+                                    internalAlbumName = ""
+                                    internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+                                }
                             )
-                            addAll(
-                                buildPageSwitchMenuItems(
-                                    context = context,
-                                    currentPage = AppPageDestination.MUSIC_LIBRARY,
-                                    includeCurrentPage = false
-                                )
+                            val pageSwitchItems = buildPageSwitchMenuItems(
+                                context = context,
+                                currentPage = AppPageDestination.MUSIC_LIBRARY,
+                                includeCurrentPage = false
                             )
+                            pageSwitchItems.forEach { item ->
+                                add(item)
+                                if (item.title == AppPageDestination.LYRIC_TIMING.title) {
+                                    add(artistMenuItem)
+                                }
+                            }
+                            if (pageSwitchItems.none { it.title == AppPageDestination.LYRIC_TIMING.title }) {
+                                add(0, artistMenuItem)
+                            }
                         },
                         anchorPosition = backButtonPosition ?: MenuAnchorPosition(0f, 0f)
                     )
@@ -3399,15 +3410,22 @@ fun MusicLibraryScreen(
                         resetHideTimer()
                     }
                     
-                    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+                    LaunchedEffect(
+                        listState.firstVisibleItemIndex,
+                        listState.firstVisibleItemScrollOffset,
+                        displayAudioFiles.size,
+                        musicListColumnCount
+                    ) {
                         resetHideTimer()
                         if (!isDragging) {
-                            val totalItems = displayAudioFiles.size
+                            val totalItems = (displayAudioFiles.size + musicListColumnCount - 1) / musicListColumnCount
                             val viewportHeight = listState.layoutInfo.viewportSize.height
                             val itemHeight = 80
                             val maxScrollIndex = (totalItems - (viewportHeight / itemHeight)).coerceAtLeast(0)
                             if (maxScrollIndex > 0) {
                                 dragProgress = listState.firstVisibleItemIndex.toFloat() / maxScrollIndex.toFloat()
+                            } else {
+                                dragProgress = 0f
                             }
                         }
                     }
@@ -3415,6 +3433,7 @@ fun MusicLibraryScreen(
                     Box(modifier = Modifier.fillMaxSize()) {
                         val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
                         val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 8.dp + miniPlayerExtraBottomPadding
+                        val displayAudioRows = displayAudioFiles.chunked(musicListColumnCount)
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             state = listState,
@@ -3426,80 +3445,97 @@ fun MusicLibraryScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            itemsIndexed(displayAudioFiles, key = { _, audio -> audio.path }) { itemIndex, audio ->
-                                val index = itemIndex + 1
-                                val isSelected = selectedPaths.contains(audio.path)
-                                AudioFileItem(
-                                    audio = audio,
-                                    isInMultiSelectMode = isMultiSelectMode,
-                                    isSelected = isSelected,
-                                    isLocateHighlightActive = locateHighlightActive && locateHighlightPath == audio.path,
-                                    sequenceNumber = if (isMultiSelectMode) index else null,
-                                    onClick = {
-                                        if (isMultiSelectMode) {
-                                            if (selectedPaths.contains(audio.path)) {
-                                                selectedPaths.remove(audio.path)
-                                                lastSelectedIndices.remove(index)
+                            itemsIndexed(
+                                displayAudioRows,
+                                key = { rowIndex, row ->
+                                    "$rowIndex:${row.joinToString("|") { it.path }}"
+                                }
+                            ) { rowIndex, rowAudios ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowAudios.forEachIndexed { columnIndex, audio ->
+                                        val itemIndex = rowIndex * musicListColumnCount + columnIndex
+                                        val index = itemIndex + 1
+                                        val isSelected = selectedPaths.contains(audio.path)
+                                        AudioFileItem(
+                                            audio = audio,
+                                            modifier = Modifier.weight(1f),
+                                            isInMultiSelectMode = isMultiSelectMode,
+                                            isSelected = isSelected,
+                                            isLocateHighlightActive = locateHighlightActive && locateHighlightPath == audio.path,
+                                            sequenceNumber = if (isMultiSelectMode) index else null,
+                                            onClick = {
+                                                if (isMultiSelectMode) {
+                                                    if (selectedPaths.contains(audio.path)) {
+                                                        selectedPaths.remove(audio.path)
+                                                        lastSelectedIndices.remove(index)
+                                                    } else {
+                                                        selectedPaths.add(audio.path)
+                                                        lastSelectedIndices.add(index)
+                                                        if (lastSelectedIndices.size > 2) {
+                                                            lastSelectedIndices.removeAt(0)
+                                                        }
+                                                    }
+                                                } else {
+                                                    if (!hasConfirmedSongClickAction) {
+                                                        pendingSongClickAudio = audio
+                                                        tempSongClickAction = ""
+                                                        tempAutoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType
+                                                        showSongClickActionDialog = true
+                                                    } else {
+                                                        executePrimarySongAction(audio)
+                                                    }
+                                                }
+                                            },
+                                            onLongClick = {
+                                                if (!isMultiSelectMode) {
+                                                    isMultiSelectMode = true
+                                                    selectedPaths.add(audio.path)
+                                                    lastSelectedIndices.clear()
+                                                    lastSelectedIndices.add(index)
+                                                }
+                                            },
+                                            onSelectionChange = { selected ->
+                                                if (selected) {
+                                                    selectedPaths.add(audio.path)
+                                                    lastSelectedIndices.add(index)
+                                                    if (lastSelectedIndices.size > 2) {
+                                                        lastSelectedIndices.removeAt(0)
+                                                    }
+                                                } else {
+                                                    selectedPaths.remove(audio.path)
+                                                    lastSelectedIndices.remove(index)
+                                                }
+                                            },
+                                            onPlayClick = if (isMultiSelectMode) {
+                                                null
+                                            } else if (songClickAction == "playMusic") {
+                                                null
                                             } else {
-                                                selectedPaths.add(audio.path)
-                                                lastSelectedIndices.add(index)
-                                                if (lastSelectedIndices.size > 2) {
-                                                    lastSelectedIndices.removeAt(0)
+                                                {
+                                                    playbackController.playQueue(displayAudioFiles.toList(), audio.path)
+                                                }
+                                            },
+                                            onMoreClick = if (isMultiSelectMode) {
+                                                null
+                                            } else {
+                                                {
+                                                    selectedSongInfoAudio = audio
+                                                    showSongInfoSheet = true
                                                 }
                                             }
-                                        } else {
-                                            if (!hasConfirmedSongClickAction) {
-                                                pendingSongClickAudio = audio
-                                                tempSongClickAction = ""
-                                                tempAutoDetectEmbeddedLyricsType = autoDetectEmbeddedLyricsType
-                                                showSongClickActionDialog = true
-                                            } else {
-                                                executePrimarySongAction(audio)
-                                            }
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (!isMultiSelectMode) {
-                                            isMultiSelectMode = true
-                                            selectedPaths.add(audio.path)
-                                            lastSelectedIndices.clear()
-                                            lastSelectedIndices.add(index)
-                                        }
-                                    },
-                                    onSelectionChange = { selected ->
-                                        if (selected) {
-                                            selectedPaths.add(audio.path)
-                                            lastSelectedIndices.add(index)
-                                            if (lastSelectedIndices.size > 2) {
-                                                lastSelectedIndices.removeAt(0)
-                                            }
-                                        } else {
-                                            selectedPaths.remove(audio.path)
-                                            lastSelectedIndices.remove(index)
-                                        }
-                                    },
-                                    onPlayClick = if (isMultiSelectMode) {
-                                        null
-                                    } else if (songClickAction == "playMusic") {
-                                        null
-                                    } else {
-                                        {
-                                            playbackController.playQueue(displayAudioFiles.toList(), audio.path)
-                                        }
-                                    },
-                                    onMoreClick = if (isMultiSelectMode) {
-                                        null
-                                    } else {
-                                        {
-                                            selectedSongInfoAudio = audio
-                                            showSongInfoSheet = true
-                                        }
+                                        )
                                     }
-                                )
+                                    repeat(musicListColumnCount - rowAudios.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
                             }
                         }
                         
-                        val totalItems = displayAudioFiles.size
+                        val totalItems = displayAudioRows.size
                         if (totalItems > 0) {
                             val viewportHeight = listState.layoutInfo.viewportSize.height
                             val itemHeight = 80
@@ -3510,8 +3546,9 @@ fun MusicLibraryScreen(
                             val maxScrollIndex = (totalItems - (viewportHeight / itemHeight)).coerceAtLeast(0)
                             
                             val density = LocalDensity.current
-                            val scrollbarHeightPx = viewportHeight - 16 - with(density) { 48.dp.toPx() }.toInt()
-                            val thumbOffsetY = dragProgress.coerceIn(0f, 1f) * (scrollbarHeightPx - thumbHeightPx)
+                            val scrollbarHeightPx = (viewportHeight - 16 - with(density) { 48.dp.toPx() }).coerceAtLeast(1f)
+                            val scrollRangePx = (scrollbarHeightPx - thumbHeightPx).coerceAtLeast(1f)
+                            val thumbOffsetY = dragProgress.coerceIn(0f, 1f) * scrollRangePx
                             
                             Box(
                                 modifier = Modifier
@@ -3564,9 +3601,10 @@ fun MusicLibraryScreen(
                                                 ) { change, dragAmount ->
                                                     change.consume()
                                                     resetHideTimer()
-                                                    val delta = dragAmount.y / (scrollbarHeightPx - thumbHeightPx)
+                                                    val delta = dragAmount.y / scrollRangePx
                                                     dragProgress = (dragProgress + delta).coerceIn(0f, 1f)
                                                     val targetIndex = (dragProgress * maxScrollIndex).toInt()
+                                                        .coerceIn(0, maxScrollIndex)
                                                     scope.launch {
                                                         listState.scrollToItem(targetIndex)
                                                     }
@@ -3637,6 +3675,7 @@ fun MusicLibraryScreen(
                         audioFiles = embeddedArtistAudioFiles,
                         isLoading = isLoadingCache && embeddedArtistAudioFiles.isEmpty(),
                         miniPlayerExtraBottomPadding = embeddedMiniPlayerPadding,
+                        artistListState = internalArtistsListState,
                         onBack = {
                             internalPage = MusicLibraryInternalPage.SONGS
                             internalArtistName = ""
@@ -10073,6 +10112,12 @@ private suspend fun saveAllBatchMatches(context: Context, items: List<BatchMatch
                         val picPfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_WRITE)
                         com.lonx.audiotag.rw.AudioTagWriter.writePictures(picPfd, listOf(com.lonx.audiotag.model.AudioPicture(data = picData, mimeType = "image/jpeg", pictureType = "Front Cover")))
                         picPfd.close()
+                        refreshCoverThemeCachesForAudio(
+                            context = context,
+                            audioPath = item.path,
+                            mediaStoreId = item.audioFile.mediaStoreId,
+                            cover = item.coverBitmap
+                        )
                         Log.d("BatchMatch", "封面保存完成")
                     }
                 }

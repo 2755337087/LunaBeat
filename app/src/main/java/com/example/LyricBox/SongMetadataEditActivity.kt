@@ -5304,6 +5304,8 @@ suspend fun saveMetadata(
             }
             
             // 只有封面修改时才处理封面
+            var coverThemeCacheCover: Bitmap? = null
+            var shouldRefreshCoverThemeCache = false
             if (!coverKeep) {
                 if (coverBitmap != null) {
                     val byteArray = java.io.ByteArrayOutputStream()
@@ -5321,6 +5323,8 @@ suspend fun saveMetadata(
                     if (picPfd == null) return@withContext SaveResult(false)
                     try {
                         AudioTagWriter.writePictures(picPfd, listOf(newPic))
+                        coverThemeCacheCover = coverBitmap
+                        shouldRefreshCoverThemeCache = true
                     } finally {
                         picPfd.close()
                     }
@@ -5330,10 +5334,22 @@ suspend fun saveMetadata(
                     if (picPfd == null) return@withContext SaveResult(false)
                     try {
                         AudioTagWriter.writePictures(picPfd, emptyList())
+                        shouldRefreshCoverThemeCache = true
                     } finally {
                         picPfd.close()
                     }
+                } else if (coverRemoved) {
+                    shouldRefreshCoverThemeCache = true
                 }
+            }
+
+            if (shouldRefreshCoverThemeCache) {
+                refreshCoverThemeCachesForAudio(
+                    context = context,
+                    audioPath = filePath,
+                    mediaStoreId = mediaStoreId,
+                    cover = coverThemeCacheCover
+                )
             }
             
             SaveResult(success)

@@ -28,6 +28,7 @@ import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,12 +45,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -126,6 +129,7 @@ import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -289,21 +293,208 @@ private fun EdgeTranslucent(
 }
 
 @Composable
+private fun ArtistListWithScrollbar(
+    artists: List<ArtistInfo>,
+    listState: LazyListState,
+    miniPlayerExtraBottomPadding: Dp,
+    listTopPadding: Dp,
+    onArtistClick: (ArtistInfo) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val columnCount = remember(configuration.orientation, configuration.screenWidthDp) {
+        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            (configuration.screenWidthDp / 360).coerceIn(2, 4)
+        } else {
+            1
+        }
+    }
+    val artistRows = remember(artists, columnCount) {
+        artists.chunked(columnCount)
+    }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragProgress by remember { mutableStateOf(0f) }
+    var targetScrollbarAlpha by remember { mutableStateOf(1f) }
+    val animatedScrollbarAlpha by animateFloatAsState(
+        targetValue = targetScrollbarAlpha,
+        animationSpec = tween(durationMillis = 300),
+        label = "artistScrollbarAlpha"
+    )
+    var hideTimerJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    fun resetHideTimer() {
+        hideTimerJob?.cancel()
+        targetScrollbarAlpha = 1f
+        hideTimerJob = scope.launch {
+            delay(1000)
+            targetScrollbarAlpha = 0.2f
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        resetHideTimer()
+    }
+
+    LaunchedEffect(
+        listState.firstVisibleItemIndex,
+        listState.firstVisibleItemScrollOffset,
+        artistRows.size
+    ) {
+        resetHideTimer()
+        if (!isDragging) {
+            val totalRows = artistRows.size
+            val viewportHeight = listState.layoutInfo.viewportSize.height
+            val itemHeight = 90
+            val maxScrollIndex = (totalRows - (viewportHeight / itemHeight)).coerceAtLeast(0)
+            dragProgress = if (maxScrollIndex > 0) {
+                listState.firstVisibleItemIndex.toFloat() / maxScrollIndex.toFloat()
+            } else {
+                0f
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
+        val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 24.dp + miniPlayerExtraBottomPadding
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = listTopPadding,
+                end = 16.dp,
+                bottom = bottomPadding
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            itemsIndexed(
+                items = artistRows,
+                key = { rowIndex, row ->
+                    "$rowIndex:${row.joinToString("|") { it.name.lowercase(Locale.ROOT) }}"
+                }
+            ) { _, rowArtists ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowArtists.forEach { artist ->
+                        ArtistListItem(
+                            artist = artist,
+                            onClick = { onArtistClick(artist) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    repeat(columnCount - rowArtists.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        val totalRows = artistRows.size
+        val viewportHeight = listState.layoutInfo.viewportSize.height
+        if (totalRows > 0 && viewportHeight > 0) {
+            val itemHeight = 90
+            val totalContentHeight = totalRows * itemHeight
+            val thumbHeightRatio = viewportHeight.toFloat() / totalContentHeight.coerceAtLeast(viewportHeight)
+            val thumbHeightPx = (viewportHeight * thumbHeightRatio).coerceAtLeast(80f)
+            val maxScrollIndex = (totalRows - (viewportHeight / itemHeight)).coerceAtLeast(0)
+            val scrollbarHeightPx = (viewportHeight - 16 - with(density) { 48.dp.toPx() }).coerceAtLeast(1f)
+            val scrollRangePx = (scrollbarHeightPx - thumbHeightPx).coerceAtLeast(1f)
+            val thumbOffsetY = dragProgress.coerceIn(0f, 1f) * scrollRangePx
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp, top = 8.dp, bottom = 48.dp)
+                    .width(24.dp)
+                    .height(with(density) { scrollbarHeightPx.toDp() })
+                    .graphicsLayer {
+                        alpha = animatedScrollbarAlpha
+                    }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(y = with(density) { thumbOffsetY.toDp() })
+                        .width(24.dp)
+                        .height(with(density) { thumbHeightPx.toDp() })
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(8.dp)
+                            .height(with(density) { thumbHeightPx.toDp() })
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                if (isDragging) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                }
+                            )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(maxScrollIndex, scrollbarHeightPx, thumbHeightPx) {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        resetHideTimer()
+                                        isDragging = true
+                                    },
+                                    onDragEnd = {
+                                        isDragging = false
+                                        resetHideTimer()
+                                    },
+                                    onDragCancel = {
+                                        isDragging = false
+                                        resetHideTimer()
+                                    }
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    resetHideTimer()
+                                    val delta = dragAmount.y / scrollRangePx
+                                    dragProgress = (dragProgress + delta).coerceIn(0f, 1f)
+                                    val targetIndex = (dragProgress * maxScrollIndex).toInt()
+                                        .coerceIn(0, maxScrollIndex)
+                                    scope.launch {
+                                        listState.scrollToItem(targetIndex)
+                                    }
+                                }
+                            }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun EmbeddedArtistsScreen(
     audioFiles: List<AudioFile>,
     isLoading: Boolean,
     miniPlayerExtraBottomPadding: Dp,
+    artistListState: LazyListState,
     onBack: () -> Unit,
     onArtistClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     var artists by remember { mutableStateOf<List<ArtistInfo>>(emptyList()) }
     var isBuildingArtists by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var lastHeadBarClickTime by remember { mutableStateOf(0L) }
+    var showDoubleTapHint by remember { mutableStateOf(false) }
+    var previousFirstVisibleIndex by remember { mutableStateOf(0) }
+    var hasShownDoubleTapHint by remember { mutableStateOf(false) }
     var sortType by rememberSaveable {
         mutableStateOf(
             runCatching {
@@ -337,8 +528,30 @@ internal fun EmbeddedArtistsScreen(
     }
 
     fun persistSortType(newSortType: ArtistSortType) {
+        val shouldScrollTop = sortType != newSortType
         sortType = newSortType
         prefs.edit().putString("artistSortType", newSortType.name).apply()
+        if (shouldScrollTop) {
+            scope.launch {
+                artistListState.scrollToItem(0)
+            }
+        }
+    }
+
+    LaunchedEffect(showDoubleTapHint) {
+        if (showDoubleTapHint) {
+            delay(2000)
+            showDoubleTapHint = false
+        }
+    }
+
+    LaunchedEffect(artistListState.firstVisibleItemIndex) {
+        val currentIndex = artistListState.firstVisibleItemIndex
+        if (!hasShownDoubleTapHint && currentIndex >= 8 && currentIndex > previousFirstVisibleIndex) {
+            hasShownDoubleTapHint = true
+            showDoubleTapHint = true
+        }
+        previousFirstVisibleIndex = currentIndex
     }
 
     BackHandler(enabled = searchQuery.isNotBlank()) {
@@ -360,11 +573,21 @@ internal fun EmbeddedArtistsScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         CommonHeadBar(
-            title = "艺术家",
+            title = if (showDoubleTapHint) "双击返回顶部" else "艺术家",
             showBack = true,
             showMenu = true,
             onBackClick = onBack,
             onMenuClick = { menuExpanded = true },
+            onTitleClick = {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastHeadBarClickTime < 300) {
+                    scope.launch {
+                        artistListState.animateScrollToItem(0)
+                    }
+                    showDoubleTapHint = false
+                }
+                lastHeadBarClickTime = currentTime
+            },
             menuContent = { menuButtonPosition ->
                 CustomDropdownMenu(
                     expanded = menuExpanded,
@@ -408,27 +631,14 @@ internal fun EmbeddedArtistsScreen(
                     )
                 }
                 else -> {
-                    val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
-                    LazyColumn(
+                    ArtistListWithScrollbar(
+                        artists = visibleArtists,
+                        listState = artistListState,
+                        miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
+                        listTopPadding = listTopPadding,
+                        onArtistClick = { artist -> onArtistClick(artist.name) },
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            top = listTopPadding,
-                            end = 16.dp,
-                            bottom = navigationBarsPadding.calculateBottomPadding() + 24.dp + miniPlayerExtraBottomPadding
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(
-                            items = visibleArtists,
-                            key = { it.name.lowercase(Locale.ROOT) }
-                        ) { artist ->
-                            ArtistListItem(
-                                artist = artist,
-                                onClick = { onArtistClick(artist.name) }
-                            )
-                        }
-                    }
+                    )
                 }
             }
             EdgeTranslucent(modifier = Modifier.align(Alignment.TopCenter))
@@ -662,15 +872,21 @@ private fun ArtistsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
     val playbackController = rememberMusicPlaybackController()
     val showMiniPlayer = playbackController.hasCurrentItem
     val miniPlayerExtraBottomPadding = if (showMiniPlayer) 84.dp else 0.dp
+    val artistListState = rememberLazyListState()
     val artists = remember { mutableStateListOf<ArtistInfo>() }
     var isLoading by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var lastHeadBarClickTime by remember { mutableStateOf(0L) }
+    var showDoubleTapHint by remember { mutableStateOf(false) }
+    var previousFirstVisibleIndex by remember { mutableStateOf(0) }
+    var hasShownDoubleTapHint by remember { mutableStateOf(false) }
     val artistSplitWhitelist = remember { ArtistSplitWhitelistStore.load(context) }
     val artistSplitWhitelistFingerprint = remember(artistSplitWhitelist) {
         ArtistSplitWhitelistStore.fingerprint(artistSplitWhitelist)
@@ -699,8 +915,30 @@ private fun ArtistsScreen(
     }
 
     fun persistSortType(newSortType: ArtistSortType) {
+        val shouldScrollTop = sortType != newSortType
         sortType = newSortType
         prefs.edit().putString("artistSortType", newSortType.name).apply()
+        if (shouldScrollTop) {
+            scope.launch {
+                artistListState.scrollToItem(0)
+            }
+        }
+    }
+
+    LaunchedEffect(showDoubleTapHint) {
+        if (showDoubleTapHint) {
+            delay(2000)
+            showDoubleTapHint = false
+        }
+    }
+
+    LaunchedEffect(artistListState.firstVisibleItemIndex) {
+        val currentIndex = artistListState.firstVisibleItemIndex
+        if (!hasShownDoubleTapHint && currentIndex >= 8 && currentIndex > previousFirstVisibleIndex) {
+            hasShownDoubleTapHint = true
+            showDoubleTapHint = true
+        }
+        previousFirstVisibleIndex = currentIndex
     }
 
     BackHandler(enabled = searchQuery.isNotBlank()) {
@@ -722,11 +960,21 @@ private fun ArtistsScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             CommonHeadBar(
-                title = "艺术家",
+                title = if (showDoubleTapHint) "双击返回顶部" else "艺术家",
                 showBack = true,
                 showMenu = true,
                 onBackClick = onBack,
                 onMenuClick = { menuExpanded = true },
+                onTitleClick = {
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastHeadBarClickTime < 300) {
+                        scope.launch {
+                            artistListState.animateScrollToItem(0)
+                        }
+                        showDoubleTapHint = false
+                    }
+                    lastHeadBarClickTime = currentTime
+                },
                 menuContent = { menuButtonPosition ->
                     CustomDropdownMenu(
                         expanded = menuExpanded,
@@ -772,32 +1020,19 @@ private fun ArtistsScreen(
                         )
                     }
                     else -> {
-                        val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
-                        LazyColumn(
+                        ArtistListWithScrollbar(
+                            artists = visibleArtists,
+                            listState = artistListState,
+                            miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
+                            listTopPadding = listTopPadding,
+                            onArtistClick = { artist ->
+                                val intent = Intent(context, ArtistsActivity::class.java).apply {
+                                    putExtra(ArtistsActivity.EXTRA_ARTIST_NAME, artist.name)
+                                }
+                                context.startActivity(intent)
+                            },
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(
-                                start = 16.dp,
-                                top = listTopPadding,
-                                end = 16.dp,
-                                bottom = navigationBarsPadding.calculateBottomPadding() + 24.dp + miniPlayerExtraBottomPadding
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(
-                                items = visibleArtists,
-                                key = { it.name.lowercase(Locale.ROOT) }
-                            ) { artist ->
-                                ArtistListItem(
-                                    artist = artist,
-                                    onClick = {
-                                        val intent = Intent(context, ArtistsActivity::class.java).apply {
-                                            putExtra(ArtistsActivity.EXTRA_ARTIST_NAME, artist.name)
-                                        }
-                                        context.startActivity(intent)
-                                    }
-                                )
-                            }
-                        }
+                        )
                     }
                 }
                 EdgeTranslucent(modifier = Modifier.align(Alignment.TopCenter))
