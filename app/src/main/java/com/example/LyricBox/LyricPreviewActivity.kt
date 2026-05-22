@@ -110,6 +110,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.airbnb.lottie.compose.*
 import com.example.LyricBox.lyrics.api.Netease163KeyCodec
+import com.example.LyricBox.ui.components.AutoMarqueeText
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
@@ -3276,11 +3277,10 @@ fun LyricPreviewScreen(
                 LyricPreviewActivity.KEY_LYRIC_DISPLAY_POSITION,
                 LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
             ).let { raw ->
-                if (raw in LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN..LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX) {
-                    raw
-                } else {
-                    LyricPreviewActivity.DEFAULT_LYRIC_DISPLAY_POSITION
-                }
+                raw.coerceIn(
+                    LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MIN,
+                    LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
+                )
             }
         )
     }
@@ -3538,6 +3538,10 @@ fun LyricPreviewScreen(
     val isPortraitCoverMode = usePortraitPlaybackLayout && !portraitLyricLayoutSelected
     val enablePortraitVideoCover = usePortraitPlaybackLayout && !isLargeScreenDevice
     val hasPortraitVideoCover = enablePortraitVideoCover && !portraitVideoCoverPath.isNullOrBlank()
+    val isWaitingForPortraitVideoCoverDecision =
+        enablePortraitVideoCover &&
+            !portraitVideoCoverResolved &&
+            !portraitLyricDisplaySelected
     val showPortraitVideoPreferred =
         hasPortraitVideoCover && !portraitLyricDisplaySelected
     val portraitVideoCoverAlpha by animateFloatAsState(
@@ -3553,6 +3557,7 @@ fun LyricPreviewScreen(
     val portraitMainImageCoverAlpha by animateFloatAsState(
         targetValue = if (
             hasPortraitVideoCover ||
+            isWaitingForPortraitVideoCoverDecision ||
             showPortraitVideoPreferred ||
             effectiveSuppressMainImageCoverDuringVideoSwitch
         ) 0f else 1f,
@@ -4639,6 +4644,7 @@ fun LyricPreviewScreen(
     }
 
     val autoScrollLeadMs = 400L
+    val interludeExitAutoScrollLeadMs = 620L
     val autoScrollConflictWindowMs = 1000L
     val densityForInterludeCompensation = LocalDensity.current
     val interludePlaceholderCompensationPx = with(densityForInterludeCompensation) {
@@ -4672,7 +4678,19 @@ fun LyricPreviewScreen(
         if (endedInterludeIndices.isNotEmpty()) {
             val firstVisibleIndex = lazyListState.firstVisibleItemIndex - landscapeLeadingPlaceholderCount
             val endedBeforeOrAtViewport = endedInterludeIndices.count { it <= firstVisibleIndex }
-            if (!isUserScrolling && endedBeforeOrAtViewport > 0 && interludePlaceholderCompensationPx > 0f) {
+            val hasAutoScrolledPastEndedInterlude = endedInterludeIndices.any { endedIndex ->
+                val targetLine = processedLyricLines.getOrNull(lastAutoScrolledIndex)
+                lastAutoScrolledIndex > endedIndex && targetLine != null && !targetLine.isInterlude
+            }
+            val shouldSkipCollapseCompensation =
+                lyricDisplayPosition < LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT &&
+                    hasAutoScrolledPastEndedInterlude
+            if (
+                !shouldSkipCollapseCompensation &&
+                !isUserScrolling &&
+                endedBeforeOrAtViewport > 0 &&
+                interludePlaceholderCompensationPx > 0f
+            ) {
                 // 间奏占位收起会把后续歌词整体“向上顶”，这里反向补偿把视图拉回去
                 val compensation = -interludePlaceholderCompensationPx * endedBeforeOrAtViewport
                 val beforeIndex = lazyListState.firstVisibleItemIndex
@@ -4688,7 +4706,9 @@ fun LyricPreviewScreen(
             } else {
                 logInterludeDiagnostic(
                     "skipCollapseCompensation ended=${endedInterludeIndices.sorted()} " +
-                        "firstVisible=$firstVisibleIndex userScrolling=$isUserScrolling count=$endedBeforeOrAtViewport"
+                        "firstVisible=$firstVisibleIndex userScrolling=$isUserScrolling count=$endedBeforeOrAtViewport " +
+                        "lastAutoScrolled=$lastAutoScrolledIndex pastEnded=$hasAutoScrolledPastEndedInterlude " +
+                        "displayPosition=$lyricDisplayPosition skipPinned=$shouldSkipCollapseCompensation"
                 )
             }
         }
@@ -4795,8 +4815,15 @@ fun LyricPreviewScreen(
                 }
             }
 
-            // 提前400ms计算目标行，这样可以更早地切换到下一行歌词行
-            val adjustedTime = currentTime + autoScrollLeadMs
+            // 间奏退出时需要给下一句更多滚动时间，避免占位收起先于下一句到位。
+            val activeLineIndex = lineNavigator.findTargetIndex(currentTime)
+            val activeLine = processedLyricLines.getOrNull(activeLineIndex)
+            val effectiveAutoScrollLeadMs = if (activeLine?.isInterlude == true) {
+                interludeExitAutoScrollLeadMs
+            } else {
+                autoScrollLeadMs
+            }
+            val adjustedTime = currentTime + effectiveAutoScrollLeadMs
             val candidateLineIndex = lineNavigator.findTargetIndex(adjustedTime)
             val currentLineIndex = if (
                 candidateLineIndex >= 0 &&
@@ -5981,7 +6008,9 @@ fun LyricPreviewScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 androidx.compose.animation.AnimatedVisibility(
-                                    visible = isPortraitCoverMode && !hasPortraitVideoCover,
+                                    visible = isPortraitCoverMode &&
+                                        !hasPortraitVideoCover &&
+                                        !isWaitingForPortraitVideoCoverDecision,
                                     enter = fadeIn(animationSpec = tween(durationMillis = 220)),
                                     exit = fadeOut(animationSpec = tween(durationMillis = 160)),
                                     modifier = Modifier.fillMaxSize()
@@ -6968,15 +6997,25 @@ fun LyricLineView(
         val interludeLyricColor = backgroundColor?.let { bg ->
             getHighContrastBlackOrWhite(bg)
         } ?: if (isDarkTheme) Color.White else Color.Black
-        val baseVisualVisible = if (line.begin <= 0L) {
+        val basePlaceholderVisible = if (line.begin <= 0L) {
             currentTime >= 0L && currentTime < line.end
         } else {
             currentTime >= line.begin && currentTime < line.end
         }
+        val baseVisualVisible = if (line.begin <= 0L) {
+            currentTime >= 0L && currentTime < line.end
+        } else {
+            isInterludeLineVisibleAtTime(line, currentTime)
+        }
+        val debugHoldPlaceholderActive =
+            DEBUG_KEEP_INTERLUDE_PLACEHOLDER_AFTER_END &&
+                currentTime >= line.end &&
+                currentTime < (line.end + DEBUG_INTERLUDE_PLACEHOLDER_HOLD_MS)
         val debugHoldVisualActive =
             DEBUG_KEEP_INTERLUDE_PLACEHOLDER_AFTER_END &&
                 currentTime >= line.end &&
                 currentTime < (line.end + DEBUG_INTERLUDE_PLACEHOLDER_HOLD_MS)
+        val shouldKeepInterludePlaceholder = basePlaceholderVisible || debugHoldPlaceholderActive
         val shouldShowInterludeVisual = baseVisualVisible || debugHoldVisualActive
         var lastInterludeVisualVisible by remember(line.begin, line.end) {
             mutableStateOf<Boolean?>(null)
@@ -6995,7 +7034,7 @@ fun LyricLineView(
             }
         }
         AnimatedVisibility(
-            visible = shouldShowInterludeVisual,
+            visible = shouldKeepInterludePlaceholder,
             enter = fadeIn(animationSpec = tween(180)),
             exit = fadeOut(animationSpec = tween(180))
         ) {
@@ -8388,13 +8427,14 @@ fun PlaybackControls(
                             }
                         )
                 ) {
-                    Text(
+                    AutoMarqueeText(
                         text = trackTitle.ifBlank { "未选择歌曲" },
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = panelTextColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        style = TextStyle(
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = panelTextColor
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -8958,13 +8998,14 @@ fun LyricPreviewCompactHeader(
                 },
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
+            AutoMarqueeText(
                 text = title,
-                fontSize = titleSize,
-                fontWeight = FontWeight.Bold,
-                color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = TextStyle(
+                    fontSize = titleSize,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
@@ -9034,13 +9075,13 @@ fun LyricPreviewMiniHeader(
                 modifier = Modifier.size(22.dp)
             )
         }
-        Text(
+        AutoMarqueeText(
             text = title,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            style = TextStyle(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            ),
             modifier = Modifier
                 .weight(1f)
                 .clickable(
@@ -9118,13 +9159,14 @@ private fun LyricPreviewPlaybackTopLabel(
                 },
             label = "previewPlaybackTopTitle"
         ) { text ->
-            Text(
+            AutoMarqueeText(
                 text = text,
-                fontSize = 14.sp,
-                color = foregroundColor.copy(alpha = 0.88f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    color = foregroundColor.copy(alpha = 0.88f),
+                    textAlign = TextAlign.Start
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
         }
         Spacer(modifier = Modifier.width(headerSideSize))
@@ -9485,13 +9527,14 @@ fun LyricPreviewHeader(
                         ),
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
+                    AutoMarqueeText(
                         text = title,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        style = TextStyle(
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(

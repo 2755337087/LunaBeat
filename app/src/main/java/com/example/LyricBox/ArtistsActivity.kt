@@ -3169,6 +3169,7 @@ private fun buildArtistDetailInfo(
     if (songs.isEmpty()) return null
 
     val albums = songs
+        .filter { audio -> audioMatchesPrimaryArtist(audio, normalizedName, artistSplitWhitelist) }
         .groupBy { it.displayAlbum }
         .map { (albumName, albumSongs) ->
             val sortedSongs = albumSongs.sortedWith(titleComparator)
@@ -3288,8 +3289,59 @@ private fun artistNamesForAudio(
     audio: AudioFile,
     artistSplitWhitelist: Collection<String>
 ): List<String> {
+    val metadataArtists = primaryArtistNamesForAudio(audio, artistSplitWhitelist)
+    val titleFeaturingArtists = extractFeaturingArtistsFromTitle(audio.displayTitle, artistSplitWhitelist)
+    return (metadataArtists + titleFeaturingArtists)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase(Locale.ROOT) }
+}
+
+private fun primaryArtistNamesForAudio(
+    audio: AudioFile,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
     return splitArtistNames(audio.artist, artistSplitWhitelist)
         .ifEmpty { listOf(audio.displayArtist) }
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase(Locale.ROOT) }
+}
+
+private val titleFeaturingBracketPattern =
+    Regex("""(?i)[(\[（【]\s*(?:feat\.?|ft\.?|with)\s+([^)）\]】]+)""")
+private val titleFeaturingInlinePattern =
+    Regex("""(?i)(?:^|[\s\-–—])(?:feat\.?|ft\.?|with)\s+(.+)$""")
+
+private fun extractFeaturingArtistsFromTitle(
+    title: String,
+    artistSplitWhitelist: Collection<String>
+): List<String> {
+    val normalizedTitle = title.trim()
+    if (normalizedTitle.isEmpty()) return emptyList()
+
+    val rawSegments = mutableListOf<String>()
+    titleFeaturingBracketPattern.findAll(normalizedTitle).forEach { match ->
+        val segment = match.groupValues.getOrElse(1) { "" }.trim()
+        if (segment.isNotEmpty()) {
+            rawSegments.add(segment)
+        }
+    }
+    titleFeaturingInlinePattern.find(normalizedTitle)?.let { match ->
+        val segment = match.groupValues.getOrElse(1) { "" }.trim()
+        if (segment.isNotEmpty()) {
+            rawSegments.add(segment)
+        }
+    }
+
+    if (rawSegments.isEmpty()) return emptyList()
+
+    return rawSegments
+        .flatMap { segment ->
+            val cleaned = segment.replace(Regex("""[)）\]】\s]+$"""), "").trim()
+            splitArtistNames(cleaned, artistSplitWhitelist)
+                .ifEmpty { listOf(cleaned) }
+        }
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinctBy { it.lowercase(Locale.ROOT) }
@@ -3301,6 +3353,15 @@ private fun audioMatchesArtist(
     artistSplitWhitelist: Collection<String>
 ): Boolean {
     return artistNamesForAudio(audio, artistSplitWhitelist).any { it.equals(artistName, ignoreCase = true) }
+}
+
+private fun audioMatchesPrimaryArtist(
+    audio: AudioFile,
+    artistName: String,
+    artistSplitWhitelist: Collection<String>
+): Boolean {
+    return primaryArtistNamesForAudio(audio, artistSplitWhitelist)
+        .any { it.equals(artistName, ignoreCase = true) }
 }
 
 private fun parseAlbumTrackSortValue(trackRaw: String): Int {

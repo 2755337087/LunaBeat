@@ -49,6 +49,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
@@ -349,13 +350,14 @@ fun GlobalMiniPlayerBar(
                     .graphicsLayer(alpha = miniContentAlpha),
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
+                AutoMarqueeText(
                     text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = onPanelColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = TextStyle(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onPanelColor
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.size(2.dp))
                 Text(

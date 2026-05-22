@@ -161,6 +161,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -174,6 +175,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.documentfile.provider.DocumentFile
 import com.example.LyricBox.ui.components.CustomDropdownMenu
+import com.example.LyricBox.ui.components.AutoMarqueeText
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.components.GlobalMiniPlayerBar
@@ -3991,13 +3993,17 @@ fun MusicLibraryScreen(
                                 onDragStart = { startOffset ->
                                     val canStartDrag = when {
                                         isInlinePreviewLandscape -> {
-                                            val inLeftPane = startOffset.x <= (size.width / 2f)
-                                            if (!inLeftPane) {
-                                                false
-                                            } else if (isInlinePreviewLargeScreen) {
+                                            if (isInlinePreviewLargeScreen && !inlineLyricDisplaySelected) {
                                                 startOffset.y <= landscapeLargeScreenDragMaxY
                                             } else {
-                                                true
+                                                val inLeftPane = startOffset.x <= (size.width / 2f)
+                                                if (!inLeftPane) {
+                                                    false
+                                                } else if (isInlinePreviewLargeScreen) {
+                                                    startOffset.y <= landscapeLargeScreenDragMaxY
+                                                } else {
+                                                    true
+                                                }
                                             }
                                         }
                                         !inlineLyricDisplaySelected -> {
@@ -5200,13 +5206,14 @@ private fun MusicLibraryMiniPlayerBar(
         Column(
             modifier = Modifier.weight(1f)
         ) {
-            Text(
+            AutoMarqueeText(
                 text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = onBaseColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = TextStyle(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = onBaseColor
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
