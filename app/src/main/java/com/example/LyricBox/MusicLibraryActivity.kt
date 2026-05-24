@@ -3109,7 +3109,7 @@ fun MusicLibraryScreen(
                             onRangeSelect = {
                                 if (rangeSelectEnabled) {
                                     val sorted = lastSelectedIndices.sorted()
-                                    selectRange(sorted[0] + 1, sorted[1] + 1)
+                                    selectRange(sorted[0], sorted[1])
                                 }
                             },
                             rangeSelectEnabled = rangeSelectEnabled,

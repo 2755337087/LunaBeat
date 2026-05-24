@@ -237,7 +237,8 @@ fun SongInfoBottomSheet(
                     val artists = extractAllArtistsForSheet(
                         title = infoState.title,
                         artist = infoState.artist,
-                        artistSplitWhitelist = ArtistSplitWhitelistStore.load(context)
+                        artistSplitWhitelist = ArtistSplitWhitelistStore.load(context),
+                        featuringKeywords = FeaturingArtistKeywordStore.load(context)
                     )
                     if (artists.isEmpty() && infoState.album.isBlank()) {
                     } else if (onViewArtists != null) {
@@ -552,18 +553,15 @@ private fun loadCoverFromCache(cachePath: String?): Bitmap? {
 private fun extractAllArtistsForSheet(
     title: String,
     artist: String,
-    artistSplitWhitelist: Collection<String>
+    artistSplitWhitelist: Collection<String>,
+    featuringKeywords: Collection<String>
 ): List<String> {
     val base = ArtistNameSplitter.split(artist, artistSplitWhitelist)
-    val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
-    val titleArtists = featPattern.findAll(title)
-        .flatMap { match ->
-            ArtistNameSplitter.split(
-                match.groupValues.getOrElse(1) { "" },
-                artistSplitWhitelist
-            ).asSequence()
-        }
-        .toList()
+    val titleArtists = FeaturingArtistExtractor.extractArtistsFromTitle(
+        title = title,
+        artistSplitWhitelist = artistSplitWhitelist,
+        featuringKeywords = featuringKeywords
+    )
 
     return (base + titleArtists)
         .map { it.trim() }

@@ -35,6 +35,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -309,6 +310,8 @@ fun SettingsScreen(
     var showLyricSettingsSheet by remember { mutableStateOf(false) }
     var showArtistSplitWhitelistSheet by remember { mutableStateOf(false) }
     var artistSplitWhitelist by remember { mutableStateOf(ArtistSplitWhitelistStore.load(context)) }
+    var showFeaturingKeywordSheet by remember { mutableStateOf(false) }
+    var featuringKeywords by remember { mutableStateOf(FeaturingArtistKeywordStore.load(context)) }
     var lyricShowTranslation by remember {
         mutableStateOf(
             lyricPreviewPrefs.getBoolean(
@@ -649,6 +652,23 @@ fun SettingsScreen(
                         "已添加 ${artistSplitWhitelist.size} 个艺术家"
                     },
                     onClick = { showArtistSplitWhitelistSheet = true }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                val keywordSummary = if (featuringKeywords.isEmpty()) {
+                    "未启用"
+                } else {
+                    featuringKeywords.joinToString("|")
+                }
+                SettingsItem(
+                    title = "合作艺人识别",
+                    summary = keywordSummary,
+                    onClick = { showFeaturingKeywordSheet = true }
                 )
             }
             
@@ -1212,6 +1232,18 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (showFeaturingKeywordSheet) {
+        FeaturingArtistKeywordBottomSheet(
+            keywords = featuringKeywords,
+            onDismiss = { showFeaturingKeywordSheet = false },
+            onKeywordsChange = { updatedKeywords ->
+                val normalized = FeaturingArtistKeywordStore.normalize(updatedKeywords)
+                featuringKeywords = normalized
+                FeaturingArtistKeywordStore.save(context, normalized)
+            }
+        )
+    }
 }
 
 @Composable
@@ -1464,6 +1496,214 @@ fun ArtistSplitWhitelistBottomSheet(
                                 onWhitelistChange(
                                     whitelist.filterNot {
                                         it.equals(artist, ignoreCase = true)
+                                    }
+                                )
+                            }
+                        ) {
+                            Text("删除")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FeaturingArtistKeywordBottomSheet(
+    keywords: List<String>,
+    onDismiss: () -> Unit,
+    onKeywordsChange: (List<String>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var inputText by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf("") }
+    val normalizedKeywords = remember(keywords) { FeaturingArtistKeywordStore.normalize(keywords) }
+    val defaultKeywords = FeaturingArtistKeywordStore.defaultKeywords
+    val customKeywords = remember(normalizedKeywords) {
+        FeaturingArtistKeywordStore.customKeywords(normalizedKeywords)
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "合作艺人识别",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "命中这些单词后，将从标题中识别合作艺人",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = "默认命中单词",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            defaultKeywords.forEach { keyword ->
+                val checked = normalizedKeywords.any { it.equals(keyword, ignoreCase = true) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable {
+                            val updated = normalizedKeywords.toMutableList()
+                            if (checked) {
+                                updated.removeAll { it.equals(keyword, ignoreCase = true) }
+                            } else {
+                                updated.add(keyword)
+                            }
+                            onKeywordsChange(FeaturingArtistKeywordStore.normalize(updated))
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = checked,
+                        onCheckedChange = { isChecked ->
+                            val updated = normalizedKeywords.toMutableList()
+                            if (isChecked) {
+                                updated.add(keyword)
+                            } else {
+                                updated.removeAll { it.equals(keyword, ignoreCase = true) }
+                            }
+                            onKeywordsChange(FeaturingArtistKeywordStore.normalize(updated))
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = keyword,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "自定义命中单词",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = {
+                    inputText = it
+                    errorText = ""
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("新增单词") },
+                placeholder = { Text("一行一个单词") },
+                minLines = 2,
+                maxLines = 4
+            )
+
+            if (errorText.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = errorText,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { inputText = "" },
+                    modifier = Modifier.weight(1f),
+                    enabled = inputText.isNotBlank()
+                ) {
+                    Text("清空")
+                }
+                Button(
+                    onClick = {
+                        val newKeywords = FeaturingArtistKeywordStore.parseInput(inputText)
+                        if (newKeywords.isEmpty()) {
+                            errorText = "请输入要添加的单词"
+                            return@Button
+                        }
+                        val merged = FeaturingArtistKeywordStore.normalize(normalizedKeywords + newKeywords)
+                        if (merged.size == normalizedKeywords.size) {
+                            errorText = "没有可添加的新单词"
+                            return@Button
+                        }
+                        onKeywordsChange(merged)
+                        inputText = ""
+                        errorText = ""
+                        Toast.makeText(context, "已添加 ${merged.size - normalizedKeywords.size} 个单词", Toast.LENGTH_SHORT)
+                            .show()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("添加")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            if (customKeywords.isEmpty()) {
+                Text(
+                    text = "暂无自定义单词",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                customKeywords.forEach { keyword ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = keyword,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                onKeywordsChange(
+                                    normalizedKeywords.filterNot {
+                                        it.equals(keyword, ignoreCase = true)
                                     }
                                 )
                             }

@@ -880,7 +880,8 @@ private fun MusicPlayerControlPanel(
                         val artists = extractAllArtistsForPlayer(
                             title,
                             artist,
-                            ArtistSplitWhitelistStore.load(context)
+                            ArtistSplitWhitelistStore.load(context),
+                            FeaturingArtistKeywordStore.load(context)
                         )
                         if (artists.isNotEmpty()) {
                             onArtistsClick(artists)
@@ -1167,18 +1168,15 @@ private fun PlayerBottomActionButton(
 private fun extractAllArtistsForPlayer(
     title: String,
     artist: String,
-    artistSplitWhitelist: Collection<String>
+    artistSplitWhitelist: Collection<String>,
+    featuringKeywords: Collection<String>
 ): List<String> {
     val base = ArtistNameSplitter.split(artist, artistSplitWhitelist)
-    val featPattern = Regex("""(?i)(?:feat\.?|ft\.?|featuring|with)\s*([^\]\)\(（\[]+)""")
-    val titleArtists = featPattern.findAll(title)
-        .flatMap { match ->
-            ArtistNameSplitter.split(
-                match.groupValues.getOrElse(1) { "" },
-                artistSplitWhitelist
-            ).asSequence()
-        }
-        .toList()
+    val titleArtists = FeaturingArtistExtractor.extractArtistsFromTitle(
+        title = title,
+        artistSplitWhitelist = artistSplitWhitelist,
+        featuringKeywords = featuringKeywords
+    )
 
     return (base + titleArtists)
         .map { it.trim() }

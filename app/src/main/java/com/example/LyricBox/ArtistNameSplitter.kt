@@ -5,6 +5,7 @@ import java.util.Locale
 
 private const val ARTIST_SPLIT_PREFS_NAME = "MusicLibrarySettings"
 private const val PREF_KEY_ARTIST_SPLIT_WHITELIST = "artistSplitWhitelist"
+private const val PREF_KEY_FEATURING_ARTIST_KEYWORDS = "featuringArtistKeywords"
 
 object ArtistSplitWhitelistStore {
     fun load(context: Context): List<String> {
@@ -41,6 +42,103 @@ object ArtistSplitWhitelistStore {
 
     fun fingerprint(artists: Collection<String>): String {
         return normalize(artists).joinToString("\u001F") { it.lowercase(Locale.ROOT) }
+    }
+}
+
+object FeaturingArtistKeywordStore {
+    val defaultKeywords = listOf("feat", "ft", "featuring")
+    private val defaultKeywordSet = defaultKeywords.toSet()
+
+    fun load(context: Context): List<String> {
+        val prefs = context.getSharedPreferences(ARTIST_SPLIT_PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(PREF_KEY_FEATURING_ARTIST_KEYWORDS, null)
+        if (saved != null) {
+            return normalize(saved.lineSequence().toList())
+        }
+        val legacySet = prefs.getStringSet(PREF_KEY_FEATURING_ARTIST_KEYWORDS, null)
+        if (legacySet != null) {
+            return normalize(legacySet)
+        }
+        return defaultKeywords
+    }
+
+    fun save(context: Context, keywords: Collection<String>) {
+        context.getSharedPreferences(ARTIST_SPLIT_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_KEY_FEATURING_ARTIST_KEYWORDS, normalize(keywords).joinToString("\n"))
+            .apply()
+    }
+
+    fun parseInput(input: String): List<String> {
+        return normalize(input.lineSequence().toList())
+    }
+
+    fun normalize(keywords: Iterable<String>): List<String> {
+        val result = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        keywords.forEach { keyword ->
+            val normalized = keyword
+                .trim()
+                .trim('.')
+                .lowercase(Locale.ROOT)
+            if (normalized.isNotEmpty() && seen.add(normalized)) {
+                result.add(normalized)
+            }
+        }
+        return result
+    }
+
+    fun customKeywords(enabledKeywords: Collection<String>): List<String> {
+        return normalize(enabledKeywords).filterNot { it in defaultKeywordSet }
+    }
+
+    fun fingerprint(keywords: Collection<String>): String {
+        return normalize(keywords).joinToString("\u001F")
+    }
+}
+
+object FeaturingArtistExtractor {
+    fun extractArtistsFromTitle(
+        title: String,
+        artistSplitWhitelist: Collection<String>,
+        featuringKeywords: Collection<String>
+    ): List<String> {
+        val normalizedTitle = title.trim()
+        if (normalizedTitle.isEmpty()) return emptyList()
+
+        val normalizedKeywords = FeaturingArtistKeywordStore.normalize(featuringKeywords)
+        if (normalizedKeywords.isEmpty()) return emptyList()
+
+        val keywordAlternation = normalizedKeywords.joinToString("|") { Regex.escape(it) }
+        val bracketPattern =
+            Regex("(?i)[(\\[（【]\\s*(?:$keywordAlternation)\\.?\\s+([^)）\\]】]+)")
+        val inlinePattern =
+            Regex("(?i)(?:^|[\\s\\-–—])(?:$keywordAlternation)\\.?\\s+(.+)$")
+
+        val rawSegments = mutableListOf<String>()
+        bracketPattern.findAll(normalizedTitle).forEach { match ->
+            val segment = match.groupValues.getOrElse(1) { "" }.trim()
+            if (segment.isNotEmpty()) {
+                rawSegments.add(segment)
+            }
+        }
+        inlinePattern.find(normalizedTitle)?.let { match ->
+            val segment = match.groupValues.getOrElse(1) { "" }.trim()
+            if (segment.isNotEmpty()) {
+                rawSegments.add(segment)
+            }
+        }
+
+        if (rawSegments.isEmpty()) return emptyList()
+
+        return rawSegments
+            .flatMap { segment ->
+                val cleaned = segment.replace(Regex("[)）\\]】\\s]+$"), "").trim()
+                ArtistNameSplitter.split(cleaned, artistSplitWhitelist).ifEmpty { listOf(cleaned) }
+            }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
     }
 }
 
