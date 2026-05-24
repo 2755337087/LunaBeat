@@ -358,12 +358,26 @@ private fun isForeignGlowText(text: String): Boolean {
         trimmed.any { isLiftStaggerLetterChar(it) } &&
         trimmed.all { isLiftStaggerLetterChar(it) || isLiftStaggerPunctuationChar(it) }
 }
+
+private fun isForeignLiftTokenText(text: String): Boolean {
+    val trimmed = text.trim()
+    return trimmed.isNotEmpty() &&
+        trimmed.any { isLiftStaggerLetterChar(it) } &&
+        trimmed.all { isLiftStaggerLetterChar(it) || isLiftStaggerPunctuationChar(it) }
+}
+
+private fun isForeignLiftPunctuationTokenText(text: String): Boolean {
+    val trimmed = text.trim()
+    return trimmed.isNotEmpty() && trimmed.all { isLiftStaggerPunctuationChar(it) }
+}
 //英文字母上抬开始时间及长持续时间间隔阈值
 private const val LONG_ASCII_LETTER_LIFT_AVG_DURATION_MS = 70L
 private const val ASCII_LETTER_LIFT_STAGGER_MS = 60L
-private const val MIN_CJK_LIFT_AVG_DURATION_MS = 100L
-private const val MAX_CJK_LIFT_AVG_DURATION_MS = 400L
-private const val CJK_LIFT_STAGGER_MS = 100L
+private const val CJK_LIFT_LEAD_IN_MS = 300L
+private const val CJK_LIFT_EXPLICIT_END_TAIL_MS = 600L
+private const val CJK_LIFT_FALLBACK_END_TAIL_MS = 900L
+private const val LATIN_WORD_LIFT_LEAD_IN_MS = 200L
+private const val LATIN_WORD_LIFT_END_TAIL_MS = 300L
 
 private fun isHanChar(c: Char): Boolean {
     return Character.UnicodeScript.of(c.code) == Character.UnicodeScript.HAN
@@ -702,28 +716,6 @@ private fun applyLiftStartOverridesForRange(
     }
 }
 
-private fun applyCjkLiftStartOverridesForRange(
-    overrides: MutableMap<Int, Long>,
-    words: List<NewPreviewWordLayout>,
-    start: Int,
-    endExclusive: Int,
-    averageDivisor: Int
-) {
-    if (endExclusive <= start || averageDivisor <= 0) return
-    val runBegin = words[start].word.begin
-    val runEnd = words.subList(start, endExclusive).maxOf { it.word.end }
-    val averageDuration = ((runEnd - runBegin).coerceAtLeast(0L)) / averageDivisor
-    if (averageDuration !in MIN_CJK_LIFT_AVG_DURATION_MS..MAX_CJK_LIFT_AVG_DURATION_MS) return
-
-    var previousCjkBegin: Long? = null
-    for (runIndex in start until endExclusive) {
-        val word = words[runIndex].word
-        if (!isSingleCjkGlowText(word.text)) continue
-        overrides[runIndex] = previousCjkBegin?.plus(CJK_LIFT_STAGGER_MS) ?: word.begin
-        previousCjkBegin = word.begin
-    }
-}
-
 private fun buildLongLyricLiftStartOverrides(
     words: List<NewPreviewWordLayout>
 ): Map<Int, Long> {
@@ -759,34 +751,53 @@ private fun buildLongLyricLiftStartOverrides(
             continue
         }
 
-        if (isSingleCjkGlowText(text)) {
-            val runStart = index
-            var runEndExclusive = index + 1
-            while (
-                runEndExclusive < words.size &&
-                words[runEndExclusive].word.text != " "
-            ) {
-                runEndExclusive++
-            }
+        index++
+    }
+    return overrides
+}
 
-            val cjkCount = words
-                .subList(runStart, runEndExclusive)
-                .count { isSingleCjkGlowText(it.word.text) }
-            if (cjkCount >= 2) {
-                applyCjkLiftStartOverridesForRange(
-                    overrides = overrides,
-                    words = words,
-                    start = runStart,
-                    endExclusive = runEndExclusive,
-                    averageDivisor = runEndExclusive - runStart
-                )
-            }
+private data class LiftTimingOverride(
+    val beginMs: Long,
+    val endMs: Long,
+    val leadInMs: Long
+)
 
-            index = runEndExclusive
+private fun buildLatinWordLiftOverrides(
+    words: List<NewPreviewWordLayout>
+): Map<Int, LiftTimingOverride> {
+    if (words.isEmpty()) return emptyMap()
+    val overrides = mutableMapOf<Int, LiftTimingOverride>()
+    var index = 0
+    while (index < words.size) {
+        val text = words[index].word.text
+        if (text == " " || !isForeignLiftTokenText(text)) {
+            index++
             continue
         }
 
-        index++
+        val runStart = index
+        var runEndExclusive = index + 1
+        while (runEndExclusive < words.size) {
+            val nextText = words[runEndExclusive].word.text
+            if (nextText == " ") break
+            val isForeignLetterToken = isForeignLiftTokenText(nextText)
+            val isForeignPunctuationToken = isForeignLiftPunctuationTokenText(nextText)
+            if (!isForeignLetterToken && !isForeignPunctuationToken) break
+            runEndExclusive++
+        }
+
+        val runWords = words.subList(runStart, runEndExclusive)
+        val runBegin = runWords.minOf { it.word.begin }
+        val runEnd = runWords.maxOf { it.word.end }
+        val override = LiftTimingOverride(
+            beginMs = runBegin,
+            endMs = runEnd + LATIN_WORD_LIFT_END_TAIL_MS,
+            leadInMs = LATIN_WORD_LIFT_LEAD_IN_MS
+        )
+        for (runIndex in runStart until runEndExclusive) {
+            overrides[runIndex] = override
+        }
+        index = runEndExclusive
     }
     return overrides
 }
@@ -1128,10 +1139,11 @@ class WordLiftAnimator {
         density: Density,
         liftDistanceDp: Float,
         liftBeginMs: Long = word.begin,
-        liftEndMs: Long = word.end + 300L
+        liftEndMs: Long = word.end + 300L,
+        liftLeadInMs: Long = 200L
     ): Float {
         val wordKey = "${word.begin}_${word.text}"
-        val adjustedBegin = liftBeginMs - 200L // 提前200ms开始上抬动画
+        val adjustedBegin = liftBeginMs - liftLeadInMs.coerceAtLeast(0L)
         val liftDuration = (liftEndMs - adjustedBegin).coerceAtLeast(1L)
         val maxLiftOffset = with(density) {
             liftDistanceDp
@@ -1218,6 +1230,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_SHOW_TRANSLATION = "show_translation"
         const val KEY_INTERLUDE_ANIMATION_TYPE = "interlude_animation_type"
         const val KEY_WORD_LIFT_DISTANCE_DP = "word_lift_distance_dp"
+        const val KEY_LATIN_WORD_LIFT_AS_WHOLE = "latin_word_lift_as_whole"
         const val KEY_FONT_WEIGHT = "font_weight"
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
@@ -1225,6 +1238,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_DYNAMIC_COVER_BACKGROUND = "dynamic_cover_background"
         const val KEY_PAGE_BACKGROUND_MODE = "page_background_mode"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
+        const val KEY_FLYME_STATUS_BAR_LYRIC = "flyme_status_bar_lyric"
+        const val KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION = "flyme_status_bar_lyric_hide_notification"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
         const val KEY_AUTO_HIDE_PLAYBACK_CONTROLS = "auto_hide_playback_controls"
         const val KEY_LYRIC_DISPLAY_SELECTED = "lyric_display_selected"
@@ -1233,6 +1248,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_WORD_LIFT_DISTANCE_DP = 2f
+        const val DEFAULT_LATIN_WORD_LIFT_AS_WHOLE = false
         const val DEFAULT_FONT_WEIGHT = 800 // ExtraBold
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
@@ -1243,6 +1259,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val PAGE_BACKGROUND_DYNAMIC_FLOW = 2
         const val DEFAULT_PAGE_BACKGROUND_MODE = PAGE_BACKGROUND_STATIC_BLUR
         const val DEFAULT_LYRICON_STATUS_BAR = false
+        const val DEFAULT_FLYME_STATUS_BAR_LYRIC = false
+        const val DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION = false
         const val DEFAULT_SCREEN_KEEP_ON = true
         const val DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS = false
         const val DEFAULT_LYRIC_DISPLAY_SELECTED = false
@@ -3220,6 +3238,40 @@ fun LyricPreviewScreen(
             )
         )
     }
+    var latinWordLiftAsWholeEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE,
+                LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE
+            )
+        )
+    }
+    var flymeStatusBarLyricEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
+                LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC
+            )
+        )
+    }
+    var flymeStatusBarLyricHideNotificationEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION,
+                LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION
+            )
+        )
+    }
+    LaunchedEffect(Unit) {
+        if (flymeStatusBarLyricEnabled || flymeStatusBarLyricHideNotificationEnabled) {
+            flymeStatusBarLyricEnabled = false
+            flymeStatusBarLyricHideNotificationEnabled = false
+            prefs.edit()
+                .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC, false)
+                .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION, false)
+                .apply()
+        }
+    }
     var keepScreenOnEnabled by remember {
         mutableStateOf(
             prefs.getBoolean(
@@ -4505,6 +4557,11 @@ fun LyricPreviewScreen(
         wordLiftDistanceDp = normalized
         prefs.edit().putFloat(LyricPreviewActivity.KEY_WORD_LIFT_DISTANCE_DP, normalized).apply()
     }
+
+    fun saveLatinWordLiftAsWholeEnabled(enabled: Boolean) {
+        latinWordLiftAsWholeEnabled = enabled
+        prefs.edit().putBoolean(LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE, enabled).apply()
+    }
     
     // 保存注音显示设置
     fun saveShowTransliteration(show: Boolean) {
@@ -4539,7 +4596,37 @@ fun LyricPreviewScreen(
 
     fun saveLyriconStatusBarEnabled(enabled: Boolean) {
         lyriconStatusBarEnabled = enabled
-        prefs.edit().putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, enabled).apply()
+        if (enabled) {
+            flymeStatusBarLyricEnabled = false
+        }
+        prefs.edit()
+            .putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, enabled)
+            .putBoolean(
+                LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
+                if (enabled) false else flymeStatusBarLyricEnabled
+            )
+            .apply()
+    }
+
+    fun saveFlymeStatusBarLyricEnabled(enabled: Boolean) {
+        flymeStatusBarLyricEnabled = enabled
+        if (enabled) {
+            lyriconStatusBarEnabled = false
+        }
+        prefs.edit()
+            .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC, enabled)
+            .putBoolean(
+                LyricPreviewActivity.KEY_LYRICON_STATUS_BAR,
+                if (enabled) false else lyriconStatusBarEnabled
+            )
+            .apply()
+    }
+
+    fun saveFlymeStatusBarLyricHideNotificationEnabled(enabled: Boolean) {
+        flymeStatusBarLyricHideNotificationEnabled = enabled
+        prefs.edit()
+            .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION, enabled)
+            .apply()
     }
 
     fun saveKeepScreenOnEnabled(enabled: Boolean) {
@@ -5267,6 +5354,7 @@ fun LyricPreviewScreen(
                                     isPlaying = isPlaying, // 新增
                                     animationType = animationType, // 新增
                                     wordLiftDistanceDp = wordLiftDistanceDp,
+                                    latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
                                     lyricGlowEnabled = lyricGlowEnabled,
                                     blurRadius = lyricLineBlurRadius,
                                     hideInterludeAnimation = hideInterludeAnimationDuringManualScroll,
@@ -5377,6 +5465,7 @@ fun LyricPreviewScreen(
                                             limitWidthForDuetLayout = false,
                                             isPlaying = isPlaying,
                                             animationType = animationType,
+                                            latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
                                             blurRadius = 0f,
                                             lyricGlowEnabled = lyricGlowEnabled,
                                             clickableEnabled = false,
@@ -6216,6 +6305,8 @@ fun LyricPreviewScreen(
                 lyricGlowEnabled = lyricGlowEnabled,
                 pageBackgroundMode = pageBackgroundMode,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+                flymeStatusBarLyricEnabled = flymeStatusBarLyricEnabled,
+                flymeStatusBarLyricHideNotificationEnabled = flymeStatusBarLyricHideNotificationEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
                 autoHidePlaybackControlsEnabled = autoHidePlaybackControlsEnabled,
                 lyricDisplayMode = lyricDisplayMode,
@@ -6224,6 +6315,7 @@ fun LyricPreviewScreen(
                 fontWeight = fontWeight,
                 animationType = animationType,
                 wordLiftDistanceDp = wordLiftDistanceDp,
+                latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
                 fontOptions = customFontOptions,
                 selectedFontId = selectedCustomFontId,
                 onShowTranslationChange = { saveShowTranslation(it) },
@@ -6232,6 +6324,8 @@ fun LyricPreviewScreen(
                 onLyricGlowEnabledChange = { saveLyricGlowEnabled(it) },
                 onPageBackgroundModeChange = { savePageBackgroundMode(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
+                onFlymeStatusBarLyricEnabledChange = { saveFlymeStatusBarLyricEnabled(it) },
+                onFlymeStatusBarLyricHideNotificationEnabledChange = { saveFlymeStatusBarLyricHideNotificationEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
                 onAutoHidePlaybackControlsEnabledChange = { saveAutoHidePlaybackControlsEnabled(it) },
                 onLyricDisplayModeChange = { saveLyricDisplayMode(it) },
@@ -6243,6 +6337,7 @@ fun LyricPreviewScreen(
                     prefs.edit().putInt(LyricPreviewActivity.KEY_INTERLUDE_ANIMATION_TYPE, it).apply()
                 },
                 onWordLiftDistanceDpChange = { saveWordLiftDistanceDp(it) },
+                onLatinWordLiftAsWholeEnabledChange = { saveLatinWordLiftAsWholeEnabled(it) },
                 onOpenCustomFontPicker = {
                     customFontPickerLauncher.launch(arrayOf("*/*"))
                 },
@@ -6942,6 +7037,7 @@ fun LyricLineView(
     isPlaying: Boolean = false, // 新增：歌曲是否正在播放
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
+    latinWordLiftAsWholeEnabled: Boolean = LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE,
     lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW,
     blurRadius: Float = 0f,
     hideInterludeAnimation: Boolean = false,
@@ -7243,7 +7339,9 @@ fun LyricLineView(
                                 fontFamily = fontFamily,
                                 customTypeface = customTypeface,
                                 wordLiftDistanceDp = wordLiftDistanceDp,
-                                lyricGlowEnabled = lyricGlowEnabled
+                                latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
+                                lyricGlowEnabled = lyricGlowEnabled,
+                                hasExplicitLineEndForLift = line.end > 0L
                             )
                         }
 
@@ -7312,7 +7410,9 @@ fun LyricLineView(
                             fontFamily = fontFamily,
                             customTypeface = customTypeface,
                             wordLiftDistanceDp = wordLiftDistanceDp,
-                            lyricGlowEnabled = lyricGlowEnabled
+                            latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
+                            lyricGlowEnabled = lyricGlowEnabled,
+                            hasExplicitLineEndForLift = line.end > 0L
                         )
                     }
                     
@@ -7477,7 +7577,9 @@ fun LyricWordsCanvasWithWrap(
     fontFamily: FontFamily? = null,
     customTypeface: Typeface? = null,
     wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
-    lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW
+    latinWordLiftAsWholeEnabled: Boolean = LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE,
+    lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW,
+    hasExplicitLineEndForLift: Boolean = true
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -7946,6 +8048,11 @@ fun LyricWordsCanvasWithWrap(
             
             val lineWidth = effectiveLineWords.lastOrNull()?.endPosition ?: 0f
             val liftStartOverrides = buildLongLyricLiftStartOverrides(effectiveLineWords)
+            val latinWordLiftOverrides = if (latinWordLiftAsWholeEnabled) {
+                buildLatinWordLiftOverrides(effectiveLineWords)
+            } else {
+                emptyMap()
+            }
             val glowStates = if (lyricGlowEnabled) {
                 buildLyricGlowStates(effectiveLineWords, currentTime)
             } else {
@@ -7976,13 +8083,42 @@ fun LyricWordsCanvasWithWrap(
                         }
                         
                         // 计算上抬偏移（每个字独立计算，不互相影响）
+                        val isCjkLiftWord = isSingleCjkGlowText(word.text)
+                        val latinWordLiftOverride = latinWordLiftOverrides[wordIndex]
+                        val resolvedLiftBeginMs = if (isCjkLiftWord) {
+                            word.begin
+                        } else if (latinWordLiftOverride != null) {
+                            latinWordLiftOverride.beginMs
+                        } else {
+                            liftStartOverrides[wordIndex] ?: word.begin
+                        }
+                        val resolvedLiftEndMs = if (isCjkLiftWord) {
+                            val cjkTailMs = if (hasExplicitLineEndForLift) {
+                                CJK_LIFT_EXPLICIT_END_TAIL_MS
+                            } else {
+                                CJK_LIFT_FALLBACK_END_TAIL_MS
+                            }
+                            word.end + cjkTailMs
+                        } else if (latinWordLiftOverride != null) {
+                            latinWordLiftOverride.endMs
+                        } else {
+                            word.end + 300L
+                        }
+                        val resolvedLiftLeadInMs = if (isCjkLiftWord) {
+                            CJK_LIFT_LEAD_IN_MS
+                        } else if (latinWordLiftOverride != null) {
+                            latinWordLiftOverride.leadInMs
+                        } else {
+                            200L
+                        }
                         val liftOffset = liftAnimator.getLiftOffset(
                             word = word,
                             currentTime = currentTime,
                             density = density,
                             liftDistanceDp = wordLiftDistanceDp,
-                            liftBeginMs = liftStartOverrides[wordIndex] ?: word.begin,
-                            liftEndMs = word.end + 300L
+                            liftBeginMs = resolvedLiftBeginMs,
+                            liftEndMs = resolvedLiftEndMs,
+                            liftLeadInMs = resolvedLiftLeadInMs
                         )
                         
                         // 绘制文字和注音

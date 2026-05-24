@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -375,6 +376,32 @@ fun SettingsScreen(
             )
         )
     }
+    var flymeStatusBarLyricEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
+                LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC
+            )
+        )
+    }
+    var flymeStatusBarLyricHideNotificationEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION,
+                LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION
+            )
+        )
+    }
+    LaunchedEffect(Unit) {
+        if (flymeStatusBarLyricEnabled || flymeStatusBarLyricHideNotificationEnabled) {
+            flymeStatusBarLyricEnabled = false
+            flymeStatusBarLyricHideNotificationEnabled = false
+            lyricPreviewPrefs.edit()
+                .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC, false)
+                .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION, false)
+                .apply()
+        }
+    }
     var lyricKeepScreenOnEnabled by remember {
         mutableStateOf(
             lyricPreviewPrefs.getBoolean(
@@ -423,6 +450,14 @@ fun SettingsScreen(
             ).coerceIn(
                 LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP,
                 LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP
+            )
+        )
+    }
+    var lyricLatinWordLiftAsWholeEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE,
+                LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE
             )
         )
     }
@@ -1098,6 +1133,8 @@ fun SettingsScreen(
             lyricGlowEnabled = lyricGlowEnabled,
             pageBackgroundMode = pageBackgroundMode,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+            flymeStatusBarLyricEnabled = flymeStatusBarLyricEnabled,
+            flymeStatusBarLyricHideNotificationEnabled = flymeStatusBarLyricHideNotificationEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
             autoHidePlaybackControlsEnabled = lyricAutoHidePlaybackControlsEnabled,
             lyricDisplayMode = lyricDisplayMode,
@@ -1106,6 +1143,7 @@ fun SettingsScreen(
             fontWeight = lyricFontWeight,
             animationType = lyricAnimationType,
             wordLiftDistanceDp = lyricWordLiftDistanceDp,
+            latinWordLiftAsWholeEnabled = lyricLatinWordLiftAsWholeEnabled,
             fontOptions = lyricFontOptions,
             selectedFontId = lyricSelectedFontId,
             onShowTranslationChange = {
@@ -1145,8 +1183,34 @@ fun SettingsScreen(
             },
             onLyriconStatusBarEnabledChange = {
                 lyriconStatusBarEnabled = it
+                if (it) {
+                    flymeStatusBarLyricEnabled = false
+                }
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, it)
+                    .putBoolean(
+                        LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
+                        if (it) false else flymeStatusBarLyricEnabled
+                    )
+                    .apply()
+            },
+            onFlymeStatusBarLyricEnabledChange = {
+                flymeStatusBarLyricEnabled = it
+                if (it) {
+                    lyriconStatusBarEnabled = false
+                }
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC, it)
+                    .putBoolean(
+                        LyricPreviewActivity.KEY_LYRICON_STATUS_BAR,
+                        if (it) false else lyriconStatusBarEnabled
+                    )
+                    .apply()
+            },
+            onFlymeStatusBarLyricHideNotificationEnabledChange = {
+                flymeStatusBarLyricHideNotificationEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION, it)
                     .apply()
             },
             onKeepScreenOnEnabledChange = {
@@ -1199,6 +1263,12 @@ fun SettingsScreen(
                 lyricWordLiftDistanceDp = normalized
                 lyricPreviewPrefs.edit()
                     .putFloat(LyricPreviewActivity.KEY_WORD_LIFT_DISTANCE_DP, normalized)
+                    .apply()
+            },
+            onLatinWordLiftAsWholeEnabledChange = {
+                lyricLatinWordLiftAsWholeEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE, it)
                     .apply()
             },
             onOpenCustomFontPicker = {

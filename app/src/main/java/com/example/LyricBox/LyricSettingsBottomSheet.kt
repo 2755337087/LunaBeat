@@ -64,6 +64,7 @@ import kotlin.math.roundToInt
 
 private enum class LyricSettingsPage {
     MAIN,
+    STATUS_BAR_LYRIC,
     PAGE_BACKGROUND,
     LYRIC_DISPLAY_MODE,
     LYRIC_DISPLAY_POSITION,
@@ -87,6 +88,8 @@ fun LyricSettingsBottomSheet(
     lyricGlowEnabled: Boolean,
     pageBackgroundMode: Int,
     lyriconStatusBarEnabled: Boolean,
+    flymeStatusBarLyricEnabled: Boolean,
+    flymeStatusBarLyricHideNotificationEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
     autoHidePlaybackControlsEnabled: Boolean,
     lyricDisplayMode: Int,
@@ -95,6 +98,7 @@ fun LyricSettingsBottomSheet(
     fontWeight: Int,
     animationType: Int,
     wordLiftDistanceDp: Float,
+    latinWordLiftAsWholeEnabled: Boolean,
     fontOptions: List<LyricCustomFontOption>,
     selectedFontId: String,
     onShowTranslationChange: (Boolean) -> Unit,
@@ -103,6 +107,8 @@ fun LyricSettingsBottomSheet(
     onLyricGlowEnabledChange: (Boolean) -> Unit,
     onPageBackgroundModeChange: (Int) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
+    onFlymeStatusBarLyricEnabledChange: (Boolean) -> Unit,
+    onFlymeStatusBarLyricHideNotificationEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
     onAutoHidePlaybackControlsEnabledChange: (Boolean) -> Unit,
     onLyricDisplayModeChange: (Int) -> Unit,
@@ -111,6 +117,7 @@ fun LyricSettingsBottomSheet(
     onFontWeightChange: (Int) -> Unit,
     onAnimationTypeChange: (Int) -> Unit,
     onWordLiftDistanceDpChange: (Float) -> Unit,
+    onLatinWordLiftAsWholeEnabledChange: (Boolean) -> Unit,
     onOpenCustomFontPicker: () -> Unit,
     onSelectFont: (String) -> Unit,
     onDeleteFont: (String) -> Unit,
@@ -276,12 +283,10 @@ fun LyricSettingsBottomSheet(
                         title = "播放与系统",
                         contentColor = contentColor
                     )
-                    LyricSettingsSwitchRow(
-                        title = "状态栏歌词（词幕）",
-                        checked = lyriconStatusBarEnabled,
-                        onCheckedChange = onLyriconStatusBarEnabledChange,
+                    LyricSettingsActionRow(
+                        title = "状态栏歌词",
                         contentColor = contentColor,
-                        accentColor = accentColor
+                        onClick = { page = LyricSettingsPage.STATUS_BAR_LYRIC }
                     )
                     LyricSettingsSwitchRow(
                         title = "屏幕常亮",
@@ -299,6 +304,21 @@ fun LyricSettingsBottomSheet(
                             accentColor = accentColor
                         )
                     }
+                }
+
+                LyricSettingsPage.STATUS_BAR_LYRIC -> {
+                    LyricSettingsSubPageTitle(
+                        title = "状态栏歌词",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "状态栏歌词（词幕）",
+                        checked = lyriconStatusBarEnabled,
+                        onCheckedChange = onLyriconStatusBarEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
                 }
 
                 LyricSettingsPage.LYRIC_DISPLAY_MODE -> {
@@ -525,6 +545,13 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
+                    LyricSettingsSwitchRow(
+                        title = "拉丁字母整体上移",
+                        checked = latinWordLiftAsWholeEnabled,
+                        onCheckedChange = onLatinWordLiftAsWholeEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
                     val snappedLiftDistance = tempWordLiftDistanceDp.roundToInt().coerceIn(
                         LyricPreviewActivity.WORD_LIFT_DISTANCE_MIN_DP.toInt(),
                         LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP.toInt()
@@ -724,7 +751,8 @@ private fun LyricSettingsSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     contentColor: Color,
-    accentColor: Color
+    accentColor: Color,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
@@ -732,20 +760,20 @@ private fun LyricSettingsSwitchRow(
             .padding(vertical = 3.dp)
             .height(56.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(contentColor.copy(alpha = 0.10f))
-            .clickable { onCheckedChange(!checked) }
+            .background(contentColor.copy(alpha = if (enabled) 0.10f else 0.06f))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = title,
-            color = contentColor,
+            color = if (enabled) contentColor else contentColor.copy(alpha = 0.52f),
             fontSize = 16.sp,
             modifier = Modifier.weight(1f)
         )
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = if (enabled) onCheckedChange else null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = accentColor,

@@ -83,13 +83,17 @@ class MusicPlaybackService : MediaSessionService() {
         getSharedPreferences(LyricPreviewActivity.PREFS_NAME, MODE_PRIVATE)
     }
     private val lyriconBridge by lazy { LyriconStatusBarBridge(this) }
+    private val flymeStatusBarLyricBridge by lazy { FlymeStatusBarLyricBridge(this) }
     private var lyriconEnabled = false
+    private var flymeStatusBarLyricEnabled = false
+    private var flymeStatusBarLyricHideNotificationEnabled = LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION
     private var lyriconSongSourcePath: String? = null
+    private var flymeSongSourcePath: String? = null
     private var lyriconBuildSerial: Long = 0L
     private val lyriconProgressRunnable = object : Runnable {
         override fun run() {
-            if (!lyriconEnabled) return
-            pushLyriconPlayback(isSeek = false)
+            if (!hasStatusBarLyricEnabled()) return
+            pushStatusBarLyricPlayback(isSeek = false)
             mainHandler.postDelayed(this, 300L)
         }
     }
@@ -102,6 +106,8 @@ class MusicPlaybackService : MediaSessionService() {
     private val lyricPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             LyricPreviewActivity.KEY_LYRICON_STATUS_BAR -> syncLyriconEnabledFromPrefs()
+            LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC -> syncFlymeStatusBarLyricEnabledFromPrefs()
+            LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION -> syncFlymeHideNotificationFromPrefs()
             LyricPreviewActivity.KEY_SHOW_TRANSLATION,
             LyricPreviewActivity.KEY_SHOW_TRANSLITERATION -> {
                 if (lyriconEnabled) {
@@ -171,9 +177,9 @@ class MusicPlaybackService : MediaSessionService() {
                     }
                     maybeHandleCurrentAlacPlayback(this@apply, reason = "transition_$reason")
                     maybeEnsureCurrentArtworkMetadata(this@apply)
-                    if (lyriconEnabled) {
-                        pushLyriconSongForCurrentItem(forceReloadLyrics = true)
-                        pushLyriconPlayback(isSeek = true)
+                    if (hasStatusBarLyricEnabled()) {
+                        pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+                        pushStatusBarLyricPlayback(isSeek = true)
                     }
                     evaluateSleepTimer()
                 }
@@ -203,14 +209,14 @@ class MusicPlaybackService : MediaSessionService() {
                     } else {
                         maybeHandleCurrentAlacPlayback(this@apply, reason = "player_error_${error.errorCode}")
                     }
-                    if (lyriconEnabled) {
-                        pushLyriconPlayback(isSeek = false)
+                    if (hasStatusBarLyricEnabled()) {
+                        pushStatusBarLyricPlayback(isSeek = false)
                     }
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (lyriconEnabled) {
-                        pushLyriconPlayback(isSeek = false)
+                    if (hasStatusBarLyricEnabled()) {
+                        pushStatusBarLyricPlayback(isSeek = false)
                     }
                 }
 
@@ -219,8 +225,8 @@ class MusicPlaybackService : MediaSessionService() {
                     newPosition: Player.PositionInfo,
                     reason: Int
                 ) {
-                    if (lyriconEnabled) {
-                        pushLyriconPlayback(isSeek = true)
+                    if (hasStatusBarLyricEnabled()) {
+                        pushStatusBarLyricPlayback(isSeek = true)
                     }
                 }
             })
@@ -277,8 +283,11 @@ class MusicPlaybackService : MediaSessionService() {
             })
             .build()
 
+        normalizeFlymeStatusBarLyricPrefs()
         lyricPreviewPrefs.registerOnSharedPreferenceChangeListener(lyricPrefsListener)
         syncLyriconEnabledFromPrefs()
+        syncFlymeStatusBarLyricEnabledFromPrefs()
+        syncFlymeHideNotificationFromPrefs()
         mainHandler.post(sleepTimerRunnable)
     }
 
@@ -298,6 +307,7 @@ class MusicPlaybackService : MediaSessionService() {
         mainHandler.removeCallbacks(sleepTimerRunnable)
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
         lyriconBridge.release()
+        flymeStatusBarLyricBridge.release()
         mediaSession?.run {
             player.release()
             release()
@@ -326,8 +336,8 @@ class MusicPlaybackService : MediaSessionService() {
         if (enabled) {
             lyriconBridge.start()
             pushLyriconDisplayFlags()
-            pushLyriconSongForCurrentItem(forceReloadLyrics = true)
-            pushLyriconPlayback(isSeek = true)
+            pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+            pushStatusBarLyricPlayback(isSeek = true)
             mainHandler.removeCallbacks(lyriconProgressRunnable)
             mainHandler.post(lyriconProgressRunnable)
         } else {
@@ -335,6 +345,66 @@ class MusicPlaybackService : MediaSessionService() {
             lyriconSongSourcePath = null
             lyriconBridge.stop(clearRemoteState = true)
         }
+    }
+
+    private fun normalizeFlymeStatusBarLyricPrefs() {
+        val flyme = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
+            LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC
+        )
+        val hideNotification = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION,
+            LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION
+        )
+        if (flyme || hideNotification) {
+            lyricPreviewPrefs.edit()
+                .putBoolean(LyricPreviewActivity.KEY_LYRICON_STATUS_BAR, false)
+                .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC, false)
+                .putBoolean(LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION, false)
+                .apply()
+        }
+    }
+
+    private fun syncFlymeStatusBarLyricEnabledFromPrefs() {
+        val enabled = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
+            LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC
+        )
+        if (enabled == flymeStatusBarLyricEnabled) return
+        flymeStatusBarLyricEnabled = enabled
+
+        if (enabled) {
+            flymeStatusBarLyricBridge.start()
+            flymeStatusBarLyricBridge.setHideNotification(flymeStatusBarLyricHideNotificationEnabled)
+            pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+            pushStatusBarLyricPlayback(isSeek = true)
+            mainHandler.removeCallbacks(lyriconProgressRunnable)
+            mainHandler.post(lyriconProgressRunnable)
+        } else {
+            flymeSongSourcePath = null
+            flymeStatusBarLyricBridge.stop(clearRemoteState = true)
+            if (!lyriconEnabled) {
+                mainHandler.removeCallbacks(lyriconProgressRunnable)
+            }
+        }
+    }
+
+    private fun syncFlymeHideNotificationFromPrefs() {
+        val enabled = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION,
+            LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION
+        )
+        if (enabled == flymeStatusBarLyricHideNotificationEnabled) return
+        flymeStatusBarLyricHideNotificationEnabled = enabled
+        flymeStatusBarLyricBridge.setHideNotification(enabled)
+        if (hasStatusBarLyricEnabled()) {
+            pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+            pushStatusBarLyricPlayback(isSeek = true)
+        }
+    }
+
+    private fun hasStatusBarLyricEnabled(): Boolean {
+        return lyriconEnabled || (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive())
     }
 
     private fun pushLyriconDisplayFlags() {
@@ -350,35 +420,57 @@ class MusicPlaybackService : MediaSessionService() {
         )
     }
 
-    private fun pushLyriconPlayback(isSeek: Boolean) {
+    private fun pushStatusBarLyricPlayback(isSeek: Boolean) {
+        if (!hasStatusBarLyricEnabled()) return
         val currentPlayer = player ?: return
         val position = if (notificationDsdActive) {
             notificationDsdPlayer.currentPositionMs().coerceAtLeast(0L)
         } else {
             currentPlayer.currentPosition.coerceAtLeast(0L)
         }
-        lyriconBridge.updatePlayback(
-            positionMs = position,
-            isPlaying = if (notificationDsdActive) {
-                notificationDsdPlaying
-            } else {
-                currentPlayer.isPlaying || currentPlayer.playWhenReady
-            },
-            isSeek = isSeek
-        )
+        val isPlaying = if (notificationDsdActive) {
+            notificationDsdPlaying
+        } else {
+            currentPlayer.isPlaying || currentPlayer.playWhenReady
+        }
+        if (lyriconEnabled) {
+            lyriconBridge.updatePlayback(
+                positionMs = position,
+                isPlaying = isPlaying,
+                isSeek = isSeek
+            )
+        }
+        if (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive()) {
+            flymeStatusBarLyricBridge.updatePlayback(
+                positionMs = position,
+                isSeek = isSeek
+            )
+        }
     }
 
-    private fun pushLyriconSongForCurrentItem(forceReloadLyrics: Boolean) {
+    private fun pushStatusBarLyricSongForCurrentItem(forceReloadLyrics: Boolean) {
+        if (!hasStatusBarLyricEnabled()) return
         val currentPlayer = player ?: return
         val currentItem = currentPlayer.currentMediaItem
         if (currentItem == null) {
             lyriconSongSourcePath = null
-            lyriconBridge.updateSong(null)
+            flymeSongSourcePath = null
+            if (lyriconEnabled) {
+                lyriconBridge.updateSong(null)
+            }
+            if (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive()) {
+                flymeStatusBarLyricBridge.updateSong(songId = null, lyricLines = emptyList())
+            }
             return
         }
         val sourcePath = currentItem.resolveOriginalAudioPath() ?: return
-        if (!forceReloadLyrics && lyriconSongSourcePath == sourcePath) return
+        if (
+            !forceReloadLyrics &&
+            lyriconSongSourcePath == sourcePath &&
+            flymeSongSourcePath == sourcePath
+        ) return
         lyriconSongSourcePath = sourcePath
+        flymeSongSourcePath = sourcePath
         val localSerial = ++lyriconBuildSerial
         val mediaTitle = currentItem.mediaMetadata.title?.toString()
         val mediaArtist = currentItem.mediaMetadata.artist?.toString()
@@ -404,13 +496,21 @@ class MusicPlaybackService : MediaSessionService() {
                 lyricLines = previewLines
             )
             mainHandler.post {
-                if (!lyriconEnabled) return@post
+                if (!hasStatusBarLyricEnabled()) return@post
                 if (localSerial != lyriconBuildSerial) return@post
                 val latestPath = player?.currentMediaItem?.resolveOriginalAudioPath()
                 if (latestPath != sourcePath) return@post
-                lyriconBridge.updateSong(song)
-                pushLyriconDisplayFlags()
-                pushLyriconPlayback(isSeek = true)
+                if (lyriconEnabled) {
+                    lyriconBridge.updateSong(song)
+                    pushLyriconDisplayFlags()
+                }
+                if (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive()) {
+                    flymeStatusBarLyricBridge.updateSong(
+                        songId = sourcePath,
+                        lyricLines = previewLines
+                    )
+                }
+                pushStatusBarLyricPlayback(isSeek = true)
             }
         }
     }
@@ -531,7 +631,7 @@ class MusicPlaybackService : MediaSessionService() {
         player?.playWhenReady = true
         player?.play()
         notificationDsdPlaying = true
-        if (lyriconEnabled) pushLyriconPlayback(isSeek = false)
+        if (hasStatusBarLyricEnabled()) pushStatusBarLyricPlayback(isSeek = false)
         return true
     }
 
@@ -540,7 +640,7 @@ class MusicPlaybackService : MediaSessionService() {
         notificationDsdPlayer.pause()
         player?.pause()
         notificationDsdPlaying = false
-        if (lyriconEnabled) pushLyriconPlayback(isSeek = false)
+        if (hasStatusBarLyricEnabled()) pushStatusBarLyricPlayback(isSeek = false)
         return true
     }
 
@@ -595,9 +695,9 @@ class MusicPlaybackService : MediaSessionService() {
         }
 
         maybeEnsureCurrentArtworkMetadata(player, force = true)
-        if (lyriconEnabled) {
-            pushLyriconSongForCurrentItem(forceReloadLyrics = true)
-            pushLyriconPlayback(isSeek = true)
+        if (hasStatusBarLyricEnabled()) {
+            pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+            pushStatusBarLyricPlayback(isSeek = true)
         }
     }
 
@@ -626,8 +726,8 @@ class MusicPlaybackService : MediaSessionService() {
             player?.let { handleNotificationSkipNext(it) }
             return
         }
-        if (lyriconEnabled) {
-            pushLyriconPlayback(isSeek = false)
+        if (hasStatusBarLyricEnabled()) {
+            pushStatusBarLyricPlayback(isSeek = false)
         }
     }
 
