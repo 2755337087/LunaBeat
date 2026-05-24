@@ -150,6 +150,7 @@ private const val UPCOMING_LINE_MAX_BLUR_RADIUS = 15f
 private const val UPCOMING_LINE_BLUR_STEP = 4f
 private const val COMPANION_AUDIO_LOG_TAG = "LyricPreviewCompanion"
 private const val PREVIEW_LYRICS_REFRESH_LOG_TAG = "PreviewLyricsRefresh"
+private const val LYRIC_PLAYED_VISUAL_DELAY_AUTOSCROLL_LEAD_MS = 400L
 
 private fun sanitizeLyricLogText(value: String?, maxLength: Int = 80): String {
     val compact = value
@@ -1231,6 +1232,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_INTERLUDE_ANIMATION_TYPE = "interlude_animation_type"
         const val KEY_WORD_LIFT_DISTANCE_DP = "word_lift_distance_dp"
         const val KEY_LATIN_WORD_LIFT_AS_WHOLE = "latin_word_lift_as_whole"
+        const val KEY_PLAYED_LYRIC_ALPHA = "played_lyric_alpha"
+        const val KEY_UPCOMING_LYRIC_CONTRAST = "upcoming_lyric_contrast"
         const val KEY_FONT_WEIGHT = "font_weight"
         const val KEY_SHOW_TRANSLITERATION = "show_transliteration"
         const val KEY_LYRIC_BLUR = "lyric_blur"
@@ -1249,6 +1252,8 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_WORD_LIFT_DISTANCE_DP = 2f
         const val DEFAULT_LATIN_WORD_LIFT_AS_WHOLE = false
+        const val DEFAULT_PLAYED_LYRIC_ALPHA = 1f
+        const val DEFAULT_UPCOMING_LYRIC_CONTRAST = 0.5f
         const val DEFAULT_FONT_WEIGHT = 800 // ExtraBold
         const val DEFAULT_SHOW_TRANSLITERATION = true
         const val DEFAULT_LYRIC_BLUR = true
@@ -2393,6 +2398,40 @@ private fun findNextLyricRenderReferenceIndex(
     return null
 }
 
+private fun resolveLinePlayedVisualStartMs(
+    lyricLines: List<NewPreviewLyricLine>,
+    currentIndex: Int
+): Long? {
+    val currentLine = lyricLines.getOrNull(currentIndex) ?: return null
+    if (currentLine.isInterlude || currentLine.isBackground) return null
+    val currentEnd = currentLine.end
+    if (currentEnd <= 0L) return null
+
+    var hasInterludeBetween = false
+    var nextMainLine: NewPreviewLyricLine? = null
+    var scanIndex = currentIndex + 1
+    while (scanIndex < lyricLines.size) {
+        val candidate = lyricLines[scanIndex]
+        if (candidate.isInterlude) {
+            hasInterludeBetween = true
+        }
+        if (!candidate.isBackground && !candidate.isInterlude) {
+            nextMainLine = candidate
+            break
+        }
+        scanIndex++
+    }
+
+    val nextMain = nextMainLine ?: return null
+    if (hasInterludeBetween || nextMain.begin <= 0L) return null
+
+    val gapDuration = nextMain.begin - currentEnd
+    if (gapDuration <= 0L) return null
+
+    val nextAutoScrollTriggerMs = nextMain.begin - LYRIC_PLAYED_VISUAL_DELAY_AUTOSCROLL_LEAD_MS
+    return max(currentEnd, nextAutoScrollTriggerMs)
+}
+
 private fun resolveDefaultLyricLineByLineModes(
     lyricLines: List<NewPreviewLyricLine>
 ): List<Boolean> {
@@ -3244,6 +3283,22 @@ fun LyricPreviewScreen(
                 LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE,
                 LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE
             )
+        )
+    }
+    var playedLyricAlpha by remember {
+        mutableFloatStateOf(
+            prefs.getFloat(
+                LyricPreviewActivity.KEY_PLAYED_LYRIC_ALPHA,
+                LyricPreviewActivity.DEFAULT_PLAYED_LYRIC_ALPHA
+            ).coerceIn(0f, 1f)
+        )
+    }
+    var upcomingLyricContrast by remember {
+        mutableFloatStateOf(
+            prefs.getFloat(
+                LyricPreviewActivity.KEY_UPCOMING_LYRIC_CONTRAST,
+                LyricPreviewActivity.DEFAULT_UPCOMING_LYRIC_CONTRAST
+            ).coerceIn(0f, 1f)
         )
     }
     var flymeStatusBarLyricEnabled by remember {
@@ -4562,6 +4617,18 @@ fun LyricPreviewScreen(
         latinWordLiftAsWholeEnabled = enabled
         prefs.edit().putBoolean(LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE, enabled).apply()
     }
+
+    fun savePlayedLyricAlpha(value: Float) {
+        val normalized = value.coerceIn(0f, 1f)
+        playedLyricAlpha = normalized
+        prefs.edit().putFloat(LyricPreviewActivity.KEY_PLAYED_LYRIC_ALPHA, normalized).apply()
+    }
+
+    fun saveUpcomingLyricContrast(value: Float) {
+        val normalized = value.coerceIn(0f, 1f)
+        upcomingLyricContrast = normalized
+        prefs.edit().putFloat(LyricPreviewActivity.KEY_UPCOMING_LYRIC_CONTRAST, normalized).apply()
+    }
     
     // 保存注音显示设置
     fun saveShowTransliteration(show: Boolean) {
@@ -5180,6 +5247,9 @@ fun LyricPreviewScreen(
                     val hasAnyDuetLine = remember(processedLyricLines) {
                         processedLyricLines.any { !it.isInterlude && it.isDuet }
                     }
+                    val lastPrimaryLyricIndex = remember(processedLyricLines) {
+                        processedLyricLines.indexOfLast { !it.isInterlude && !it.isBackground }
+                    }
                     val lyricTopChromeHidden = when {
                         useSidePanelLayout -> 0.dp
                         useMiniHeader -> 52.dp
@@ -5286,6 +5356,11 @@ fun LyricPreviewScreen(
                                 isCurrentLineVisible = shouldShowBackground,
                                 isBlurEnabled = lyricBlurPreferenceEnabled && isLyricBlurEnabled
                             )
+                            val playedStateVisualStartMs = resolveLinePlayedVisualStartMs(
+                                lyricLines = processedLyricLines,
+                                currentIndex = index
+                            )
+                            val disablePlayedTransparencyForLine = index == lastPrimaryLyricIndex
                             
                             // 查找关联的主歌词和位置信息
                             val (mainLine, isAboveMain, _) = if (line.isBackground) {
@@ -5355,8 +5430,12 @@ fun LyricPreviewScreen(
                                     animationType = animationType, // 新增
                                     wordLiftDistanceDp = wordLiftDistanceDp,
                                     latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
+                                    playedLyricAlpha = playedLyricAlpha,
+                                    upcomingLyricContrast = upcomingLyricContrast,
                                     lyricGlowEnabled = lyricGlowEnabled,
                                     blurRadius = lyricLineBlurRadius,
+                                    playedStateVisualStartMsOverride = playedStateVisualStartMs,
+                                    disablePlayedTransparencyForLine = disablePlayedTransparencyForLine,
                                     hideInterludeAnimation = hideInterludeAnimationDuringManualScroll,
                                     onClick = {
                                         val tapTargetTime = line.begin
@@ -5466,8 +5545,12 @@ fun LyricPreviewScreen(
                                             isPlaying = isPlaying,
                                             animationType = animationType,
                                             latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
+                                            playedLyricAlpha = playedLyricAlpha,
+                                            upcomingLyricContrast = upcomingLyricContrast,
                                             blurRadius = 0f,
                                             lyricGlowEnabled = lyricGlowEnabled,
+                                            playedStateVisualStartMsOverride = null,
+                                            disablePlayedTransparencyForLine = false,
                                             clickableEnabled = false,
                                             overrideInactiveColor = creatorLyricColor,
                                             onClick = {}
@@ -6316,6 +6399,8 @@ fun LyricPreviewScreen(
                 animationType = animationType,
                 wordLiftDistanceDp = wordLiftDistanceDp,
                 latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
+                playedLyricAlpha = playedLyricAlpha,
+                upcomingLyricContrast = upcomingLyricContrast,
                 fontOptions = customFontOptions,
                 selectedFontId = selectedCustomFontId,
                 onShowTranslationChange = { saveShowTranslation(it) },
@@ -6338,6 +6423,8 @@ fun LyricPreviewScreen(
                 },
                 onWordLiftDistanceDpChange = { saveWordLiftDistanceDp(it) },
                 onLatinWordLiftAsWholeEnabledChange = { saveLatinWordLiftAsWholeEnabled(it) },
+                onPlayedLyricAlphaChange = { savePlayedLyricAlpha(it) },
+                onUpcomingLyricContrastChange = { saveUpcomingLyricContrast(it) },
                 onOpenCustomFontPicker = {
                     customFontPickerLauncher.launch(arrayOf("*/*"))
                 },
@@ -7038,7 +7125,11 @@ fun LyricLineView(
     animationType: Int = LyricPreviewActivity.ANIMATION_TYPE_DEFAULT, // 新增：动画类型
     wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
     latinWordLiftAsWholeEnabled: Boolean = LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE,
+    playedLyricAlpha: Float = LyricPreviewActivity.DEFAULT_PLAYED_LYRIC_ALPHA,
+    upcomingLyricContrast: Float = LyricPreviewActivity.DEFAULT_UPCOMING_LYRIC_CONTRAST,
     lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW,
+    playedStateVisualStartMsOverride: Long? = null,
+    disablePlayedTransparencyForLine: Boolean = false,
     blurRadius: Float = 0f,
     hideInterludeAnimation: Boolean = false,
     clickableEnabled: Boolean = true,
@@ -7133,18 +7224,19 @@ fun LyricLineView(
         fallback = baseForeground,
         minContrast = 4.8f
     )
-    val playedColor = ensureReadableColor(
+    val basePlayedColor = ensureReadableColor(
         candidate = blendColors(activeColor, resolvedBackground, 0.18f),
         background = resolvedBackground,
         fallback = baseForeground,
         minContrast = 4.1f
     )
+    val normalizedUpcomingContrast = upcomingLyricContrast.coerceIn(0f, 1f)
+    val upcomingBlendRatio = (0.18f + 0.72f * normalizedUpcomingContrast).coerceIn(0.18f, 0.9f)
     val defaultInactiveColor = ensureReadableColor(
-        candidate = blendColors(activeColor, resolvedBackground, 0.42f),
+        candidate = blendColors(activeColor, resolvedBackground, upcomingBlendRatio),
         background = resolvedBackground,
         fallback = blendColors(baseForeground, resolvedBackground, 0.45f),
-        //minContrast = 2.9f
-        minContrast = 3.6f
+        minContrast = 1.9f
     )
     val inactiveColor = overrideInactiveColor ?: defaultInactiveColor
     val translationActiveColor = ensureReadableColor(
@@ -7154,16 +7246,10 @@ fun LyricLineView(
         minContrast = 3.6f
     )
     val translationInactiveColor = ensureReadableColor(
-        candidate = blendColors(translationActiveColor, resolvedBackground, 0.44f),
+        candidate = blendColors(translationActiveColor, resolvedBackground, (upcomingBlendRatio + 0.02f).coerceIn(0f, 0.82f)),
         background = resolvedBackground,
         fallback = blendColors(baseForeground, resolvedBackground, 0.52f),
-        minContrast = 2.5f
-    )
-    val translationPlayedColor = ensureReadableColor(
-        candidate = blendColors(translationActiveColor, resolvedBackground, 0.50f),
-        background = resolvedBackground,
-        fallback = translationInactiveColor,
-        minContrast = 2.4f
+        minContrast = 1.8f
     )
     val transliterationInactiveColor = ensureReadableColor(
         candidate = blendColors(inactiveColor, translationInactiveColor, 0.45f),
@@ -7180,9 +7266,15 @@ fun LyricLineView(
     val transliterationPlayedColor = ensureReadableColor(
         candidate = blendColors(transliterationActiveColor, resolvedBackground, 0.16f),
         background = resolvedBackground,
-        fallback = playedColor,
+        fallback = basePlayedColor,
         minContrast = 3.4f
     )
+    val normalizedPlayedAlpha = playedLyricAlpha.coerceIn(0f, 1f)
+    val useDefaultPlayedColorInManual = isManualScrolling && normalizedPlayedAlpha <= 0f
+    val playedColor = basePlayedColor
+    val translationPlayedColor = playedColor
+    val transliterationPlayedFinalColor = transliterationPlayedColor
+    val playedLineTargetAlpha = if (useDefaultPlayedColorInManual) 1f else normalizedPlayedAlpha
     
     val sourceLineByLine = line.isLineByLineLyric(
         allowFirstWordZeroBegin = allowFirstWordZeroBegin
@@ -7218,8 +7310,9 @@ fun LyricLineView(
     } else {
         line.end
     }
+    val playedStateStartMs = playedStateVisualStartMsOverride?.coerceAtLeast(effectiveEnd) ?: effectiveEnd
     val isLineActive = currentTime >= line.begin && currentTime < effectiveEnd
-    val isLinePassed = currentTime >= effectiveEnd
+    val isLinePassed = currentTime >= playedStateStartMs
     
     // 背景歌词的显示逻辑
     val isBackgroundVisible = if (line.isBackground) shouldShowBackgroundLine else true
@@ -7237,6 +7330,11 @@ fun LyricLineView(
         animationSpec = tween(300),
         label = "lineAlpha"
     )
+    val playedLineAlpha by animateFloatAsState(
+        targetValue = if (!disablePlayedTransparencyForLine && isLinePassed) playedLineTargetAlpha else 1f,
+        animationSpec = tween(260),
+        label = "playedLineAlpha"
+    )
     val translationTargetColor = when {
         lineIndex == currentPlayingIndex -> translationActiveColor
         isLineActive -> translationActiveColor
@@ -7247,6 +7345,16 @@ fun LyricLineView(
         targetValue = translationTargetColor,
         animationSpec = tween(260),
         label = "translationColor"
+    )
+    val wordModeLyricActiveColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isLinePassed) playedColor else baseForeground,
+        animationSpec = tween(260),
+        label = "wordModeLyricActiveColor"
+    )
+    val wordModeLyricInactiveColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isLinePassed) playedColor else inactiveColor,
+        animationSpec = tween(260),
+        label = "wordModeLyricInactiveColor"
     )
     val lineBlurModifier = rememberLyricLineBlurModifier(blurRadius)
     val rowContentAlignment = if (effectiveIsDuet) Alignment.CenterEnd else Alignment.CenterStart
@@ -7299,7 +7407,7 @@ fun LyricLineView(
                 ) {
                     Column(
                         modifier = lineWidthModifier
-                            .alpha(lineAlpha * 0.8f)
+                            .alpha(lineAlpha * 0.8f * playedLineAlpha)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.Transparent)
                             .then(lineBlurModifier)
@@ -7313,11 +7421,12 @@ fun LyricLineView(
                                 line = line,
                                 nextLine = nextLine,
                                 currentTime = currentTime,
+                                playedStateVisualStartMsOverride = playedStateStartMs,
                                 activeColor = activeColor,
                                 playedColor = playedColor,
                                 inactiveColor = inactiveColor,
                                 transliterationActiveColor = transliterationActiveColor,
-                                transliterationPlayedColor = transliterationPlayedColor,
+                                transliterationPlayedColor = transliterationPlayedFinalColor,
                                 transliterationInactiveColor = transliterationInactiveColor,
                                 fontSize = lineFontSize,
                                 isDuet = effectiveIsDuet,
@@ -7330,8 +7439,9 @@ fun LyricLineView(
                             LyricWordsCanvasWithWrap(
                                 words = normalizedWords,
                                 currentTime = currentTime,
-                                activeColor = activeColor,
-                                inactiveColor = inactiveColor,
+                                activeColor = wordModeLyricActiveColor,
+                                playedColor = wordModeLyricActiveColor,
+                                inactiveColor = wordModeLyricInactiveColor,
                                 fontSize = lineFontSize,
                                 isDuet = effectiveIsDuet,
                                 fontWeight = fontWeight, // 新增
@@ -7341,7 +7451,8 @@ fun LyricLineView(
                                 wordLiftDistanceDp = wordLiftDistanceDp,
                                 latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
                                 lyricGlowEnabled = lyricGlowEnabled,
-                                hasExplicitLineEndForLift = line.end > 0L
+                                hasExplicitLineEndForLift = line.end > 0L,
+                                lineIsPassed = isLinePassed
                             )
                         }
 
@@ -7370,7 +7481,7 @@ fun LyricLineView(
             ) {
                 Column(
                     modifier = lineWidthModifier
-                        .alpha(lineAlpha)
+                        .alpha(lineAlpha * playedLineAlpha)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.Transparent)
                         .then(lineBlurModifier)
@@ -7384,11 +7495,12 @@ fun LyricLineView(
                             line = line,
                             nextLine = nextLine,
                             currentTime = currentTime,
+                            playedStateVisualStartMsOverride = playedStateStartMs,
                             activeColor = activeColor,
                             playedColor = playedColor,
                             inactiveColor = inactiveColor,
                             transliterationActiveColor = transliterationActiveColor,
-                            transliterationPlayedColor = transliterationPlayedColor,
+                            transliterationPlayedColor = transliterationPlayedFinalColor,
                             transliterationInactiveColor = transliterationInactiveColor,
                             fontSize = lineFontSize,
                             isDuet = effectiveIsDuet,
@@ -7401,8 +7513,9 @@ fun LyricLineView(
                         LyricWordsCanvasWithWrap(
                             words = normalizedWords,
                             currentTime = currentTime,
-                            activeColor = activeColor,
-                            inactiveColor = inactiveColor,
+                            activeColor = wordModeLyricActiveColor,
+                            playedColor = wordModeLyricActiveColor,
+                            inactiveColor = wordModeLyricInactiveColor,
                             fontSize = lineFontSize,
                             isDuet = effectiveIsDuet,
                             fontWeight = fontWeight, // 新增
@@ -7412,7 +7525,8 @@ fun LyricLineView(
                             wordLiftDistanceDp = wordLiftDistanceDp,
                             latinWordLiftAsWholeEnabled = latinWordLiftAsWholeEnabled,
                             lyricGlowEnabled = lyricGlowEnabled,
-                            hasExplicitLineEndForLift = line.end > 0L
+                            hasExplicitLineEndForLift = line.end > 0L,
+                            lineIsPassed = isLinePassed
                         )
                     }
                     
@@ -7443,6 +7557,7 @@ fun LyricLineByLineView(
     line: NewPreviewLyricLine,
     nextLine: NewPreviewLyricLine?,
     currentTime: Long,
+    playedStateVisualStartMsOverride: Long? = null,
     activeColor: Color,
     playedColor: Color = activeColor,
     inactiveColor: Color,
@@ -7457,8 +7572,9 @@ fun LyricLineByLineView(
 ) {
     val fullText = line.words.joinToString("") { it.text }
     val effectiveEnd = getEffectiveEndTime(line, nextLine)
+    val playedStateStartMs = playedStateVisualStartMsOverride?.coerceAtLeast(effectiveEnd) ?: effectiveEnd
     val isLineActive = currentTime >= line.begin && currentTime < effectiveEnd
-    val isLinePassed = currentTime >= effectiveEnd
+    val isLinePassed = currentTime >= playedStateStartMs
     
     val displayTargetColor = when {
         isLineActive -> activeColor
@@ -7569,6 +7685,7 @@ fun LyricWordsCanvasWithWrap(
     words: List<NewPreviewLyricWord>,
     currentTime: Long,
     activeColor: Color,
+    playedColor: Color = activeColor,
     inactiveColor: Color,
     fontSize: TextUnit = 24.sp,
     isDuet: Boolean = false,
@@ -7579,7 +7696,8 @@ fun LyricWordsCanvasWithWrap(
     wordLiftDistanceDp: Float = LyricPreviewActivity.DEFAULT_WORD_LIFT_DISTANCE_DP,
     latinWordLiftAsWholeEnabled: Boolean = LyricPreviewActivity.DEFAULT_LATIN_WORD_LIFT_AS_WHOLE,
     lyricGlowEnabled: Boolean = LyricPreviewActivity.DEFAULT_LYRIC_GLOW,
-    hasExplicitLineEndForLift: Boolean = true
+    hasExplicitLineEndForLift: Boolean = true,
+    lineIsPassed: Boolean = false
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -7712,15 +7830,22 @@ fun LyricWordsCanvasWithWrap(
                 // 2. 加上当前内容超过屏幕宽度
                 val isBreakableSpace = group.size == 1 && group.first().second.text == " " && breakableSpaceIndices.contains(group.first().first)
                 val shouldWrapByWidth = currentX + groupWidth > wrapWidthPx && currentLine.isNotEmpty()
-                val isLeadingQuestionMarkGroup = !isBreakableSpace && group.size == 1 && (
-                    group.first().second.text == "?" || group.first().second.text == "？"
-                )
+                val leadingChar = processedText.firstOrNull()
+                val isLeadingProtectedPunctuationGroup = !isBreakableSpace && when (leadingChar) {
+                    '?', '？', '》', '」' -> true
+                    else -> false
+                }
 
-                // 标点保护：问号不能单独落到新行句首，和前一个字符/单词一起换行。
-                if (shouldWrapByWidth && isLeadingQuestionMarkGroup && currentLine.isNotEmpty()) {
+                // 标点保护：这些标点不能单独落到新行句首，和前一个字符/单词一起换行。
+                if (shouldWrapByWidth && isLeadingProtectedPunctuationGroup && currentLine.isNotEmpty()) {
                     var moveStartIndex = currentLine.lastIndex
                     while (moveStartIndex > 0 && currentLine[moveStartIndex - 1].word.text != " ") {
                         moveStartIndex--
+                    }
+                    // 当当前行内没有空格可作为单词边界时，不回卷整行：
+                    // 仅把「标点前一个字符/字母」移动到下一行开头，避免标点句首。
+                    if (moveStartIndex == 0 && currentLine.lastIndex > 0) {
+                        moveStartIndex = currentLine.lastIndex
                     }
                     val movedLayoutsRaw = currentLine.subList(moveStartIndex, currentLine.size).toList()
                     repeat(currentLine.size - moveStartIndex) {
@@ -8122,10 +8247,11 @@ fun LyricWordsCanvasWithWrap(
                         )
                         
                         // 绘制文字和注音
+                        val wordActiveColor = if (lineIsPassed) playedColor else activeColor
                         drawWordWithTransliteration(
                             layout = layout,
                             progress = progress,
-                            activeColor = activeColor,
+                            activeColor = wordActiveColor,
                             inactiveColor = inactiveColor,
                             liftOffset = liftOffset,
                             fontSizePx = fontSizePx,

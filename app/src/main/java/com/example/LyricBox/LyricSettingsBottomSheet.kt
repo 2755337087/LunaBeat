@@ -68,6 +68,7 @@ private enum class LyricSettingsPage {
     PAGE_BACKGROUND,
     LYRIC_DISPLAY_MODE,
     LYRIC_DISPLAY_POSITION,
+    LYRIC_PLAYBACK_STATE,
     FONT_SIZE,
     FONT_WEIGHT,
     INTERLUDE_ANIMATION,
@@ -99,6 +100,8 @@ fun LyricSettingsBottomSheet(
     animationType: Int,
     wordLiftDistanceDp: Float,
     latinWordLiftAsWholeEnabled: Boolean,
+    playedLyricAlpha: Float,
+    upcomingLyricContrast: Float,
     fontOptions: List<LyricCustomFontOption>,
     selectedFontId: String,
     onShowTranslationChange: (Boolean) -> Unit,
@@ -118,6 +121,8 @@ fun LyricSettingsBottomSheet(
     onAnimationTypeChange: (Int) -> Unit,
     onWordLiftDistanceDpChange: (Float) -> Unit,
     onLatinWordLiftAsWholeEnabledChange: (Boolean) -> Unit,
+    onPlayedLyricAlphaChange: (Float) -> Unit,
+    onUpcomingLyricContrastChange: (Float) -> Unit,
     onOpenCustomFontPicker: () -> Unit,
     onSelectFont: (String) -> Unit,
     onDeleteFont: (String) -> Unit,
@@ -148,6 +153,8 @@ fun LyricSettingsBottomSheet(
     var tempFontWeight by remember(fontWeight) { mutableFloatStateOf(fontWeight.toFloat()) }
     var tempAnimationType by remember(animationType) { mutableIntStateOf(animationType) }
     var tempWordLiftDistanceDp by remember(wordLiftDistanceDp) { mutableFloatStateOf(wordLiftDistanceDp) }
+    var tempPlayedLyricAlpha by remember(playedLyricAlpha) { mutableFloatStateOf(playedLyricAlpha.coerceIn(0f, 1f)) }
+    var tempUpcomingLyricContrast by remember(upcomingLyricContrast) { mutableFloatStateOf(upcomingLyricContrast.coerceIn(0f, 1f)) }
     val previewTypeface = remember(selectedFontId, fontOptions) {
         LyricCustomFontStore.resolveTypefaceById(context, selectedFontId)
     }
@@ -213,6 +220,15 @@ fun LyricSettingsBottomSheet(
                         onClick = {
                             tempLyricDisplayPosition = lyricDisplayPosition.toFloat()
                             page = LyricSettingsPage.LYRIC_DISPLAY_POSITION
+                        }
+                    )
+                    LyricSettingsActionRow(
+                        title = "歌词播放状态",
+                        contentColor = contentColor,
+                        onClick = {
+                            tempPlayedLyricAlpha = playedLyricAlpha.coerceIn(0f, 1f)
+                            tempUpcomingLyricContrast = upcomingLyricContrast.coerceIn(0f, 1f)
+                            page = LyricSettingsPage.LYRIC_PLAYBACK_STATE
                         }
                     )
                     LyricSettingsActionRow(
@@ -622,6 +638,71 @@ fun LyricSettingsBottomSheet(
                             }
                         )
                     }
+                }
+
+                LyricSettingsPage.LYRIC_PLAYBACK_STATE -> {
+                    LyricSettingsSubPageTitle(
+                        title = "歌词播放状态",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    val playedAlphaPercent = (tempPlayedLyricAlpha * 100f).roundToInt()
+                    Text(
+                        text = "已播放歌词透明度: ${playedAlphaPercent}%",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = tempPlayedLyricAlpha,
+                        onValueChange = {
+                            tempPlayedLyricAlpha = it.coerceIn(0f, 1f)
+                            onPlayedLyricAlphaChange(tempPlayedLyricAlpha)
+                        },
+                        valueRange = 0f..1f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("隐藏", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("默认", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("100%", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                    }
+                    val contrastPercent = (tempUpcomingLyricContrast * 100f).roundToInt()
+                    Text(
+                        text = "未播放歌词对比度: ${contrastPercent}%",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = tempUpcomingLyricContrast,
+                        onValueChange = {
+                            tempUpcomingLyricContrast = it.coerceIn(0f, 1f)
+                            onUpcomingLyricContrastChange(tempUpcomingLyricContrast)
+                        },
+                        valueRange = 0f..1f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("低", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("默认", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text("高", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                    }
+                    Text(
+                        text = "已播放歌词隐藏仅在自动滚动中生效，手动浏览时会恢复默认显示。",
+                        fontSize = 12.sp,
+                        color = contentColor.copy(alpha = 0.7f)
+                    )
                 }
 
                 LyricSettingsPage.PAGE_BACKGROUND -> {

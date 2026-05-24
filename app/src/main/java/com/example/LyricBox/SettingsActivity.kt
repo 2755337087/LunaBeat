@@ -461,6 +461,22 @@ fun SettingsScreen(
             )
         )
     }
+    var lyricPlayedLyricAlpha by remember {
+        mutableFloatStateOf(
+            lyricPreviewPrefs.getFloat(
+                LyricPreviewActivity.KEY_PLAYED_LYRIC_ALPHA,
+                LyricPreviewActivity.DEFAULT_PLAYED_LYRIC_ALPHA
+            ).coerceIn(0f, 1f)
+        )
+    }
+    var lyricUpcomingLyricContrast by remember {
+        mutableFloatStateOf(
+            lyricPreviewPrefs.getFloat(
+                LyricPreviewActivity.KEY_UPCOMING_LYRIC_CONTRAST,
+                LyricPreviewActivity.DEFAULT_UPCOMING_LYRIC_CONTRAST
+            ).coerceIn(0f, 1f)
+        )
+    }
     var lyricDisplayPosition by remember {
         mutableStateOf(
             lyricPreviewPrefs.getInt(
@@ -1144,6 +1160,8 @@ fun SettingsScreen(
             animationType = lyricAnimationType,
             wordLiftDistanceDp = lyricWordLiftDistanceDp,
             latinWordLiftAsWholeEnabled = lyricLatinWordLiftAsWholeEnabled,
+            playedLyricAlpha = lyricPlayedLyricAlpha,
+            upcomingLyricContrast = lyricUpcomingLyricContrast,
             fontOptions = lyricFontOptions,
             selectedFontId = lyricSelectedFontId,
             onShowTranslationChange = {
@@ -1269,6 +1287,20 @@ fun SettingsScreen(
                 lyricLatinWordLiftAsWholeEnabled = it
                 lyricPreviewPrefs.edit()
                     .putBoolean(LyricPreviewActivity.KEY_LATIN_WORD_LIFT_AS_WHOLE, it)
+                    .apply()
+            },
+            onPlayedLyricAlphaChange = {
+                val normalized = it.coerceIn(0f, 1f)
+                lyricPlayedLyricAlpha = normalized
+                lyricPreviewPrefs.edit()
+                    .putFloat(LyricPreviewActivity.KEY_PLAYED_LYRIC_ALPHA, normalized)
+                    .apply()
+            },
+            onUpcomingLyricContrastChange = {
+                val normalized = it.coerceIn(0f, 1f)
+                lyricUpcomingLyricContrast = normalized
+                lyricPreviewPrefs.edit()
+                    .putFloat(LyricPreviewActivity.KEY_UPCOMING_LYRIC_CONTRAST, normalized)
                     .apply()
             },
             onOpenCustomFontPicker = {
