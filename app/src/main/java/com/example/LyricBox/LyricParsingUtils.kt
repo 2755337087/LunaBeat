@@ -53,6 +53,40 @@ object LyricParsingUtils {
         }
     }
 
+    private fun splitTranslationLines(value: String): List<String> {
+        return value
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .split('\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    private fun joinTranslationLines(lines: List<String>): String {
+        return lines
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString("\n")
+    }
+
+    private fun mergeTranslationValues(vararg values: String?): String {
+        val mergedLines = mutableListOf<String>()
+        values.forEach { value ->
+            splitTranslationLines(value.orEmpty()).forEach { line ->
+                if (line !in mergedLines) {
+                    mergedLines.add(line)
+                }
+            }
+        }
+        return joinTranslationLines(mergedLines)
+    }
+
+    private fun extractRoleSpanText(content: String, role: String): String? {
+        val pattern = Regex("""<span[^>]*ttm:role="$role"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
+        val match = pattern.find(content) ?: return null
+        return decodeXmlEntities(match.groupValues[1].trim()).takeIf { it.isNotEmpty() }
+    }
+
     fun parseByType(type: LyricParseType, content: String): LyricParseResult {
         return when (type) {
             LyricParseType.SPL_LRC -> {
@@ -172,27 +206,25 @@ object LyricParsingUtils {
             val (lineLyric, lineTimes, firstTimeTag) = parsedLines[i]
             
             // 检查下一行是否是翻译
-            var translation = ""
-            if (i + 1 < parsedLines.size) {
-                val nextLine = parsedLines[i + 1]
+            val translationLines = mutableListOf<String>()
+            var nextIndex = i + 1
+            while (nextIndex < parsedLines.size) {
+                val nextLine = parsedLines[nextIndex]
                 val nextFirstTimeTag = nextLine.third
                 val nextIsSingleUntimedLine = nextFirstTimeTag.isEmpty() &&
                     nextLine.second.size == 1 &&
                     nextLine.second.first().startTime == "00:00.000" &&
                     nextLine.second.first().endTime == "00:00.000" &&
                     nextLine.first.isNotBlank()
-
-                // 兼容两种常见双语写法：
-                // 1. [time]原文 + [time]翻译
-                // 2. [time]原文 + 下一行无时间戳翻译（继承上一行时间）
-                if (firstTimeTag.isNotEmpty() &&
+                val canUseAsTranslation = firstTimeTag.isNotEmpty() &&
                     nextLine.second.size == 1 &&
                     (firstTimeTag == nextFirstTimeTag || nextIsSingleUntimedLine)
-                ) {
-                    translation = nextLine.first
-                    i++ // 跳过翻译行
-                }
+                if (!canUseAsTranslation) break
+                translationLines.add(nextLine.first)
+                nextIndex++
             }
+            val translation = joinTranslationLines(translationLines)
+            i = nextIndex - 1
             
             lyrics.add(lineLyric)
             lyricLines.add(LyricLine(lineTimes, translation, LyricAgentType.LEFT, ""))
@@ -338,16 +370,19 @@ object LyricParsingUtils {
                 continue
             }
             
-            var translation = ""
-            if (i + 1 < parsedLines.size) {
-                val nextLine = parsedLines[i + 1]
-                if (nextLine.isTranslation && 
-                    currentLine.lineTime.isNotEmpty() && 
-                    currentLine.lineTime == nextLine.lineTime) {
-                    translation = nextLine.lineText
-                    i++
-                }
+            val translationLines = mutableListOf<String>()
+            var nextIndex = i + 1
+            while (nextIndex < parsedLines.size) {
+                val nextLine = parsedLines[nextIndex]
+                val canUseAsTranslation = nextLine.isTranslation &&
+                    currentLine.lineTime.isNotEmpty() &&
+                    currentLine.lineTime == nextLine.lineTime
+                if (!canUseAsTranslation) break
+                translationLines.add(nextLine.lineText)
+                nextIndex++
             }
+            val translation = joinTranslationLines(translationLines)
+            i = nextIndex - 1
             
             lyrics.add(currentLine.lineText)
             lyricLines.add(LyricLine(currentLine.timeUnits, translation, currentLine.agentType, ""))
@@ -691,14 +726,13 @@ object LyricParsingUtils {
                 }
             }
             
-            val transSpanPattern = Regex("""<span[^>]*ttm:role="x-translation"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
-            val mainTransMatch = transSpanPattern.find(pContent)
-            if (mainTransMatch != null) {
-                mainTranslation = decodeXmlEntities(mainTransMatch.groupValues[1].trim())
-            }
+            val inlineMainTranslation = extractRoleSpanText(pContent, "x-translation")
+            val inlineMainRoman = extractRoleSpanText(pContent, "x-roman")
+            mainTranslation = mergeTranslationValues(inlineMainTranslation, inlineMainRoman)
             
             val mainContentWithoutTrans = pContent
                 .replace(Regex("""<span[^>]*ttm:role="x-translation"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("""<span[^>]*ttm:role="x-roman"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
                 .replace(bgMarker, "")
             
             val mainSpanPattern = Regex("<span[^>]*>(.*?)</span>", RegexOption.DOT_MATCHES_ALL)
@@ -821,13 +855,13 @@ object LyricParsingUtils {
             }
             
             if (bgContent.isNotEmpty()) {
-                val bgTransMatch = transSpanPattern.find(bgContent)
-                if (bgTransMatch != null) {
-                    bgTranslation = decodeXmlEntities(bgTransMatch.groupValues[1].trim())
-                }
+                val inlineBgTranslation = extractRoleSpanText(bgContent, "x-translation")
+                val inlineBgRoman = extractRoleSpanText(bgContent, "x-roman")
+                bgTranslation = mergeTranslationValues(inlineBgTranslation, inlineBgRoman)
                 
                 val bgContentWithoutTrans = bgContent
                     .replace(Regex("""<span[^>]*ttm:role="x-translation"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
+                    .replace(Regex("""<span[^>]*ttm:role="x-roman"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
                 
                 val bgSpanMatches = mainSpanPattern.findAll(bgContentWithoutTrans).toList()
                 val bgSpanFullMatches = spanFullPattern.findAll(bgContentWithoutTrans).toList()
@@ -938,7 +972,7 @@ object LyricParsingUtils {
             
             if (mainTimeUnits.isNotEmpty()) {
                 // 优先使用从顶部翻译标签解析出的翻译
-                val finalMainTranslation = mainTranslations[lineKey] ?: mainTranslation
+                val finalMainTranslation = mergeTranslationValues(mainTranslations[lineKey], mainTranslation)
                 lyricLines.add(LyricLine(
                     mainTimeUnits,
                     finalMainTranslation,
@@ -949,7 +983,7 @@ object LyricParsingUtils {
             
             if (bgTimeUnits.isNotEmpty()) {
                 // 优先使用从顶部翻译标签解析出的背景翻译
-                val finalBgTranslation = bgTranslations[lineKey] ?: bgTranslation
+                val finalBgTranslation = mergeTranslationValues(bgTranslations[lineKey], bgTranslation)
                 lyricLines.add(LyricLine(
                     bgTimeUnits,
                     finalBgTranslation,

@@ -25,6 +25,15 @@ object LyricSaveEmbedUtils {
             ?: fallback
     }
 
+    private fun splitTranslationLines(value: String): List<String> {
+        return value
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .split('\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
     fun buildWordLrc(lyricLines: List<LyricLine>): String {
         return buildWordLrcFromTimingPage(lyricLines)
     }
@@ -53,8 +62,11 @@ object LyricSaveEmbedUtils {
                 }
                 append("\n")
 
-                if (lyricLine.translation.isNotEmpty()) {
-                    append("[$startTime]${lyricLine.translation}\n")
+                val translationLines = splitTranslationLines(lyricLine.translation)
+                if (translationLines.isNotEmpty()) {
+                    translationLines.forEach { translationLine ->
+                        append("[$startTime]$translationLine\n")
+                    }
                 }
             }
         }

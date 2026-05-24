@@ -360,6 +360,15 @@ private fun isForeignGlowText(text: String): Boolean {
         trimmed.all { isLiftStaggerLetterChar(it) || isLiftStaggerPunctuationChar(it) }
 }
 
+private fun splitPreviewTranslationLines(value: String): List<String> {
+    return value
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+        .split('\n')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+}
+
 private fun isForeignLiftTokenText(text: String): Boolean {
     val trimmed = text.trim()
     return trimmed.isNotEmpty() &&
@@ -7457,18 +7466,25 @@ fun LyricLineView(
                         }
 
                         // 翻译
-                        if (showTranslation && line.translation.isNotEmpty()) {
-                            Text(
-                                text = line.translation,
-                                color = translationColor,
-                                fontSize = (lineFontSize.value * 0.6).sp,
-                                fontWeight = fontWeightValue,
-                                fontFamily = fontFamily,
+                        val translationLines = splitPreviewTranslationLines(line.translation)
+                        if (showTranslation && translationLines.isNotEmpty()) {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 4.dp),
-                                textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
-                            )
+                                horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
+                            ) {
+                                translationLines.forEach { translationLine ->
+                                    Text(
+                                        text = translationLine,
+                                        color = translationColor,
+                                        fontSize = (lineFontSize.value * 0.6).sp,
+                                        fontWeight = fontWeightValue,
+                                        fontFamily = fontFamily,
+                                        textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -7531,18 +7547,25 @@ fun LyricLineView(
                     }
                     
                     // 翻译
-                    if (showTranslation && line.translation.isNotEmpty()) {
-                        Text(
-                            text = line.translation,
-                            color = translationColor,
-                            fontSize = (lineFontSize.value * 0.6).sp,
-                            fontWeight = fontWeightValue,
-                            fontFamily = fontFamily,
+                    val translationLines = splitPreviewTranslationLines(line.translation)
+                    if (showTranslation && translationLines.isNotEmpty()) {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 4.dp),
-                            textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
-                        )
+                            horizontalAlignment = if (effectiveIsDuet) Alignment.End else Alignment.Start
+                        ) {
+                            translationLines.forEach { translationLine ->
+                                Text(
+                                    text = translationLine,
+                                    color = translationColor,
+                                    fontSize = (lineFontSize.value * 0.6).sp,
+                                    fontWeight = fontWeightValue,
+                                    fontFamily = fontFamily,
+                                    textAlign = if (effectiveIsDuet) TextAlign.End else TextAlign.Start
+                                )
+                            }
+                        }
                     }
                 }
             }

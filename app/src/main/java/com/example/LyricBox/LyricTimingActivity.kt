@@ -4440,12 +4440,30 @@ private fun AddTranslationBottomSheet(
     if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
         val currentLine = lyricLines[menuLineIndex]
         val lineText = currentLine.timeUnits.joinToString("") { it.text }
+        var translationRows by remember(showSheet, menuLineIndex, originalAddTranslationText) {
+            mutableStateOf(splitTranslationLines(addTranslationText).ifEmpty { listOf("") })
+        }
+
+        fun normalizedOriginalTranslation(): String {
+            return joinTranslationLines(splitTranslationLines(originalAddTranslationText))
+        }
+
+        fun normalizedCurrentTranslation(): String {
+            return joinTranslationLines(translationRows)
+        }
+
+        fun updateRows(newRows: List<String>) {
+            translationRows = newRows
+            onAddTranslationTextChange(joinTranslationLines(newRows))
+        }
+
+        val hasChanges = normalizedCurrentTranslation() != normalizedOriginalTranslation()
 
         androidx.compose.material3.ModalBottomSheet(
             modifier = Modifier.statusBarsPadding(),
             sheetMaxWidth = Dp.Unspecified,
             onDismissRequest = {
-                if (addTranslationText != originalAddTranslationText) {
+                if (hasChanges) {
                     onPendingDismissChange(true)
                     onShowCancelConfirmChange(true)
                 } else {
@@ -4486,12 +4504,50 @@ private fun AddTranslationBottomSheet(
                     }
                 }
                 Text(lineText, modifier = Modifier.padding(bottom = 8.dp))
-                ThemedTextField(
-                    value = addTranslationText,
-                    onValueChange = { onAddTranslationTextChange(it) },
-                    placeholder = "请输入翻译内容",
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    text = "翻译行",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 6.dp)
                 )
+                translationRows.forEachIndexed { rowIndex, rowText ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ThemedTextField(
+                            value = rowText,
+                            onValueChange = { newValue ->
+                                val newRows = translationRows.toMutableList()
+                                newRows[rowIndex] = newValue
+                                updateRows(newRows)
+                            },
+                            placeholder = "请输入翻译内容",
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (translationRows.size > 1) {
+                            IconButton(
+                                onClick = {
+                                    val newRows = translationRows.toMutableList()
+                                    newRows.removeAt(rowIndex)
+                                    updateRows(if (newRows.isEmpty()) listOf("") else newRows)
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "删除翻译行"
+                                )
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = { updateRows(translationRows + "") },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("新增翻译行")
+                }
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -4503,22 +4559,24 @@ private fun AddTranslationBottomSheet(
                                 val newLines = lyricLines.toMutableList()
                                 val line = newLines[menuLineIndex]
                                 val oldTranslation = line.translation
+                                val newTranslation = joinTranslationLines(translationRows)
                                 undoRedoManager.pushAction(
                                     UndoAction(
                                         actionType = UndoActionType.TRANSLATION_CHANGE,
                                         lineIndex = menuLineIndex,
                                         unitIndex = -1,
                                         oldValue = oldTranslation,
-                                        newValue = addTranslationText
+                                        newValue = newTranslation
                                     )
                                 )
                                 updateUndoRedoState()
-                                newLines[menuLineIndex] = line.copy(translation = addTranslationText)
+                                newLines[menuLineIndex] = line.copy(translation = newTranslation)
                                 onLyricLinesChange(newLines)
+                                onAddTranslationTextChange(newTranslation)
                             }
                             onDismissSheet()
                         },
-                        enabled = addTranslationText != originalAddTranslationText
+                        enabled = hasChanges
                     ) {
                         Text("确定")
                     }
@@ -5728,9 +5786,9 @@ fun LyricLineItem(
         }
         }
         
-        if (lyricLine.translation.isNotEmpty()) {
-            Text(
-                text = lyricLine.translation,
+        val translationLines = splitTranslationLines(lyricLine.translation)
+        if (translationLines.isNotEmpty()) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp, start = 4.dp)
@@ -5749,10 +5807,16 @@ fun LyricLineItem(
                             onUpdateJobCancel()
                             onEditTranslationRequested(lineIndex)
                         }
-                    ),
-                fontSize = 14.sp,
-                color = Color.Gray
-            )
+                    )
+            ) {
+                translationLines.forEach { translationLine ->
+                    Text(
+                        text = translationLine,
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
         }
     }
 }
@@ -12454,18 +12518,20 @@ fun parseSPLLrcLyrics(content: String): Pair<List<String>, List<LyricLine>> {
     while (i < parsedLines.size) {
         val (lineLyric, lineTimes, firstTimeTag) = parsedLines[i]
         
-        // 检查下一行是否是翻译
-        var translation = ""
-        if (i + 1 < parsedLines.size) {
-            val nextLine = parsedLines[i + 1]
+        val translationLines = mutableListOf<String>()
+        var nextIndex = i + 1
+        while (nextIndex < parsedLines.size) {
+            val nextLine = parsedLines[nextIndex]
             val nextFirstTimeTag = nextLine.third
-            
-            // 如果下一行的第一个时间戳与当前行相同，则认为是翻译
-            if (firstTimeTag.isNotEmpty() && firstTimeTag == nextFirstTimeTag && nextLine.second.size == 1) {
-                translation = nextLine.first
-                i++ // 跳过翻译行
-            }
+            val canUseAsTranslation = firstTimeTag.isNotEmpty() &&
+                firstTimeTag == nextFirstTimeTag &&
+                nextLine.second.size == 1
+            if (!canUseAsTranslation) break
+            translationLines.add(nextLine.first)
+            nextIndex++
         }
+        val translation = joinTranslationLines(translationLines)
+        i = nextIndex - 1
         
         lyrics.add(lineLyric)
         lyricLines.add(LyricLine(lineTimes, translation, LyricAgentType.LEFT, ""))
@@ -12603,16 +12669,19 @@ fun parseElrcLyrics(content: String): Pair<List<String>, List<LyricLine>> {
             continue
         }
         
-        var translation = ""
-        if (i + 1 < parsedLines.size) {
-            val nextLine = parsedLines[i + 1]
-            if (nextLine.isTranslation && 
-                currentLine.lineTime.isNotEmpty() && 
-                currentLine.lineTime == nextLine.lineTime) {
-                translation = nextLine.lineText
-                i++
-            }
+        val translationLines = mutableListOf<String>()
+        var nextIndex = i + 1
+        while (nextIndex < parsedLines.size) {
+            val nextLine = parsedLines[nextIndex]
+            val canUseAsTranslation = nextLine.isTranslation &&
+                currentLine.lineTime.isNotEmpty() &&
+                currentLine.lineTime == nextLine.lineTime
+            if (!canUseAsTranslation) break
+            translationLines.add(nextLine.lineText)
+            nextIndex++
         }
+        val translation = joinTranslationLines(translationLines)
+        i = nextIndex - 1
         
         lyrics.add(currentLine.lineText)
         lyricLines.add(LyricLine(currentLine.timeUnits, translation, currentLine.agentType, ""))
@@ -12636,6 +12705,34 @@ private fun firstExportStartTime(lyricLine: LyricLine, fallback: String): String
     return lyricLine.timeUnits.firstOrNull { it.text.isNotBlank() }?.startTime
         ?: lyricLine.timeUnits.firstOrNull()?.startTime
         ?: fallback
+}
+
+private fun splitTranslationLines(value: String): List<String> {
+    return value
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+        .split('\n')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+}
+
+private fun joinTranslationLines(lines: List<String>): String {
+    return lines
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString("\n")
+}
+
+private fun mergeTranslationValues(vararg values: String?): String {
+    val mergedLines = mutableListOf<String>()
+    values.forEach { value ->
+        splitTranslationLines(value.orEmpty()).forEach { line ->
+            if (line !in mergedLines) {
+                mergedLines.add(line)
+            }
+        }
+    }
+    return joinTranslationLines(mergedLines)
 }
 
 fun toEnhancedLrc(lyricLines: List<LyricLine>, showDuet: Boolean): String {
@@ -12684,8 +12781,11 @@ fun toEnhancedLrc(lyricLines: List<LyricLine>, showDuet: Boolean): String {
             sb.append("\n")
         }
         
-        if (lyricLine.translation.isNotEmpty()) {
-            sb.append("[$lineTime]${lyricLine.translation}\n")
+        val translationLines = splitTranslationLines(lyricLine.translation)
+        if (translationLines.isNotEmpty()) {
+            translationLines.forEach { translationLine ->
+                sb.append("[$lineTime]$translationLine\n")
+            }
         }
     }
     
@@ -13021,14 +13121,18 @@ fun parseTtmlLyrics(content: String): List<LyricLine> {
             }
         }
         
-        val transSpanPattern = Regex("""<span[^>]*ttm:role="x-translation"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
-        val mainTransMatch = transSpanPattern.find(pContent)
-        if (mainTransMatch != null) {
-            mainTranslation = mainTransMatch.groupValues[1].trim()
-        }
+        val mainTranslationMatch = Regex("""<span[^>]*ttm:role="x-translation"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
+            .find(pContent)
+        val mainRomanMatch = Regex("""<span[^>]*ttm:role="x-roman"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
+            .find(pContent)
+        mainTranslation = mergeTranslationValues(
+            mainTranslationMatch?.groupValues?.get(1)?.trim(),
+            mainRomanMatch?.groupValues?.get(1)?.trim()
+        )
         
         val mainContentWithoutTrans = pContent
             .replace(Regex("""<span[^>]*ttm:role="x-translation"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("""<span[^>]*ttm:role="x-roman"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
             .replace(bgMarker, "")
         
         val mainSpanPattern = Regex("<span[^>]*>(.*?)</span>", RegexOption.DOT_MATCHES_ALL)
@@ -13138,13 +13242,18 @@ fun parseTtmlLyrics(content: String): List<LyricLine> {
         }
         
         if (bgContent.isNotEmpty()) {
-            val bgTransMatch = transSpanPattern.find(bgContent)
-            if (bgTransMatch != null) {
-                bgTranslation = bgTransMatch.groupValues[1].trim()
-            }
+            val bgTranslationMatch = Regex("""<span[^>]*ttm:role="x-translation"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
+                .find(bgContent)
+            val bgRomanMatch = Regex("""<span[^>]*ttm:role="x-roman"[^>]*>(.*?)</span>""", RegexOption.DOT_MATCHES_ALL)
+                .find(bgContent)
+            bgTranslation = mergeTranslationValues(
+                bgTranslationMatch?.groupValues?.get(1)?.trim(),
+                bgRomanMatch?.groupValues?.get(1)?.trim()
+            )
             
             val bgContentWithoutTrans = bgContent
                 .replace(Regex("""<span[^>]*ttm:role="x-translation"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("""<span[^>]*ttm:role="x-roman"[^>]*>.*?</span>""", RegexOption.DOT_MATCHES_ALL), "")
             
             val bgSpanMatches = mainSpanPattern.findAll(bgContentWithoutTrans).toList()
             val bgSpanFullMatches = spanFullPattern.findAll(bgContentWithoutTrans).toList()
@@ -13240,7 +13349,7 @@ fun parseTtmlLyrics(content: String): List<LyricLine> {
         
         if (mainTimeUnits.isNotEmpty()) {
             // 优先使用从顶部翻译标签解析出的翻译
-            val finalMainTranslation = mainTranslations[lineKey] ?: mainTranslation
+            val finalMainTranslation = mergeTranslationValues(mainTranslations[lineKey], mainTranslation)
             lyricLines.add(LyricLine(
                 mainTimeUnits,
                 finalMainTranslation,
@@ -13251,7 +13360,7 @@ fun parseTtmlLyrics(content: String): List<LyricLine> {
         
         if (bgTimeUnits.isNotEmpty()) {
             // 优先使用从顶部翻译标签解析出的背景翻译
-            val finalBgTranslation = bgTranslations[lineKey] ?: bgTranslation
+            val finalBgTranslation = mergeTranslationValues(bgTranslations[lineKey], bgTranslation)
             lyricLines.add(LyricLine(
                 bgTimeUnits,
                 finalBgTranslation,
@@ -13634,12 +13743,20 @@ fun buildTtmlContent(lyricLines: List<LyricLine>, creators: List<String> = empty
                     }
                 }
                 
-                if (nextLine.translation.isNotEmpty()) {
-                    val escapedTrans = nextLine.translation
+                val bgTranslationLines = splitTranslationLines(nextLine.translation)
+                if (bgTranslationLines.isNotEmpty()) {
+                    val escapedTranslation = bgTranslationLines[0]
                         .replace("&", "&amp;")
                         .replace("<", "&lt;")
                         .replace(">", "&gt;")
-                    sb.append("<span ttm:role=\"x-translation\" xml:lang=\"zh-CN\">$escapedTrans</span>")
+                    sb.append("<span ttm:role=\"x-translation\" xml:lang=\"zh-CN\">$escapedTranslation</span>")
+                    if (bgTranslationLines.size > 1) {
+                        val escapedRoman = bgTranslationLines[1]
+                            .replace("&", "&amp;")
+                            .replace("<", "&lt;")
+                            .replace(">", "&gt;")
+                        sb.append("<span ttm:role=\"x-roman\">$escapedRoman</span>")
+                    }
                 }
                 
                 sb.append("</span>")
@@ -13647,12 +13764,20 @@ fun buildTtmlContent(lyricLines: List<LyricLine>, creators: List<String> = empty
             i++
         }
         
-        if (lyricLine.translation.isNotEmpty()) {
-            val escapedTrans = lyricLine.translation
+        val mainTranslationLines = splitTranslationLines(lyricLine.translation)
+        if (mainTranslationLines.isNotEmpty()) {
+            val escapedTranslation = mainTranslationLines[0]
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
-            sb.append("<span ttm:role=\"x-translation\" xml:lang=\"zh-CN\">$escapedTrans</span>")
+            sb.append("<span ttm:role=\"x-translation\" xml:lang=\"zh-CN\">$escapedTranslation</span>")
+            if (mainTranslationLines.size > 1) {
+                val escapedRoman = mainTranslationLines[1]
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                sb.append("<span ttm:role=\"x-roman\">$escapedRoman</span>")
+            }
         }
         
         sb.appendLine("</p>")
@@ -13950,9 +14075,12 @@ fun buildSavedLyricFromLines(lyricLines: List<LyricLine>): String {
         
         sb.append("\n")
         
-        if (lyricLine.translation.isNotEmpty()) {
+        val translationLines = splitTranslationLines(lyricLine.translation)
+        if (translationLines.isNotEmpty()) {
             val firstStartTime = if (timeUnits.isNotEmpty()) timeUnits[0].startTime else "00:00.000"
-            sb.append("[$firstStartTime]${lyricLine.translation}\n")
+            translationLines.forEach { translationLine ->
+                sb.append("[$firstStartTime]$translationLine\n")
+            }
         }
     }
     
@@ -14291,13 +14419,17 @@ fun PreviewLyricLineView(
             )
         }
         
-        if (showTranslation && line.translation.isNotEmpty()) {
-            Text(
-                text = line.translation,
-                color = if (isDarkTheme) Color(0xFFB0B0B0) else Color(0xFF666666),
-                fontSize = fontSize * 0.7f,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+        val translationLines = splitTranslationLines(line.translation)
+        if (showTranslation && translationLines.isNotEmpty()) {
+            Column(modifier = Modifier.padding(top = 4.dp)) {
+                translationLines.forEach { translationLine ->
+                    Text(
+                        text = translationLine,
+                        color = if (isDarkTheme) Color(0xFFB0B0B0) else Color(0xFF666666),
+                        fontSize = fontSize * 0.7f
+                    )
+                }
+            }
         }
     }
 }
