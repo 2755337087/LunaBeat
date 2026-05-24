@@ -45,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -61,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import com.example.LyricBox.MusicPlaybackController
 import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR
 import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_COVER_COLOR
+import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_REALTIME_BLUR
 import com.example.LyricBox.MINI_PLAYER_BACKGROUND_STYLE_SOLID
 import com.example.LyricBox.buildCoverThemeCacheKey
 import com.example.LyricBox.colorLuminance
@@ -68,6 +68,11 @@ import com.example.LyricBox.CoverThemeColorPair
 import com.example.LyricBox.normalizeCoverThemeBackground
 import com.example.LyricBox.resolveCachedCoverThemePair
 import com.example.LyricBox.utils.AudioMetadataReader
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -88,6 +93,7 @@ fun GlobalMiniPlayerBar(
     onCoverBoundsChanged: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
     onCoverBitmapChanged: ((Bitmap?) -> Unit)? = null,
     backgroundStyle: Int = MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR,
+    backdrop: Backdrop? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -195,7 +201,6 @@ fun GlobalMiniPlayerBar(
         animationSpec = tween(durationMillis = 360),
         label = "globalMiniPlayerPanelColor"
     )
-    val onPanelColor = if (colorLuminance(panelColor) > 0.52f) Color(0xFF151515) else Color.White
     val normalizedExpandProgress = expandProgress.coerceIn(0f, 1f)
     val coverScale = 1f + (1.9f - 1f) * normalizedExpandProgress
     val coverCornerRadius = lerp(12.dp, 4.dp, normalizedExpandProgress)
@@ -203,10 +208,41 @@ fun GlobalMiniPlayerBar(
     val normalizedCoverAlpha = coverAlpha.coerceIn(0f, 1f)
     val blurredBackgroundImage = remember(blurredPanelBitmap) { blurredPanelBitmap?.asImageBitmap() }
     val shouldDrawBlurBackground = backgroundStyle == MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR
+    val shouldDrawRealtimeBlurBackground = backgroundStyle == MINI_PLAYER_BACKGROUND_STYLE_REALTIME_BLUR
+    val panelShape = RoundedCornerShape(18.dp)
+    val onPanelColor = if (shouldDrawRealtimeBlurBackground) {
+        if (isDarkTheme) Color.White else Color(0xFF151515)
+    } else if (colorLuminance(panelColor) > 0.52f) {
+        Color(0xFF151515)
+    } else {
+        Color.White
+    }
     val blurredBackgroundScrim = if (isDarkTheme) {
         Color.Black.copy(alpha = 0.56f)
     } else {
         Color.White.copy(alpha = 0.44f)
+    }
+    val realtimeBlurMaskColor = if (isDarkTheme) {
+        Color.Black.copy(alpha = 0.44f)
+    } else {
+        Color.White.copy(alpha = 0.46f)
+    }
+    val realtimeBlurDepthOverlay = if (isDarkTheme) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.05f),
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.10f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.12f),
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.04f)
+            )
+        )
     }
     val blurredBackgroundDepthOverlay = if (isDarkTheme) {
         Brush.verticalGradient(
@@ -229,8 +265,34 @@ fun GlobalMiniPlayerBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(panelColor)
+            .clip(panelShape)
+            .then(
+                if (shouldDrawRealtimeBlurBackground && backdrop != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { panelShape },
+                        effects = {
+                            blur(56f.dp.toPx())
+                        },
+                        highlight = {
+                            Highlight.Default.copy(alpha = if (isDarkTheme) 0.16f else 0.26f)
+                        },
+                        shadow = {
+                            Shadow.Default.copy(
+                                color = Color.Black.copy(alpha = if (isDarkTheme) 0.30f else 0.12f)
+                            )
+                        },
+                        onDrawSurface = {
+                            drawRect(realtimeBlurMaskColor)
+                            drawRect(brush = realtimeBlurDepthOverlay)
+                        }
+                    )
+                } else if (shouldDrawRealtimeBlurBackground) {
+                    Modifier.background(realtimeBlurMaskColor, panelShape)
+                } else {
+                    Modifier.background(panelColor, panelShape)
+                }
+            )
             .drawWithContent {
                 val backgroundImage = blurredBackgroundImage
                 if (shouldDrawBlurBackground && backgroundImage != null && size.width > 1f && size.height > 1f) {

@@ -32,6 +32,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -65,6 +66,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -100,6 +102,7 @@ import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -110,6 +113,7 @@ import com.example.LyricBox.ui.components.AutoMarqueeText
 import com.example.LyricBox.ui.components.CustomDropdownMenu
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
+import com.example.LyricBox.ui.components.SuperIslandGlowProgressBar
 import com.example.LyricBox.ui.modifier.springPlacement
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.example.LyricBox.utils.AudioMetadataReader
@@ -1257,6 +1261,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_LYRIC_DISPLAY_SELECTED = "lyric_display_selected"
         const val KEY_LYRIC_DISPLAY_POSITION = "lyric_display_position"
         const val KEY_LYRIC_DISPLAY_MODE = "lyric_display_mode"
+        const val KEY_PLAYBACK_CONTROL_STYLE = "playback_control_style"
         const val DEFAULT_FONT_SIZE = 32f
         const val DEFAULT_SHOW_TRANSLATION = true
         const val DEFAULT_WORD_LIFT_DISTANCE_DP = 2f
@@ -1278,6 +1283,9 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_SCREEN_KEEP_ON = true
         const val DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS = false
         const val DEFAULT_LYRIC_DISPLAY_SELECTED = false
+        const val PLAYBACK_CONTROL_STYLE_1 = 1
+        const val PLAYBACK_CONTROL_STYLE_2 = 2
+        const val DEFAULT_PLAYBACK_CONTROL_STYLE = PLAYBACK_CONTROL_STYLE_1
         const val LYRIC_DISPLAY_MODE_DEFAULT = 0
         const val LYRIC_DISPLAY_MODE_FORCE_WORD = 1
         const val LYRIC_DISPLAY_MODE_FORCE_LINE = 2
@@ -2407,7 +2415,7 @@ private fun findNextLyricRenderReferenceIndex(
     return null
 }
 
-private fun resolveLinePlayedVisualStartMs(
+private fun resolveMainLinePlayedVisualStartMs(
     lyricLines: List<NewPreviewLyricLine>,
     currentIndex: Int
 ): Long? {
@@ -2439,6 +2447,22 @@ private fun resolveLinePlayedVisualStartMs(
 
     val nextAutoScrollTriggerMs = nextMain.begin - LYRIC_PLAYED_VISUAL_DELAY_AUTOSCROLL_LEAD_MS
     return max(currentEnd, nextAutoScrollTriggerMs)
+}
+
+private fun resolveLinePlayedVisualStartMs(
+    lyricLines: List<NewPreviewLyricLine>,
+    currentIndex: Int
+): Long? {
+    val currentLine = lyricLines.getOrNull(currentIndex) ?: return null
+    if (currentLine.isInterlude) return null
+    if (currentLine.isBackground) {
+        val (_, _, mainLineIndex) = findBackgroundAssociatedInfo(lyricLines, currentIndex)
+        if (mainLineIndex != null) {
+            return resolveMainLinePlayedVisualStartMs(lyricLines, mainLineIndex)
+        }
+        return null
+    }
+    return resolveMainLinePlayedVisualStartMs(lyricLines, currentIndex)
 }
 
 private fun resolveDefaultLyricLineByLineModes(
@@ -3352,6 +3376,19 @@ fun LyricPreviewScreen(
             )
         )
     }
+    var playbackControlStyle by remember {
+        mutableIntStateOf(
+            when (
+                prefs.getInt(
+                    LyricPreviewActivity.KEY_PLAYBACK_CONTROL_STYLE,
+                    LyricPreviewActivity.DEFAULT_PLAYBACK_CONTROL_STYLE
+                )
+            ) {
+                LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 -> LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2
+                else -> LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_1
+            }
+        )
+    }
     var lyricDisplayPosition by remember {
         mutableIntStateOf(
             prefs.getInt(
@@ -3875,10 +3912,18 @@ fun LyricPreviewScreen(
     val landscapeOuterHorizontalPadding = 16.dp
     val landscapePaneSpacing = 12.dp
     val landscapeRightPaneHorizontalPadding = 16.dp
-    val sidePanelWidth = (
+    val landscapeContentWidth = (
         (screenConfig.screenWidthDp.dp - (landscapeOuterHorizontalPadding * 2) - landscapePaneSpacing)
             .coerceAtLeast(0.dp)
-    ) / 2f
+    )
+    val landscapeLeftPanelWidth = if (isLargeScreenDevice) {
+        landscapeContentWidth * (2f / 5f)
+    } else {
+        landscapeContentWidth / 2f
+    }
+    val landscapeRightPanelWidth = (landscapeContentWidth - landscapeLeftPanelWidth)
+        .coerceAtLeast(0.dp)
+    val portraitLyricHorizontalPadding = 16.dp
     val landscapeSafeAreaInsets = WindowInsets.safeDrawing.only(
         WindowInsetsSides.Horizontal + WindowInsetsSides.Vertical
     )
@@ -5192,16 +5237,16 @@ fun LyricPreviewScreen(
                 .padding(
                     start = if (useSidePanelLayout) {
                         landscapeOuterHorizontalPadding +
-                            sidePanelWidth +
+                            landscapeLeftPanelWidth +
                             landscapePaneSpacing +
                             landscapeRightPaneHorizontalPadding
                     } else {
-                        16.dp
+                        portraitLyricHorizontalPadding
                     },
                     end = if (useSidePanelLayout) {
                         landscapeRightPaneHorizontalPadding
                     } else {
-                        16.dp
+                        portraitLyricHorizontalPadding
                     }
                 )
             ) {
@@ -5369,7 +5414,12 @@ fun LyricPreviewScreen(
                                 lyricLines = processedLyricLines,
                                 currentIndex = index
                             )
-                            val disablePlayedTransparencyForLine = index == lastPrimaryLyricIndex
+                            val disablePlayedTransparencyForLine =
+                                index == lastPrimaryLyricIndex ||
+                                    (
+                                        line.isBackground &&
+                                            findBackgroundAssociatedInfo(processedLyricLines, index).third == lastPrimaryLyricIndex
+                                        )
                             
                             // 查找关联的主歌词和位置信息
                             val (mainLine, isAboveMain, _) = if (line.isBackground) {
@@ -5659,7 +5709,9 @@ fun LyricPreviewScreen(
                 Column(
                     modifier = panelModifier
                         .fillMaxWidth()
-                        .padding(horizontal = if (useSidePanelLayout) 0.dp else 18.dp)
+                        .padding(
+                            horizontal = if (useSidePanelLayout) 0.dp else portraitLyricHorizontalPadding
+                        )
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -5788,6 +5840,7 @@ fun LyricPreviewScreen(
                         sharedTransitionScope = sharedUiTransitionScope,
                         enableSharedTrackInfoTransition = false,
                         enableSharedMenuTransition = false,
+                        controlStyle = playbackControlStyle,
                         panelCornerRadius = if (useDynamicCoverChrome) 24.dp else 0.dp,
                         modifier = if (fillPanelHeight) {
                             Modifier.fillMaxHeight()
@@ -5808,7 +5861,7 @@ fun LyricPreviewScreen(
                         landscapeTemporaryControlsVisible
                 val largeLeftPanelShift by animateDpAsState(
                     targetValue = if (isLargeScreenDevice && !landscapeLyricDisplaySelected) {
-                        (sidePanelWidth + landscapePaneSpacing) / 2f
+                        (landscapeRightPanelWidth + landscapePaneSpacing) / 2f
                     } else {
                         0.dp
                     },
@@ -5824,7 +5877,7 @@ fun LyricPreviewScreen(
                 ) {
                     Column(
                         modifier = Modifier
-                            .width(sidePanelWidth)
+                            .width(landscapeLeftPanelWidth)
                             .fillMaxHeight()
                             .graphicsLayer {
                                 if (isLargeScreenDevice) {
@@ -5984,7 +6037,7 @@ fun LyricPreviewScreen(
                     }
                     Column(
                         modifier = Modifier
-                            .width(sidePanelWidth)
+                            .width(landscapeRightPanelWidth)
                             .fillMaxHeight()
                             .background(
                                 if (isLargeScreenDevice || landscapeLyricDisplaySelected) {
@@ -6307,7 +6360,7 @@ fun LyricPreviewScreen(
                     .windowInsetsPadding(landscapeSafeAreaInsets)
                     .padding(
                         start = landscapeOuterHorizontalPadding +
-                            sidePanelWidth +
+                            landscapeLeftPanelWidth +
                             landscapePaneSpacing +
                             landscapeRightPaneHorizontalPadding,
                         end = landscapeRightPaneHorizontalPadding
@@ -8589,6 +8642,7 @@ fun PlaybackControls(
     sharedTrackInfoKey: Any = "lyricPreviewTrackInfo",
     enableSharedMenuTransition: Boolean = false,
     sharedMenuIconKey: Any = "lyricPreviewMenuIcon",
+    controlStyle: Int = LyricPreviewActivity.DEFAULT_PLAYBACK_CONTROL_STYLE,
     panelCornerRadius: Dp = 24.dp,
     modifier: Modifier = Modifier
 ) {
@@ -8607,6 +8661,7 @@ fun PlaybackControls(
     var draggingProgress by remember { mutableStateOf<Float?>(null) }
     var isSeekDragging by remember { mutableStateOf(false) }
     val effectiveSliderProgress = draggingProgress ?: sliderProgress
+    val useMinimalButtonStyle = controlStyle == LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2
     
     val controlBackground = backgroundColor ?: MaterialTheme.colorScheme.surface
     val controlContainer = containerColor ?: controlBackground
@@ -8629,6 +8684,8 @@ fun PlaybackControls(
     val density = LocalDensity.current
     var trackInfoMenuButtonPosition by remember { mutableStateOf<MenuAnchorPosition?>(null) }
     
+    val controlsVerticalSpacing = if (useMinimalButtonStyle) 6.dp else 12.dp
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -8638,9 +8695,12 @@ fun PlaybackControls(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {}
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(
+                horizontal = 16.dp,
+                vertical = if (useMinimalButtonStyle) 10.dp else 12.dp
+            )
             .navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
+        verticalArrangement = Arrangement.spacedBy(controlsVerticalSpacing, Alignment.CenterVertically)
     ) {
         @Composable
         fun TrackInfoRow(trackInfoVisibilityScope: AnimatedVisibilityScope) {
@@ -8659,6 +8719,7 @@ fun PlaybackControls(
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .padding(start = if (useMinimalButtonStyle) 12.dp else 0.dp)
                         .then(
                             if (enableSharedTrackInfoTransition) {
                                 Modifier.lyricPreviewSharedElement(
@@ -8751,72 +8812,190 @@ fun PlaybackControls(
         }
 
         // 进度条（上行）
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(32.dp)
-                .padding(vertical = 6.dp)
-        ) {
-            // 计算显示用的进度，用于LinearProgressIndicator
-            val displayProgress = if (safeDuration > 0L) {
-                (clampedCurrentTime.toFloat() / safeDuration.toFloat())
-                    .takeIf { it.isFinite() }
-                    ?.coerceIn(0f, 1f)
-                    ?: 0f
+        if (useMinimalButtonStyle) {
+            val sliderTrackTint = if (isDarkTheme) {
+                // 深色主题下未播放轨道使用中灰色，避免和高亮进度同为白色导致对比不足
+                android.graphics.Color.argb(150, 112, 112, 112)
             } else {
-                0f
+                android.graphics.Color.argb(84, 24, 24, 24)
             }
-            LinearProgressIndicator(
-                progress = { displayProgress },
-                modifier = Modifier.fillMaxSize(),
-                color = progressColor,
-                trackColor = progressTrackColor
-            )
-            
-            // 可拖动的进度条
-            Slider(
-                value = effectiveSliderProgress,
-                onValueChange = { newProgress ->
-                    val safeProgress = newProgress
+            val sliderProgressTint = if (isDarkTheme) {
+                android.graphics.Color.argb(240, 255, 255, 255)
+            } else {
+                android.graphics.Color.argb(224, 18, 18, 18)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+            ) {
+                AndroidView(
+                    factory = { viewContext ->
+                        SuperIslandGlowProgressBar(viewContext).apply {
+                            shaderMode = SuperIslandGlowProgressBar.ShaderMode.HIGH_END
+                            headGlowAlpha = 1f
+                            setStyleColors(
+                                trackColor = sliderTrackTint,
+                                progressColor = sliderProgressTint
+                            )
+                        }
+                    },
+                    update = { progressBar ->
+                        progressBar.progressFraction = effectiveSliderProgress
+                        progressBar.setStyleColors(
+                            trackColor = sliderTrackTint,
+                            progressColor = sliderProgressTint
+                        )
+                    },
+                    modifier = Modifier
+                        .matchParentSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(safeDuration, seekSpan) {
+                            val horizontalPaddingPx = with(density) { 12.dp.toPx() }
+                            fun progressAt(x: Float): Float {
+                                val widthPx = size.width.toFloat().coerceAtLeast(1f)
+                                val usableWidth = (widthPx - horizontalPaddingPx * 2f).coerceAtLeast(1f)
+                                return ((x - horizontalPaddingPx) / usableWidth).coerceIn(0f, 1f)
+                            }
+                            detectTapGestures { offset ->
+                                val tappedProgress = progressAt(offset.x)
+                                val targetPosition = if (seekSpan > 0L) {
+                                    seekStart + (tappedProgress * seekSpan.toFloat()).toLong()
+                                } else {
+                                    seekStart
+                                }
+                                onSeek(targetPosition.coerceIn(0L, safeDuration))
+                            }
+                        }
+                        .pointerInput(safeDuration, seekSpan) {
+                            val horizontalPaddingPx = with(density) { 12.dp.toPx() }
+                            fun progressAt(x: Float): Float {
+                                val widthPx = size.width.toFloat().coerceAtLeast(1f)
+                                val usableWidth = (widthPx - horizontalPaddingPx * 2f).coerceAtLeast(1f)
+                                return ((x - horizontalPaddingPx) / usableWidth).coerceIn(0f, 1f)
+                            }
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    if (!isSeekDragging) {
+                                        isSeekDragging = true
+                                        onSeekDragStateChange(true)
+                                    }
+                                    val startProgress = progressAt(offset.x)
+                                    draggingProgress = startProgress
+                                    val previewPosition = if (seekSpan > 0L) {
+                                        seekStart + (startProgress * seekSpan.toFloat()).toLong()
+                                    } else {
+                                        seekStart
+                                    }
+                                    onSeekPreviewChange(previewPosition.coerceIn(0L, safeDuration))
+                                },
+                                onDragEnd = {
+                                    val finalProgress = draggingProgress
+                                        ?.takeIf { it.isFinite() }
+                                        ?.coerceIn(0f, 1f)
+                                        ?: sliderProgress
+                                    val finalPosition = if (seekSpan > 0L) {
+                                        seekStart + (finalProgress * seekSpan.toFloat()).toLong()
+                                    } else {
+                                        seekStart
+                                    }
+                                    draggingProgress = null
+                                    onSeek(finalPosition.coerceIn(0L, safeDuration))
+                                    if (isSeekDragging) {
+                                        isSeekDragging = false
+                                        onSeekDragStateChange(false)
+                                    }
+                                },
+                                onDragCancel = {
+                                    draggingProgress = null
+                                    if (isSeekDragging) {
+                                        isSeekDragging = false
+                                        onSeekDragStateChange(false)
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    val dragProgress = progressAt(change.position.x)
+                                    draggingProgress = dragProgress
+                                    val previewPosition = if (seekSpan > 0L) {
+                                        seekStart + (dragProgress * seekSpan.toFloat()).toLong()
+                                    } else {
+                                        seekStart
+                                    }
+                                    onSeekPreviewChange(previewPosition.coerceIn(0L, safeDuration))
+                                }
+                            )
+                        }
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(32.dp)
+                    .padding(vertical = 6.dp)
+            ) {
+                val displayProgress = if (safeDuration > 0L) {
+                    (clampedCurrentTime.toFloat() / safeDuration.toFloat())
                         .takeIf { it.isFinite() }
                         ?.coerceIn(0f, 1f)
                         ?: 0f
-                    if (!isSeekDragging) {
-                        isSeekDragging = true
-                        onSeekDragStateChange(true)
-                    }
-                    draggingProgress = safeProgress
-                    val newPosition = if (seekSpan > 0L) {
-                        seekStart + (safeProgress * seekSpan.toFloat()).toLong()
-                    } else {
-                        seekStart
-                    }
-                    onSeekPreviewChange(newPosition.coerceIn(0L, safeDuration))
-                },
-                onValueChangeFinished = {
-                    val finalProgress = draggingProgress
-                        ?.takeIf { it.isFinite() }
-                        ?.coerceIn(0f, 1f)
-                        ?: sliderProgress
-                    val finalPosition = if (seekSpan > 0L) {
-                        seekStart + (finalProgress * seekSpan.toFloat()).toLong()
-                    } else {
-                        seekStart
-                    }
-                    draggingProgress = null
-                    onSeek(finalPosition.coerceIn(0L, safeDuration))
-                    if (isSeekDragging) {
-                        isSeekDragging = false
-                        onSeekDragStateChange(false)
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.Transparent,
-                    activeTrackColor = Color.Transparent,
-                    inactiveTrackColor = Color.Transparent
+                } else {
+                    0f
+                }
+                LinearProgressIndicator(
+                    progress = { displayProgress },
+                    modifier = Modifier.fillMaxSize(),
+                    color = progressColor,
+                    trackColor = progressTrackColor
                 )
-            )
+
+                Slider(
+                    value = effectiveSliderProgress,
+                    onValueChange = { newProgress ->
+                        val safeProgress = newProgress
+                            .takeIf { it.isFinite() }
+                            ?.coerceIn(0f, 1f)
+                            ?: 0f
+                        if (!isSeekDragging) {
+                            isSeekDragging = true
+                            onSeekDragStateChange(true)
+                        }
+                        draggingProgress = safeProgress
+                        val newPosition = if (seekSpan > 0L) {
+                            seekStart + (safeProgress * seekSpan.toFloat()).toLong()
+                        } else {
+                            seekStart
+                        }
+                        onSeekPreviewChange(newPosition.coerceIn(0L, safeDuration))
+                    },
+                    onValueChangeFinished = {
+                        val finalProgress = draggingProgress
+                            ?.takeIf { it.isFinite() }
+                            ?.coerceIn(0f, 1f)
+                            ?: sliderProgress
+                        val finalPosition = if (seekSpan > 0L) {
+                            seekStart + (finalProgress * seekSpan.toFloat()).toLong()
+                        } else {
+                            seekStart
+                        }
+                        draggingProgress = null
+                        onSeek(finalPosition.coerceIn(0L, safeDuration))
+                        if (isSeekDragging) {
+                            isSeekDragging = false
+                            onSeekDragStateChange(false)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.Transparent,
+                        activeTrackColor = Color.Transparent,
+                        inactiveTrackColor = Color.Transparent
+                    )
+                )
+            }
         }
 
         // 控制按钮（下行）
@@ -8832,71 +9011,143 @@ fun PlaybackControls(
             checkedContainerColor = controlAccentColor,
             checkedContentColor = onControlAccentColor
         )
-        ButtonGroup(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
-        ) {
-            ToggleButton(
-                checked = false,
-                onCheckedChange = {
-                    if (onSkipPreviousClick != null) {
-                        onSkipPreviousClick()
-                    } else {
-                        val target = (clampedCurrentTime - seekTimeMs).coerceAtLeast(0L)
-                        onSeek(target)
-                    }
-                },
-                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+        if (useMinimalButtonStyle) {
+            val sideButtonSize = 96.dp
+            val playButtonSize = 108.dp
+            val sideIconSize = 48.dp
+            val playIconSize = 56.dp
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize(),
-                colors = sideButtonColors
+                    .fillMaxWidth()
+                    .height(playButtonSize),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.SkipPrevious,
-                    contentDescription = if (onSkipPreviousClick != null) "上一首" else "后退${seekTimeSeconds}秒"
-                )
+                IconButton(
+                    onClick = {
+                        if (onSkipPreviousClick != null) {
+                            onSkipPreviousClick()
+                        } else {
+                            val target = (clampedCurrentTime - seekTimeMs).coerceAtLeast(0L)
+                            onSeek(target)
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .size(sideButtonSize)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipPrevious,
+                        contentDescription = if (onSkipPreviousClick != null) "上一首" else "后退${seekTimeSeconds}秒",
+                        tint = controlAccentColor,
+                        modifier = Modifier.size(sideIconSize)
+                    )
+                }
+                IconButton(
+                    onClick = { onPlayPauseClick() },
+                    modifier = Modifier
+                        .weight(1.15f)
+                        .size(playButtonSize)
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
+                        ),
+                        contentDescription = if (isPlaying) "暂停" else "播放",
+                        tint = controlAccentColor,
+                        modifier = Modifier.size(playIconSize)
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        if (!isSkipNextEnabled) return@IconButton
+                        if (onSkipNextClick != null) {
+                            onSkipNextClick()
+                        } else {
+                            val target = (clampedCurrentTime + seekTimeMs).coerceAtMost(safeDuration)
+                            onSeek(target)
+                        }
+                    },
+                    enabled = isSkipNextEnabled,
+                    modifier = Modifier
+                        .weight(1f)
+                        .size(sideButtonSize)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒",
+                        tint = controlAccentColor,
+                        modifier = Modifier.size(sideIconSize)
+                    )
+                }
             }
-            ToggleButton(
-                checked = isPlaying,
-                onCheckedChange = { onPlayPauseClick() },
-                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+        } else {
+            ButtonGroup(
                 modifier = Modifier
-                    .weight(1.15f)
-                    .fillMaxSize(),
-                colors = middleButtonColors
+                    .fillMaxWidth()
+                    .height(48.dp),
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
             ) {
-                Icon(
-                    painter = painterResource(
-                        id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
-                    ),
-                    contentDescription = if (isPlaying) "暂停" else "播放"
-                )
-            }
-            ToggleButton(
-                checked = false,
-                onCheckedChange = {
-                    if (!isSkipNextEnabled) return@ToggleButton
-                    if (onSkipNextClick != null) {
-                        onSkipNextClick()
-                    } else {
-                        val target = (clampedCurrentTime + seekTimeMs).coerceAtMost(safeDuration)
-                        onSeek(target)
-                    }
-                },
-                enabled = isSkipNextEnabled,
-                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize(),
-                colors = sideButtonColors
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒"
-                )
+                ToggleButton(
+                    checked = false,
+                    onCheckedChange = {
+                        if (onSkipPreviousClick != null) {
+                            onSkipPreviousClick()
+                        } else {
+                            val target = (clampedCurrentTime - seekTimeMs).coerceAtLeast(0L)
+                            onSeek(target)
+                        }
+                    },
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    colors = sideButtonColors
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipPrevious,
+                        contentDescription = if (onSkipPreviousClick != null) "上一首" else "后退${seekTimeSeconds}秒"
+                    )
+                }
+                ToggleButton(
+                    checked = isPlaying,
+                    onCheckedChange = { onPlayPauseClick() },
+                    shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+                    modifier = Modifier
+                        .weight(1.15f)
+                        .fillMaxSize(),
+                    colors = middleButtonColors
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
+                        ),
+                        contentDescription = if (isPlaying) "暂停" else "播放"
+                    )
+                }
+                ToggleButton(
+                    checked = false,
+                    onCheckedChange = {
+                        if (!isSkipNextEnabled) return@ToggleButton
+                        if (onSkipNextClick != null) {
+                            onSkipNextClick()
+                        } else {
+                            val target = (clampedCurrentTime + seekTimeMs).coerceAtMost(safeDuration)
+                            onSeek(target)
+                        }
+                    },
+                    enabled = isSkipNextEnabled,
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    colors = sideButtonColors
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒"
+                    )
+                }
             }
         }
 
@@ -8921,6 +9172,7 @@ fun PlaybackControls(
                     icon = modeIcon,
                     tint = controlAccentColor,
                     enabled = onPlaybackModeClick != null,
+                    backgroundEnabled = !useMinimalButtonStyle,
                     onClick = { onPlaybackModeClick?.invoke() },
                     contentDescription = "播放模式",
                     iconSize = actionIconSize,
@@ -8932,6 +9184,7 @@ fun PlaybackControls(
                     tint = controlAccentColor,
                     enabled = onLyricDisplayClick != null,
                     selected = lyricDisplaySelected,
+                    backgroundEnabled = !useMinimalButtonStyle,
                     onClick = { onLyricDisplayClick?.invoke() },
                     contentDescription = "歌词显示",
                     iconSize = actionIconSize,
@@ -8942,6 +9195,7 @@ fun PlaybackControls(
                     icon = Icons.AutoMirrored.Rounded.QueueMusic,
                     tint = controlAccentColor,
                     enabled = onShowPlaylistClick != null,
+                    backgroundEnabled = !useMinimalButtonStyle,
                     onClick = { onShowPlaylistClick?.invoke() },
                     contentDescription = "播放列表",
                     iconSize = actionIconSize,
@@ -8959,6 +9213,7 @@ private fun LyricPreviewBottomActionButton(
     tint: Color,
     enabled: Boolean,
     selected: Boolean = false,
+    backgroundEnabled: Boolean = true,
     onClick: () -> Unit,
     contentDescription: String,
     iconSize: Dp = 20.dp,
@@ -8968,22 +9223,33 @@ private fun LyricPreviewBottomActionButton(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(
-                tint.copy(
-                    alpha = when {
-                        !enabled -> 0.08f
-                        selected -> 0.32f
-                        else -> 0.18f
-                    }
-                )
+            .then(
+                if (backgroundEnabled) {
+                    Modifier.background(
+                        tint.copy(
+                            alpha = when {
+                                !enabled -> 0.08f
+                                selected -> 0.32f
+                                else -> 0.18f
+                            }
+                        )
+                    )
+                } else {
+                    Modifier
+                }
             )
             .border(
-                width = if (selected) 1.dp else 0.dp,
-                color = tint.copy(alpha = if (selected) 0.44f else 0f),
+                width = if (backgroundEnabled && selected) 1.dp else 0.dp,
+                color = tint.copy(
+                    alpha = if (backgroundEnabled && selected) 0.44f else 0f
+                ),
                 shape = shape
             )
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(
+                horizontal = if (backgroundEnabled) 18.dp else 8.dp,
+                vertical = if (backgroundEnabled) 10.dp else 8.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -9527,7 +9793,15 @@ fun LyricPreviewSideCover(
                         .height(coverHeight)
                         .testTag(sharedCoverId)
                         .onGloballyPositioned { coordinates ->
-                            onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                            val pos = coordinates.positionInRoot()
+                            onCoverBoundsChanged?.invoke(
+                                androidx.compose.ui.geometry.Rect(
+                                    left = pos.x,
+                                    top = pos.y,
+                                    right = pos.x + coordinates.size.width,
+                                    bottom = pos.y + coordinates.size.height
+                                )
+                            )
                         }
                         .lyricPreviewSharedCoverElement(
                             sharedTransitionScope = sharedTransitionScope,
@@ -9548,7 +9822,15 @@ fun LyricPreviewSideCover(
                         .height(coverHeight.coerceAtLeast(120.dp))
                         .testTag(sharedCoverId)
                         .onGloballyPositioned { coordinates ->
-                            onCoverBoundsChanged?.invoke(coordinates.boundsInRoot())
+                            val pos = coordinates.positionInRoot()
+                            onCoverBoundsChanged?.invoke(
+                                androidx.compose.ui.geometry.Rect(
+                                    left = pos.x,
+                                    top = pos.y,
+                                    right = pos.x + coordinates.size.width,
+                                    bottom = pos.y + coordinates.size.height
+                                )
+                            )
                         }
                         .lyricPreviewSharedCoverElement(
                             sharedTransitionScope = sharedTransitionScope,

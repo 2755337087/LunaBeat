@@ -185,6 +185,8 @@ import com.example.LyricBox.lyrics.models.Source
 import com.example.LyricBox.lyrics.models.VerbatimLyricsResult
 import com.example.LyricBox.lyrics.parser.VerbatimLrcConverter
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
 import com.example.LyricBox.utils.LyricExportFormat
@@ -1815,6 +1817,7 @@ fun MusicLibraryScreen(
     var miniBarBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var miniBarBaseTop by remember { mutableStateOf<Float?>(null) }
     val sharedCoverId = "music_cover"
+    val miniPlayerBackdrop = rememberLayerBackdrop()
 
     fun refreshMiniPlayerAppearancePrefs() {
         miniPlayerBackgroundMode = getSavedMiniPlayerBackgroundMode(context)
@@ -2854,6 +2857,8 @@ fun MusicLibraryScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .layerBackdrop(miniPlayerBackdrop)
         ) {
             var lastClickTime by remember { mutableStateOf(0L) }
             var showDoubleTapHint by remember { mutableStateOf(false) }
@@ -3917,6 +3922,7 @@ fun MusicLibraryScreen(
                 sharedCoverId = sharedCoverId,
                 coverAlpha = 1f,
                 backgroundStyle = miniPlayerBackgroundStyle,
+                backdrop = miniPlayerBackdrop,
                 onBarBoundsChanged = { bounds ->
                     miniBarBounds = bounds
                     if (miniPlayerExpandProgress <= 0.01f || miniBarBaseTop == null) {

@@ -645,6 +645,11 @@ fun SpecialThanksBottomSheet(
             url = "https://unicode-org.github.io/icu/userguide/transforms/general/",
             description = ""
         ),
+        OpenSourceProject(
+            name = "AndroidLiquidGlass",
+            url = "https://github.com/Kyant0/AndroidLiquidGlass",
+            description = ""
+        ),
     )
     
     val inspirationProjects = listOf(

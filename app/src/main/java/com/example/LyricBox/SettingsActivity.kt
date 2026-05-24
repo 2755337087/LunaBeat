@@ -303,6 +303,7 @@ fun SettingsScreen(
     var showArtistSeparatorDialog by remember { mutableStateOf(false) }
     var showMiniPlayerBackgroundDialog by remember { mutableStateOf(false) }
     var showMiniPlayerLandscapeAlignmentDialog by remember { mutableStateOf(false) }
+    var showPlaybackControlStyleDialog by remember { mutableStateOf(false) }
     
     var autoScan by remember { mutableStateOf(musicLibraryPrefs.getBoolean("autoScan", false)) }
     var metadataSaveAutoClose by remember {
@@ -418,6 +419,19 @@ fun SettingsScreen(
             )
         )
     }
+    val savedPlaybackControlStyle = remember {
+        when (
+            lyricPreviewPrefs.getInt(
+                LyricPreviewActivity.KEY_PLAYBACK_CONTROL_STYLE,
+                LyricPreviewActivity.DEFAULT_PLAYBACK_CONTROL_STYLE
+            )
+        ) {
+            LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 -> LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2
+            else -> LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_1
+        }
+    }
+    var tempPlaybackControlStyle by remember { mutableStateOf(savedPlaybackControlStyle) }
+    val currentPlaybackControlStyle = remember { mutableStateOf(savedPlaybackControlStyle) }
     var lyricFontSize by remember {
         mutableFloatStateOf(
             lyricPreviewPrefs.getFloat(
@@ -619,6 +633,64 @@ fun SettingsScreen(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
+
+            item {
+                Text(
+                    text = "主页设置",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "播放控制条背景",
+                    summary = getMiniPlayerBackgroundModeLabel(currentMiniPlayerBackgroundMode.value),
+                    onClick = {
+                        tempMiniPlayerBackgroundMode = currentMiniPlayerBackgroundMode.value
+                        showMiniPlayerBackgroundDialog = true
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "播放控制区域样式",
+                    summary = getPlaybackControlStyleLabel(currentPlaybackControlStyle.value),
+                    onClick = {
+                        tempPlaybackControlStyle = currentPlaybackControlStyle.value
+                        showPlaybackControlStyleDialog = true
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "横屏、平板模式下播放条默认位置",
+                    summary = getMiniPlayerLandscapeAlignmentLabel(currentMiniPlayerLandscapeAlignment.value),
+                    onClick = {
+                        tempMiniPlayerLandscapeAlignment = currentMiniPlayerLandscapeAlignment.value
+                        showMiniPlayerLandscapeAlignmentDialog = true
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
             
             item {
                 Text(
@@ -770,49 +842,6 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            item {
-                Text(
-                    text = "主页设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            item {
-                SettingsItem(
-                    title = "播放控制条背景",
-                    summary = getMiniPlayerBackgroundModeLabel(currentMiniPlayerBackgroundMode.value),
-                    onClick = {
-                        tempMiniPlayerBackgroundMode = currentMiniPlayerBackgroundMode.value
-                        showMiniPlayerBackgroundDialog = true
-                    }
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            item {
-                SettingsItem(
-                    title = "横屏、平板模式下播放条默认位置",
-                    summary = getMiniPlayerLandscapeAlignmentLabel(currentMiniPlayerLandscapeAlignment.value),
-                    onClick = {
-                        tempMiniPlayerLandscapeAlignment = currentMiniPlayerLandscapeAlignment.value
-                        showMiniPlayerLandscapeAlignmentDialog = true
-                    }
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-            
             item {
                 Text(
                     text = "音频元数据下载设置",
@@ -1134,6 +1163,25 @@ fun SettingsScreen(
                     .putInt(KEY_MINI_PLAYER_LANDSCAPE_ALIGNMENT, normalized)
                     .apply()
                 showMiniPlayerLandscapeAlignmentDialog = false
+            }
+        )
+    }
+
+    if (showPlaybackControlStyleDialog) {
+        PlaybackControlStyleDialog(
+            currentValue = tempPlaybackControlStyle,
+            onValueChange = { tempPlaybackControlStyle = it },
+            onDismiss = { showPlaybackControlStyleDialog = false },
+            onConfirm = {
+                val normalized = when (tempPlaybackControlStyle) {
+                    LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 -> LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2
+                    else -> LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_1
+                }
+                currentPlaybackControlStyle.value = normalized
+                lyricPreviewPrefs.edit()
+                    .putInt(LyricPreviewActivity.KEY_PLAYBACK_CONTROL_STYLE, normalized)
+                    .apply()
+                showPlaybackControlStyleDialog = false
             }
         )
     }
@@ -2523,11 +2571,12 @@ fun MiniPlayerBackgroundDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    val options = listOf(
-        MINI_PLAYER_BACKGROUND_MODE_DEFAULT to "默认",
-        MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR to "封面取色",
-        MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR to "封面模糊"
-    )
+    val options = buildList {
+        add(MINI_PLAYER_BACKGROUND_MODE_DEFAULT to "默认")
+        add(MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR to "封面取色")
+        add(MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR to "封面模糊")
+        add(MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR to "实时模糊")
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("播放控制条背景") },
@@ -2610,6 +2659,71 @@ fun MiniPlayerLandscapeAlignmentDialog(
                             fontSize = 16.sp
                         )
                         if (value == DEFAULT_MINI_PLAYER_LANDSCAPE_ALIGNMENT) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "(默认)",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+private fun getPlaybackControlStyleLabel(value: Int): String {
+    return when (value) {
+        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 -> "样式2（无按钮背景）"
+        else -> "样式1"
+    }
+}
+
+@Composable
+fun PlaybackControlStyleDialog(
+    currentValue: Int,
+    onValueChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val options = listOf(
+        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_1 to "样式1",
+        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 to "样式2（无按钮背景）"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("播放控制区域样式") },
+        text = {
+            Column {
+                options.forEach { (value, displayName) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueChange(value) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentValue == value,
+                            onClick = { onValueChange(value) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = displayName,
+                            fontSize = 16.sp
+                        )
+                        if (value == LyricPreviewActivity.DEFAULT_PLAYBACK_CONTROL_STYLE) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "(默认)",

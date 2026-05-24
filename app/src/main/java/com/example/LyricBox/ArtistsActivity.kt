@@ -128,6 +128,9 @@ import com.example.LyricBox.ui.components.GlobalMiniPlayerBar
 import com.example.LyricBox.ui.components.MenuAnchorPosition
 import com.example.LyricBox.ui.components.MenuItem
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -906,6 +909,7 @@ private fun ArtistsScreen(
     val playbackController = rememberMusicPlaybackController()
     val showMiniPlayer = playbackController.hasCurrentItem
     val miniPlayerExtraBottomPadding = if (showMiniPlayer) 84.dp else 0.dp
+    val miniPlayerBackdrop = rememberLayerBackdrop()
     val artistListState = rememberLazyListState()
     val artists = remember { mutableStateListOf<ArtistInfo>() }
     var isLoading by remember { mutableStateOf(true) }
@@ -994,7 +998,12 @@ private fun ArtistsScreen(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .layerBackdrop(miniPlayerBackdrop)
+        ) {
             CommonHeadBar(
                 title = if (showDoubleTapHint) "双击返回顶部" else "艺术家",
                 showBack = true,
@@ -1083,6 +1092,7 @@ private fun ArtistsScreen(
         ArtistsMiniPlayerOverlay(
             controller = playbackController,
             visible = showMiniPlayer,
+            backdrop = miniPlayerBackdrop,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
@@ -1092,6 +1102,7 @@ private fun ArtistsScreen(
 private fun ArtistsMiniPlayerOverlay(
     controller: MusicPlaybackController,
     visible: Boolean,
+    backdrop: Backdrop?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1109,7 +1120,8 @@ private fun ArtistsMiniPlayerOverlay(
     ) {
         GlobalMiniPlayerBar(
             controller = controller,
-            onExpand = { MusicPlayerActivity.start(context) }
+            onExpand = { MusicPlayerActivity.start(context) },
+            backdrop = backdrop
         )
     }
 }
@@ -1124,6 +1136,7 @@ private fun ArtistDetailScreen(
     val playbackController = rememberMusicPlaybackController()
     val showMiniPlayer = playbackController.hasCurrentItem
     val miniPlayerExtraBottomPadding = if (showMiniPlayer) 84.dp else 0.dp
+    val miniPlayerBackdrop = rememberLayerBackdrop()
     var isLoading by remember { mutableStateOf(true) }
     var detailInfo by remember { mutableStateOf<ArtistDetailInfo?>(null) }
     var selectedTab by rememberSaveable { mutableStateOf(ArtistDetailTab.SONGS) }
@@ -1196,55 +1209,63 @@ private fun ArtistDetailScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        when {
-            isLoading -> {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .layerBackdrop(miniPlayerBackdrop)
+        ) {
+            when {
+                isLoading -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
+                detailInfo == null -> {
+                    EmptyArtistsState(
+                        text = "未找到艺术家",
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+                else -> {
+                    ArtistDetailContent(
+                        detail = detailInfo!!,
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
+                        avatarRefreshVersion = avatarRefreshVersion,
+                        onSongClick = { audio ->
+                            detailInfo?.songs?.let { songs ->
+                                playbackController.playQueue(songs, audio.path)
+                            }
+                        },
+                        onSongMoreClick = { audio ->
+                            selectedSongInfoAudio = audio
+                            showSongInfoSheet = true
+                        },
+                        onHeadBarCollapsedChange = { headBarCollapsed = it }
+                    )
+                }
             }
-            detailInfo == null -> {
-                EmptyArtistsState(
-                    text = "未找到艺术家",
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-            else -> {
-                ArtistDetailContent(
-                    detail = detailInfo!!,
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
-                    avatarRefreshVersion = avatarRefreshVersion,
-                    onSongClick = { audio ->
-                        detailInfo?.songs?.let { songs ->
-                            playbackController.playQueue(songs, audio.path)
-                        }
-                    },
-                    onSongMoreClick = { audio ->
-                        selectedSongInfoAudio = audio
-                        showSongInfoSheet = true
-                    },
-                    onHeadBarCollapsedChange = { headBarCollapsed = it }
-                )
-            }
-        }
 
-        TransparentArtistHeadBar(
-            onBack = onBack,
-            contentColor = headBarContentColor,
-            backgroundColor = headBarBackgroundColor,
-            title = detailInfo?.name ?: artistName,
-            titleAlpha = animatedHeadBarProgress,
-            menuItems = listOf(
-                MenuItem(
-                    title = "修改艺术家图片",
-                    onClick = { artistImageController.launchPicker() }
-                )
-            ),
-            modifier = Modifier.align(Alignment.TopStart)
-        )
+            TransparentArtistHeadBar(
+                onBack = onBack,
+                contentColor = headBarContentColor,
+                backgroundColor = headBarBackgroundColor,
+                title = detailInfo?.name ?: artistName,
+                titleAlpha = animatedHeadBarProgress,
+                menuItems = listOf(
+                    MenuItem(
+                        title = "修改艺术家图片",
+                        onClick = { artistImageController.launchPicker() }
+                    )
+                ),
+                modifier = Modifier.align(Alignment.TopStart)
+            )
+        }
 
         ArtistsMiniPlayerOverlay(
             controller = playbackController,
             visible = showMiniPlayer,
+            backdrop = miniPlayerBackdrop,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }

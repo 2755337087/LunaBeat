@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.LyricBox1"
+        applicationId = "com.example.LyricBox"
 //        applicationId = "com.kugou.android"
         minSdk = 24
         targetSdk = 36
@@ -35,9 +35,9 @@ android {
         
         ndk {
             abiFilters += listOf("arm64-v8a")
-//            abiFilters += listOf("armeabi-v7a")
-//            abiFilters += listOf("x86")
-//            abiFilters += listOf("x86_64")
+            abiFilters += listOf("armeabi-v7a")
+            abiFilters += listOf("x86")
+            abiFilters += listOf("x86_64")
         }
     }
 
@@ -111,6 +111,7 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.exoplayer.ffmpeg)
     implementation(project(":audiotag"))
+    implementation(libs.backdrop)
     implementation(libs.markdown)
     implementation(libs.coil.compose)
     implementation(libs.androidx.security.crypto)
