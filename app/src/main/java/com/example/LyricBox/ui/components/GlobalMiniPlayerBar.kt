@@ -276,8 +276,12 @@ fun GlobalMiniPlayerBar(
                         shape = { panelShape },
                         //液态玻璃效果
                         effects = {
-                            blur(8f.dp.toPx())
-                            lens(16f.dp.toPx(), 16f.dp.toPx())
+                            blur(6f.dp.toPx())
+                            lens(24f.dp.toPx(),
+                                24f.dp.toPx(),
+                                //depthEffect = true,       // 启用深度效果
+                                //chromaticAberration = true// 启用色差（色散）
+                            )
                         },
                         highlight = {
                             Highlight.Default.copy(alpha = if (isDarkTheme) 0.16f else 0.26f)
@@ -297,6 +301,13 @@ fun GlobalMiniPlayerBar(
                     Modifier.background(realtimeBlurMaskColor, panelShape)
                 } else {
                     Modifier.background(panelColor, panelShape)
+                }
+            )
+            .then(
+                if (shouldDrawBlurBackground) {
+                    Modifier.clip(panelShape)
+                } else {
+                    Modifier
                 }
             )
             .drawWithContent {

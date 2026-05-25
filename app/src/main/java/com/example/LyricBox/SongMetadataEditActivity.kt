@@ -2146,6 +2146,9 @@ fun SongMetadataEditScreen(
                         result.needPermission -> {
                             showPermissionDialog = true
                         }
+                        result.needPermissionForTree -> {
+                            showAccompanimentDirectoryAuthDialog = true
+                        }
                         else -> {
                             errorMessage = result.errorMessage ?: "添加伴奏失败"
                             showErrorDialog = true
@@ -2186,20 +2189,7 @@ fun SongMetadataEditScreen(
     }
 
     val requestAccompanimentDirectoryPermissionAndPickAudio: () -> Unit = {
-        // 只在 Android 10 上检查授权，其他版本直接选择文件
-        if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) {
-            pickAccompanimentLauncher.launch("audio/*")
-        } else {
-            val cachedTreeUri = getAccompanimentTreeUri(context)
-            val isAuthorized = cachedTreeUri != null &&
-                hasPersistedTreeReadWritePermission(context, cachedTreeUri) &&
-                isMusicDirectoryTreeUri(context, cachedTreeUri)
-            if (isAuthorized) {
-                pickAccompanimentLauncher.launch("audio/*")
-            } else {
-                showAccompanimentDirectoryAuthDialog = true
-            }
-        }
+        pickAccompanimentLauncher.launch("audio/*")
     }
     
     val buttonCount = remember(coverBitmap, hasVideoCover) {
@@ -4388,6 +4378,64 @@ fun hasStoragePermission(context: Context): Boolean {
     }
 }
 
+private fun resolveMediaDocumentUri(uri: Uri): Uri? {
+    val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
+    val parts = docId.split(':', limit = 2)
+    if (parts.size != 2) return null
+    val id = parts[1].toLongOrNull() ?: return null
+    val contentUri = when (parts[0].lowercase(Locale.ROOT)) {
+        "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        "video" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        "image" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        else -> MediaStore.Files.getContentUri("external")
+    }
+    return ContentUris.withAppendedId(contentUri, id)
+}
+
+private fun queryFilePathFromUriForDeletion(context: Context, uri: Uri): String? {
+    if (DocumentsContract.isDocumentUri(context, uri)) {
+        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
+        when {
+            docId?.startsWith("primary:", ignoreCase = true) == true -> {
+                val relativePath = docId.substringAfter(':', "")
+                if (relativePath.isNotBlank()) {
+                    return File(Environment.getExternalStorageDirectory(), relativePath).absolutePath
+                }
+            }
+            docId?.startsWith("raw:") == true -> return docId.removePrefix("raw:")
+            docId?.startsWith("/storage/") == true -> return docId
+        }
+    }
+
+    return runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns.DATA),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val dataIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+            if (dataIndex >= 0) cursor.getString(dataIndex) else null
+        }
+    }.getOrNull()
+}
+
+private fun deleteByFilePathOrMediaStore(context: Context, filePath: String): Boolean {
+    val file = File(filePath)
+    if (!file.exists()) return true
+    if (file.delete()) return true
+
+    val mediaUri = resolveMediaStoreAudioUri(context, filePath)
+    if (mediaUri != null) {
+        val deletedCount = context.contentResolver.delete(mediaUri, null, null)
+        if (deletedCount > 0) return true
+    }
+
+    return !file.exists()
+}
+
 fun containsIllegalFileNameChars(name: String): Boolean {
     val illegalChars = listOf('\\', '/', ':', '*', '?', '"', '<', '>', '|')
     return name.any { it in illegalChars }
@@ -4674,14 +4722,16 @@ suspend fun removeAccompanimentFile(
         if (accompanimentPath.isNullOrBlank()) {
             return@withContext AccompanimentOperationResult(success = false, errorMessage = "当前没有可移除的伴奏文件")
         }
-        val file = File(accompanimentPath)
-        if (!file.exists()) {
-            return@withContext AccompanimentOperationResult(success = true)
-        }
-        if (!file.delete()) {
+        if (!deleteByFilePathOrMediaStore(context, accompanimentPath)) {
             return@withContext AccompanimentOperationResult(success = false, errorMessage = "删除伴奏文件失败")
         }
         AccompanimentOperationResult(success = true)
+    } catch (e: RecoverableSecurityException) {
+        Log.e(TAG, "Need user confirmation to remove accompaniment file", e)
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "需要确认后才能删除伴奏文件")
+    } catch (e: SecurityException) {
+        Log.e(TAG, "No permission to remove accompaniment file", e)
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "没有权限删除伴奏文件")
     } catch (e: Exception) {
         Log.e(TAG, "Error removing accompaniment file", e)
         AccompanimentOperationResult(success = false, errorMessage = e.message ?: "移除伴奏失败")
@@ -4698,12 +4748,34 @@ suspend fun deleteOriginalAccompanimentSource(
         }
 
         if (sourceUri.scheme.equals("content", ignoreCase = true)) {
-            val deletedCount = context.contentResolver.delete(sourceUri, null, null)
-            return@withContext if (deletedCount > 0) {
-                AccompanimentOperationResult(success = true)
-            } else {
-                AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
+            if (DocumentsContract.isDocumentUri(context, sourceUri)) {
+                val documentDeleted = runCatching {
+                    DocumentsContract.deleteDocument(context.contentResolver, sourceUri)
+                }.getOrDefault(false)
+                if (documentDeleted) {
+                    return@withContext AccompanimentOperationResult(success = true)
+                }
+
+                val mediaDocumentUri = resolveMediaDocumentUri(sourceUri)
+                if (mediaDocumentUri != null) {
+                    val deletedCount = context.contentResolver.delete(mediaDocumentUri, null, null)
+                    if (deletedCount > 0) {
+                        return@withContext AccompanimentOperationResult(success = true)
+                    }
+                }
             }
+
+            val sourcePath = queryFilePathFromUriForDeletion(context, sourceUri)
+            if (!sourcePath.isNullOrBlank() && deleteByFilePathOrMediaStore(context, sourcePath)) {
+                return@withContext AccompanimentOperationResult(success = true)
+            }
+
+            val deletedCount = context.contentResolver.delete(sourceUri, null, null)
+            if (deletedCount > 0) {
+                return@withContext AccompanimentOperationResult(success = true)
+            }
+
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
         }
 
         if (sourceUri.scheme.equals("file", ignoreCase = true) || sourceUri.scheme.isNullOrBlank()) {
@@ -4711,8 +4783,7 @@ suspend fun deleteOriginalAccompanimentSource(
             if (filePath.isNullOrBlank()) {
                 return@withContext AccompanimentOperationResult(success = false, errorMessage = "原文件路径无效")
             }
-            val sourceFile = File(filePath)
-            return@withContext if (!sourceFile.exists() || sourceFile.delete()) {
+            return@withContext if (deleteByFilePathOrMediaStore(context, filePath)) {
                 AccompanimentOperationResult(success = true)
             } else {
                 AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
@@ -4720,6 +4791,9 @@ suspend fun deleteOriginalAccompanimentSource(
         }
 
         AccompanimentOperationResult(success = false, errorMessage = "不支持删除该来源的文件")
+    } catch (e: RecoverableSecurityException) {
+        Log.e(TAG, "Need user confirmation to delete original accompaniment source", e)
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "需要确认后才能删除原文件")
     } catch (e: SecurityException) {
         Log.e(TAG, "No permission to delete original accompaniment source", e)
         AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "没有权限删除原文件")

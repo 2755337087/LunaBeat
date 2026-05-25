@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
@@ -192,6 +193,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavigateToMusicLibrarySettings: () -> Unit,
     onNavigateToCustomMetadataFieldsSettings: () -> Unit,
+    bottomContentPadding: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -964,7 +966,7 @@ fun SettingsScreen(
             }
             
             item {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp + bottomContentPadding))
             }
         }
     }
@@ -2575,7 +2577,7 @@ fun MiniPlayerBackgroundDialog(
         add(MINI_PLAYER_BACKGROUND_MODE_DEFAULT to "默认")
         add(MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR to "封面取色")
         add(MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR to "封面模糊")
-        add(MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR to "实时模糊")
+        add(MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR to "液态玻璃")
     }
     AlertDialog(
         onDismissRequest = onDismiss,

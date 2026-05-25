@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.StrictMode
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
@@ -61,6 +62,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
@@ -186,6 +188,7 @@ import com.example.LyricBox.lyrics.models.VerbatimLyricsResult
 import com.example.LyricBox.lyrics.parser.VerbatimLrcConverter
 import com.example.LyricBox.ui.theme.歌词转换Theme
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.example.LyricBox.utils.PiracyChecker
 import com.example.LyricBox.utils.PiracyCheckResult
@@ -734,7 +737,9 @@ private enum class MusicLibraryInternalPage {
     SONGS,
     ARTISTS,
     ARTIST_DETAIL,
-    ALBUM_DETAIL
+    ALBUM_DETAIL,
+    SETTINGS,
+    ABOUT
 }
 
 enum class FieldMatchMode {
@@ -1818,6 +1823,8 @@ fun MusicLibraryScreen(
     var miniBarBaseTop by remember { mutableStateOf<Float?>(null) }
     val sharedCoverId = "music_cover"
     val miniPlayerBackdrop = rememberLayerBackdrop()
+    val internalPageBackdrop = rememberLayerBackdrop()
+    val combinedMiniPlayerBackdrop = rememberCombinedBackdrop(miniPlayerBackdrop, internalPageBackdrop)
 
     fun refreshMiniPlayerAppearancePrefs() {
         miniPlayerBackgroundMode = getSavedMiniPlayerBackgroundMode(context)
@@ -2481,6 +2488,10 @@ fun MusicLibraryScreen(
             internalPage = MusicLibraryInternalPage.SONGS
             return@BackHandler
         }
+        if (internalPage == MusicLibraryInternalPage.SETTINGS || internalPage == MusicLibraryInternalPage.ABOUT) {
+            internalPage = MusicLibraryInternalPage.SONGS
+            return@BackHandler
+        }
         if (showSearchHistoryPopup) {
             showSearchHistoryPopup = false
             return@BackHandler
@@ -2814,7 +2825,7 @@ fun MusicLibraryScreen(
                 autoScanEnabled ||
                 (nowMs - lastNativeMediaSyncAt) >= nativeAutoSyncIntervalMs
         } else {
-            foldersChanged || autoScanEnabled
+            !hasCache || foldersChanged || autoScanEnabled
         }
 
         // 原生媒体库模式默认自动增量同步；目录模式按原逻辑触发扫描
@@ -2997,7 +3008,26 @@ fun MusicLibraryScreen(
                                     includeCurrentPage = false
                                 )
                                 pageSwitchItems.forEach { item ->
-                                    add(item)
+                                    val internalItem = when (item.title) {
+                                        AppPageDestination.SETTINGS.title -> item.copy(
+                                            onClick = {
+                                                pageMenuExpanded = false
+                                                exitMultiSelectMode()
+                                                closeInlineLyricPreview()
+                                                internalPage = MusicLibraryInternalPage.SETTINGS
+                                            }
+                                        )
+                                        AppPageDestination.ABOUT.title -> item.copy(
+                                            onClick = {
+                                                pageMenuExpanded = false
+                                                exitMultiSelectMode()
+                                                closeInlineLyricPreview()
+                                                internalPage = MusicLibraryInternalPage.ABOUT
+                                            }
+                                        )
+                                        else -> item
+                                    }
+                                    add(internalItem)
                                     if (item.title == AppPageDestination.LYRIC_TIMING.title) {
                                         add(artistMenuItem)
                                     }
@@ -3676,7 +3706,9 @@ fun MusicLibraryScreen(
         }
         AnimatedContent(
             targetState = internalPage,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .layerBackdrop(internalPageBackdrop),
             transitionSpec = {
                 (fadeIn(animationSpec = tween(180)) togetherWith
                     fadeOut(animationSpec = tween(160))).using(
@@ -3748,6 +3780,36 @@ fun MusicLibraryScreen(
                             showSongInfoSheet = true
                         },
                         modifier = Modifier.fillMaxSize()
+                    )
+                }
+                MusicLibraryInternalPage.SETTINGS -> {
+                    SettingsScreen(
+                        onBack = {
+                            internalPage = MusicLibraryInternalPage.SONGS
+                        },
+                        onNavigateToMusicLibrarySettings = onOpenSettings,
+                        onNavigateToCustomMetadataFieldsSettings = {
+                            context.startActivity(Intent(context, CustomMetadataFieldsSettingsActivity::class.java))
+                        },
+                        bottomContentPadding = embeddedMiniPlayerPadding,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .displayCutoutPadding()
+                            .background(MaterialTheme.colorScheme.background)
+                    )
+                }
+                MusicLibraryInternalPage.ABOUT -> {
+                    val isDebugDevice = remember { PiracyChecker.isDebugDevice(context) }
+                    AboutScreen(
+                        onBack = {
+                            internalPage = MusicLibraryInternalPage.SONGS
+                        },
+                        isDebugDevice = isDebugDevice,
+                        bottomContentPadding = embeddedMiniPlayerPadding,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .displayCutoutPadding()
+                            .background(MaterialTheme.colorScheme.background)
                     )
                 }
             }
@@ -3927,7 +3989,7 @@ fun MusicLibraryScreen(
                 sharedCoverId = sharedCoverId,
                 coverAlpha = 1f,
                 backgroundStyle = miniPlayerBackgroundStyle,
-                backdrop = miniPlayerBackdrop,
+                backdrop = combinedMiniPlayerBackdrop,
                 onBarBoundsChanged = { bounds ->
                     miniBarBounds = bounds
                     if (miniPlayerExpandProgress <= 0.01f || miniBarBaseTop == null) {
@@ -6001,6 +6063,13 @@ private fun hasAudioMetadataChanged(
         existing.mediaStoreId != mediaStoreId
 }
 
+private data class ScannedAudioSource(
+    val path: String,
+    val uri: Uri?,
+    val fileSize: Long,
+    val lastModified: Long
+)
+
 private suspend fun scanAudioFiles(
     context: Context,
     prefs: android.content.SharedPreferences,
@@ -6028,14 +6097,15 @@ private suspend fun scanAudioFilesFromFolders(
     val excludeShortAudio = prefs.getBoolean("excludeShortAudio", true)
     val audioExtensions = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "wma", "ape", "dsf", "dff", "dsdiff")
 
-    val allFiles = mutableListOf<File>()
+    val allSources = mutableListOf<ScannedAudioSource>()
 
-    fun isExcluded(file: File): Boolean {
+    fun isExcludedPath(path: String): Boolean {
         return excludeFolders.any { excludeFolder ->
-            file.absolutePath.startsWith(excludeFolder + File.separator) ||
-                file.absolutePath == excludeFolder
+            path.startsWith(excludeFolder + File.separator) || path == excludeFolder
         }
     }
+
+    fun isExcluded(file: File): Boolean = isExcludedPath(file.absolutePath)
 
     withContext(Dispatchers.IO) {
         var addedCount = 0
@@ -6045,15 +6115,42 @@ private suspend fun scanAudioFilesFromFolders(
         for (folder in folders) {
             val dir = File(folder)
             if (dir.exists() && dir.isDirectory) {
-                scanDirectory(dir, audioExtensions, allFiles, ::isExcluded)
+                val files = mutableListOf<File>()
+                scanDirectory(dir, audioExtensions, files, ::isExcluded)
+                files.forEach { file ->
+                    allSources.add(
+                        ScannedAudioSource(
+                            path = file.absolutePath,
+                            uri = null,
+                            fileSize = file.length(),
+                            lastModified = file.lastModified()
+                        )
+                    )
+                }
+            }
+
+            val treeUri = resolvePersistedFolderTreeUri(context, prefs, folder)
+            if (treeUri != null) {
+                val root = DocumentFile.fromTreeUri(context, treeUri)
+                if (root != null && root.isDirectory) {
+                    scanDocumentDirectory(
+                        document = root,
+                        currentPath = folder,
+                        extensions = audioExtensions,
+                        fileList = allSources,
+                        isExcludedPath = ::isExcludedPath
+                    )
+                }
             }
         }
 
         val existingSnapshot = withContext(Dispatchers.Main) {
             audioFiles.associateBy { it.path }
         }
-        val distinctFiles = allFiles.distinctBy { it.absolutePath }
-        val mergedByPath = LinkedHashMap<String, AudioFile>(distinctFiles.size)
+        val distinctSources = allSources
+            .groupBy { it.path }
+            .map { (_, sources) -> sources.firstOrNull { it.uri != null } ?: sources.first() }
+        val mergedByPath = LinkedHashMap<String, AudioFile>(distinctSources.size)
         val progressStep = 100
         var lastProgressReported = -progressStep
         suspend fun reportProgress(current: Int, total: Int) {
@@ -6065,21 +6162,29 @@ private suspend fun scanAudioFilesFromFolders(
             }
         }
 
-        val total = distinctFiles.size
+        val total = distinctSources.size
         reportProgress(0, total)
-        distinctFiles.forEachIndexed { index, file ->
-            val path = file.absolutePath
+        distinctSources.forEachIndexed { index, source ->
+            val path = source.path
             val existing = existingSnapshot[path]
             try {
-                val metadata = com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
-                    context = context,
-                    filePath = path,
-                    includeCover = false
-                )
+                val metadata = if (source.uri != null) {
+                    com.example.LyricBox.utils.AudioMetadataReader.readMetadataFromUri(
+                        context = context,
+                        uri = source.uri,
+                        includeCover = false
+                    )
+                } else {
+                    com.example.LyricBox.utils.AudioMetadataReader.readMetadata(
+                        context = context,
+                        filePath = path,
+                        includeCover = false
+                    )
+                }
                 val duration = metadata.duration
                 if (!excludeShortAudio || duration >= 60000L) {
-                    val fileSize = file.length()
-                    val fileLastModified = file.lastModified()
+                    val fileSize = source.fileSize
+                    val fileLastModified = source.lastModified
                     val coverCachePath = resolveCoverCachePath(
                         context = context,
                         audioFilePath = path,
@@ -6417,6 +6522,93 @@ private fun scanDirectory(dir: File, extensions: Set<String>, fileList: MutableL
             }
         }
     }
+}
+
+private fun resolvePersistedFolderTreeUri(
+    context: Context,
+    prefs: android.content.SharedPreferences,
+    folder: String
+): Uri? {
+    val savedUri = prefs.getString("musicFolderTreeUri:$folder", null)
+        ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+    if (savedUri != null && hasPersistedReadPermission(context, savedUri)) {
+        return savedUri
+    }
+
+    return context.contentResolver.persistedUriPermissions
+        .asSequence()
+        .filter { it.isReadPermission }
+        .map { it.uri }
+        .firstOrNull { uri -> convertTreeUriToPath(uri) == folder }
+        ?.also { uri ->
+            prefs.edit().putString("musicFolderTreeUri:$folder", uri.toString()).apply()
+        }
+}
+
+private fun hasPersistedReadPermission(context: Context, uri: Uri): Boolean {
+    return context.contentResolver.persistedUriPermissions.any { permission ->
+        permission.uri == uri && permission.isReadPermission
+    }
+}
+
+private fun convertTreeUriToPath(uri: Uri): String? {
+    val docId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+    if (!docId.isNullOrBlank()) {
+        val split = docId.split(":", limit = 2)
+        if (split.isNotEmpty()) {
+            val volume = split[0]
+            val relativePath = split.getOrNull(1).orEmpty()
+            return if (volume.equals("primary", ignoreCase = true)) {
+                if (relativePath.isBlank()) "/storage/emulated/0" else "/storage/emulated/0/$relativePath"
+            } else {
+                if (relativePath.isBlank()) "/storage/$volume" else "/storage/$volume/$relativePath"
+            }
+        }
+    }
+
+    val rawPath = uri.path ?: return null
+    val treePath = rawPath.substringAfter("/tree/", missingDelimiterValue = "")
+    if (treePath.isBlank()) return null
+    val volume = treePath.substringBefore(":", missingDelimiterValue = treePath)
+    val relativePath = treePath.substringAfter(":", missingDelimiterValue = "")
+    return if (volume.equals("primary", ignoreCase = true)) {
+        if (relativePath.isBlank()) "/storage/emulated/0" else "/storage/emulated/0/$relativePath"
+    } else {
+        if (relativePath.isBlank()) "/storage/$volume" else "/storage/$volume/$relativePath"
+    }
+}
+
+private fun scanDocumentDirectory(
+    document: DocumentFile,
+    currentPath: String,
+    extensions: Set<String>,
+    fileList: MutableList<ScannedAudioSource>,
+    isExcludedPath: (String) -> Boolean
+) {
+    if (isExcludedPath(currentPath)) {
+        return
+    }
+    document.listFiles().forEach { child ->
+        val name = child.name?.takeIf { it.isNotBlank() } ?: return@forEach
+        val childPath = currentPath.trimEnd(File.separatorChar) + File.separator + name
+        if (child.isDirectory) {
+            scanDocumentDirectory(child, childPath, extensions, fileList, isExcludedPath)
+        } else if (!isExcludedPath(childPath) && child.extensionLowercase() in extensions) {
+            fileList.add(
+                ScannedAudioSource(
+                    path = childPath,
+                    uri = child.uri,
+                    fileSize = child.length().coerceAtLeast(0L),
+                    lastModified = child.lastModified().coerceAtLeast(0L)
+                )
+            )
+        }
+    }
+}
+
+private fun DocumentFile.extensionLowercase(): String {
+    val name = name ?: return ""
+    return name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
 }
 
 private fun extractEmbeddedLyrics(context: Context, path: String, mediaStoreId: Long = -1L): String? {

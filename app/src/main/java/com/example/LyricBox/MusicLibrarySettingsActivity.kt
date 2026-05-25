@@ -89,6 +89,10 @@ class MusicLibrarySettingsActivity : ComponentActivity() {
             
             val path = convertUriToPath(it)
             if (path != null) {
+                getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("musicFolderTreeUri:$path", it.toString())
+                    .apply()
                 onFolderSelected?.invoke(path)
                 onExcludeFolderSelected?.invoke(path)
             } else {
@@ -176,9 +180,11 @@ class MusicLibrarySettingsActivity : ComponentActivity() {
                         },
                         onLaunchFolderPicker = { callback ->
                             onFolderSelected = callback
+                            onExcludeFolderSelected = null
                             folderPickerLauncher.launch(null)
                         },
                         onLaunchExcludeFolderPicker = { callback ->
+                            onFolderSelected = null
                             onExcludeFolderSelected = callback
                             folderPickerLauncher.launch(null)
                         },
