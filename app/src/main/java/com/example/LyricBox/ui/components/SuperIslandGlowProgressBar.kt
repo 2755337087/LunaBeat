@@ -9,6 +9,7 @@ import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
@@ -48,6 +49,28 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
     var headGlowAlpha: Float = 1f
         set(value) {
             field = value.coerceIn(0f, 1f)
+            invalidate()
+        }
+
+    /**
+     * Controls how much the head texture is scaled in shader sampling.
+     * Lower values reduce over-stretch blur; higher values keep a softer glow.
+     */
+    var headScale: Float = 2.35f
+        set(value) {
+            field = value.coerceAtLeast(1f)
+            invalidate()
+        }
+
+    /**
+     * Optional post-blur for the whole progress bar as a fallback style.
+     * Keep 0 to disable.
+     */
+    var postBlurRadiusPx: Float = 1f
+        //样式2进度条贴图模糊
+        set(value) {
+            field = value.coerceAtLeast(0f)
+            applyPostBlurIfNeeded()
             invalidate()
         }
 
@@ -150,6 +173,7 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
         shader.setFloatUniform("uHeadSize", headSize)
         shader.setFloatUniform("uTrackProgress", progressFraction)
         shader.setFloatUniform("uHeadGlowAlpha", headGlowAlpha)
+        shader.setFloatUniform("uHeadScale", headScale)
         shader.setFloatUniform(
             "uTrackTint",
             floatArrayOf(
@@ -194,6 +218,22 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
         shader.setInputShader("uTex", inputShader)
         runtimeShader = shader
         shaderPaint.shader = shader
+        applyPostBlurIfNeeded()
+    }
+
+    private fun applyPostBlurIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (postBlurRadiusPx > 0f) {
+            setRenderEffect(
+                RenderEffect.createBlurEffect(
+                    postBlurRadiusPx,
+                    postBlurRadiusPx,
+                    Shader.TileMode.CLAMP
+                )
+            )
+        } else {
+            setRenderEffect(null)
+        }
     }
 
     private fun createHeadBitmapShader(): BitmapShader {
@@ -242,6 +282,7 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
             uniform vec2 uTrackCanvasSize;
             uniform vec2 uHeadSize;
             uniform float uHeadGlowAlpha;
+            uniform float uHeadScale;
             uniform vec3 uTrackTint;
             uniform float uTrackAlpha;
             uniform vec3 uProgressTint;
@@ -302,9 +343,9 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
 
                 //    vec2 csize = uTrackCanvasSize;
                 //    vec2 hsize = uHeadSize ;
-                vec2 hsize = vec2(75.0, 38.0) * 2.7551020408; ;
-                float thight = 6.0 * 2.7551020408;
-                float xoffset = 52.0 * 2.7551020408;
+                vec2 hsize = vec2(75.0, 38.0) * uHeadScale;
+                float thight = 6.0 * uHeadScale;
+                float xoffset = 52.0 * uHeadScale;
 
                 vec2 st = uv;
                 // map st to tracksize
@@ -363,6 +404,7 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
             uniform vec2 uTrackCanvasSize;
             uniform vec2 uHeadSize;
             uniform float uHeadGlowAlpha;
+            uniform float uHeadScale;
             uniform vec3 uTrackTint;
             uniform float uTrackAlpha;
             uniform vec3 uProgressTint;
@@ -413,9 +455,9 @@ class SuperIslandGlowProgressBar @JvmOverloads constructor(
             vec4 draw_track_progress(in vec2 uv, in float progress) {
                 //    vec2 csize = uTrackCanvasSize;
                 //    vec2 hsize = uHeadSize ;
-                vec2 hsize = vec2(75.0, 38.0) * 2.7551020408; ;
-                float thight = 6.0 * 2.7551020408;
-                float xoffset = 52.0 * 2.7551020408;
+                vec2 hsize = vec2(75.0, 38.0) * uHeadScale;
+                float thight = 6.0 * uHeadScale;
+                float xoffset = 52.0 * uHeadScale;
 
                 vec2 st = uv;
                 // map st to tracksize

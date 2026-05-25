@@ -9011,11 +9011,12 @@ fun PlaybackControls(
             checkedContainerColor = controlAccentColor,
             checkedContentColor = onControlAccentColor
         )
+        //播放组件样式2
         if (useMinimalButtonStyle) {
-            val sideButtonSize = 96.dp
-            val playButtonSize = 108.dp
-            val sideIconSize = 48.dp
-            val playIconSize = 56.dp
+            val sideButtonSize = 64.dp
+            val playButtonSize = 76.dp
+            val sideIconSize = 34.dp
+            val playIconSize = 54.dp
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -9037,7 +9038,7 @@ fun PlaybackControls(
                         .size(sideButtonSize)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.SkipPrevious,
+                        painter = painterResource(id = R.drawable.previous_style2),
                         contentDescription = if (onSkipPreviousClick != null) "上一首" else "后退${seekTimeSeconds}秒",
                         tint = controlAccentColor,
                         modifier = Modifier.size(sideIconSize)
@@ -9051,7 +9052,7 @@ fun PlaybackControls(
                 ) {
                     Icon(
                         painter = painterResource(
-                            id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
+                            id = if (isPlaying) R.drawable.pause_style2 else R.drawable.play_style2
                         ),
                         contentDescription = if (isPlaying) "暂停" else "播放",
                         tint = controlAccentColor,
@@ -9074,10 +9075,12 @@ fun PlaybackControls(
                         .size(sideButtonSize)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.SkipNext,
+                        painter = painterResource(id = R.drawable.previous_style2),
                         contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒",
                         tint = controlAccentColor,
-                        modifier = Modifier.size(sideIconSize)
+                        modifier = Modifier
+                            .size(sideIconSize)
+                            .graphicsLayer { scaleX = -1f }
                     )
                 }
             }
