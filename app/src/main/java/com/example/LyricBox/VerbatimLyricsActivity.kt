@@ -228,6 +228,24 @@ fun calculateCombinedSimilarity(searchKeyword: String, candidate: SongInfo): Flo
     )
 }
 
+private val japaneseKanaRegex = Regex("[\\u3040-\\u309F\\u30A0-\\u30FF\\u31F0-\\u31FF\\uFF66-\\uFF9F]")
+
+private fun containsJapaneseKana(text: String): Boolean {
+    return japaneseKanaRegex.containsMatchIn(text)
+}
+
+private fun hasJapaneseKanaInLyrics(lyricsResult: VerbatimLyricsResult?): Boolean {
+    if (lyricsResult == null) return false
+    if (containsJapaneseKana(lyricsResult.rawTtml.orEmpty())) return true
+
+    val lyrics = lyricsResult.lyrics ?: return false
+    val allLines = lyrics.orig + lyrics.ts
+    return allLines.any { line ->
+        val lineText = line.words.joinToString("") { it.text }
+        containsJapaneseKana(lineText)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VerbatimLyricsScreen(
@@ -278,6 +296,14 @@ fun VerbatimLyricsScreen(
     
     LaunchedEffect(pagerState.currentPage) {
         selectedTabIndex = pagerState.currentPage
+    }
+
+    fun applyConvertToSimplifiedOption(source: Source, lyricsResult: VerbatimLyricsResult?) {
+        convertToSimplified = when {
+            hasJapaneseKanaInLyrics(lyricsResult) -> false
+            source == Source.ITUNES -> prefs.getBoolean("amConvertToSimplified", true)
+            else -> true
+        }
     }
     
     fun performSearch(keyword: String) {
@@ -638,11 +664,13 @@ fun VerbatimLyricsScreen(
                                                     sourceGroups = finalUpdatedGroups
                                                     
                                                     // 4. 现在显示 bottomSheet
+                                                    applyConvertToSimplifiedOption(result.songInfo.source, lyricsResult)
                                                     selectedSong = result.copy(lyricsResult = lyricsResult, isLoading = false)
                                                     bottomSheetRefreshKey++
                                                     showBottomSheet = true
                                                 }
                                             } else {
+                                                applyConvertToSimplifiedOption(result.songInfo.source, result.lyricsResult)
                                                 selectedSong = result
                                                 bottomSheetRefreshKey++
                                                 showBottomSheet = true
@@ -712,11 +740,13 @@ fun VerbatimLyricsScreen(
                                                     }
                                                     
                                                     // 4. 现在显示 bottomSheet
+                                                    applyConvertToSimplifiedOption(result.songInfo.source, lyricsResult)
                                                     selectedSong = result.copy(lyricsResult = lyricsResult, isLoading = false)
                                                     bottomSheetRefreshKey++
                                                     showBottomSheet = true
                                                 }
                                             } else {
+                                                applyConvertToSimplifiedOption(result.songInfo.source, result.lyricsResult)
                                                 selectedSong = result
                                                 bottomSheetRefreshKey++
                                                 showBottomSheet = true

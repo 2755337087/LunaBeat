@@ -3909,9 +3909,17 @@ fun LyricPreviewScreen(
     } else {
         nowPlayingTopText
     }
-    val landscapeOuterHorizontalPadding = 16.dp
+    val landscapeOuterHorizontalPadding = if (useSidePanelLayout && isLargeScreenDevice) {
+        screenConfig.screenWidthDp.dp * 0.08f
+    } else {
+        16.dp
+    }
     val landscapePaneSpacing = 12.dp
-    val landscapeRightPaneHorizontalPadding = 16.dp
+    val landscapeRightPaneHorizontalPadding = if (useSidePanelLayout && isLargeScreenDevice) {
+        screenConfig.screenWidthDp.dp * 0.08f
+    } else {
+        16.dp
+    }
     val landscapeContentWidth = (
         (screenConfig.screenWidthDp.dp - (landscapeOuterHorizontalPadding * 2) - landscapePaneSpacing)
             .coerceAtLeast(0.dp)
@@ -5370,7 +5378,7 @@ fun LyricPreviewScreen(
                                 )
                                 .lyricBottomOpacityFade(
                                     enabled = usePortraitPlaybackLayout && portraitLyricDisplaySelected,
-                                    bottomAlpha = 0.45f,
+                                    bottomAlpha = 0f,
                                     fullyOpaqueFromRatio = 0.5f
                                 )
                                 .then(extendedViewportModifier), // 延长视口高度，让更多歌词行保持活跃

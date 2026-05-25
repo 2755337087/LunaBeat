@@ -4076,12 +4076,25 @@ fun MusicLibraryScreen(
                                                 startOffset.y <= landscapeLargeScreenDragMaxY
                                             } else {
                                                 val inLeftPane = startOffset.x <= (size.width / 2f)
-                                                if (!inLeftPane) {
-                                                    false
-                                                } else if (isInlinePreviewLargeScreen) {
-                                                    startOffset.y <= landscapeLargeScreenDragMaxY
-                                                } else {
-                                                    true
+                                                val inLyricRightBlankDismissArea =
+                                                    inlineLyricDisplaySelected &&
+                                                        startOffset.x >= (size.width * 0.86f)
+                                                when {
+                                                    inLeftPane -> {
+                                                        if (isInlinePreviewLargeScreen) {
+                                                            startOffset.y <= landscapeLargeScreenDragMaxY
+                                                        } else {
+                                                            true
+                                                        }
+                                                    }
+                                                    inLyricRightBlankDismissArea -> {
+                                                        if (isInlinePreviewLargeScreen) {
+                                                            startOffset.y <= landscapeLargeScreenDragMaxY
+                                                        } else {
+                                                            true
+                                                        }
+                                                    }
+                                                    else -> false
                                                 }
                                             }
                                         }
@@ -5146,10 +5159,10 @@ fun AudioFileItem(
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.play),
+                            painter = painterResource(id = R.drawable.play_style2),
                             contentDescription = "播放",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
