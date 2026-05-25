@@ -2854,220 +2854,224 @@ fun MusicLibraryScreen(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .layerBackdrop(miniPlayerBackdrop)
         ) {
-            var lastClickTime by remember { mutableStateOf(0L) }
-            var showDoubleTapHint by remember { mutableStateOf(false) }
-            var previousFirstVisibleIndex by remember { mutableStateOf(0) }
-            var hasShownHint by remember { mutableStateOf(false) }
-            
-            val listState = rememberLazyListState()
-            val musicListColumnCount = remember(screenConfig.orientation, screenConfig.screenWidthDp) {
-                if (screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                    (screenConfig.screenWidthDp / 360).coerceIn(2, 4)
-                } else {
-                    1
-                }
-            }
-            
-            LaunchedEffect(showDoubleTapHint) {
-                if (showDoubleTapHint) {
-                    delay(2000)
-                    showDoubleTapHint = false
-                }
-            }
-            
-            LaunchedEffect(listState.firstVisibleItemIndex) {
-                val currentIndex = listState.firstVisibleItemIndex
-                if (!hasShownHint && currentIndex * musicListColumnCount >= 14 && currentIndex > previousFirstVisibleIndex) {
-                    hasShownHint = true
-                    showDoubleTapHint = true
-                }
-                previousFirstVisibleIndex = currentIndex
-            }
-
-            fun requestLocatePlayingSong(path: String) {
-                val directIndex = displayAudioFiles.indexOfFirst { it.path == path }
-                if (directIndex >= 0) {
-                    pendingLocateAudioPath = path
-                    return
-                }
-
-                val existsInLibrary = allAudioFiles.any { it.path == path }
-                if (!existsInLibrary) {
-                    Toast.makeText(context, "当前播放歌曲不在音乐库列表中", Toast.LENGTH_SHORT).show()
-                    return
-                }
-
-                pendingLocateAudioPath = path
-                if (searchQuery.isNotBlank()) {
-                    searchQuery = ""
-                    updateDisplayFiles()
-                }
-            }
-
-            fun triggerLocateHighlight(path: String) {
-                locateHighlightJob?.cancel()
-                locateHighlightJob = scope.launch {
-                    locateHighlightPath = path
-                    locateHighlightActive = false
-                    repeat(2) {
-                        locateHighlightActive = true
-                        delay(180L)
-                        locateHighlightActive = false
-                        delay(140L)
-                    }
-                    locateHighlightPath = null
-                }
-            }
-
-            LaunchedEffect(
-                pendingLocateAudioPath,
-                isUpdatingDisplayList,
-                displayAudioFiles.size,
-                musicListColumnCount,
-                listState.firstVisibleItemIndex
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
             ) {
-                val targetPath = pendingLocateAudioPath ?: return@LaunchedEffect
-                if (isUpdatingDisplayList || displayAudioFiles.isEmpty()) return@LaunchedEffect
-
-                val targetIndex = displayAudioFiles.indexOfFirst { it.path == targetPath }
-                if (targetIndex < 0) return@LaunchedEffect
-                val targetRowIndex = targetIndex / musicListColumnCount
-
-                val viewportHeightPx = listState.layoutInfo.viewportSize.height
-                val desiredUpperBandMin = (viewportHeightPx * 0.18f).toInt()
-                val desiredUpperBandMax = (viewportHeightPx * 0.42f).toInt()
-                val estimatedItemHeightPx = with(density) { 84.dp.roundToPx().coerceAtLeast(1) }
-                val leadRowCount = ((viewportHeightPx * 0.30f).toInt() / estimatedItemHeightPx).coerceAtLeast(2)
-                val anchorIndex = (targetRowIndex - leadRowCount).coerceAtLeast(0)
-
-                val visibleRange = listState.layoutInfo.visibleItemsInfo
-                val currentTargetInfo = visibleRange.firstOrNull { it.index == targetRowIndex }
-                val inDesiredBand = currentTargetInfo?.offset?.let { it in desiredUpperBandMin..desiredUpperBandMax } == true
-
-                if (!inDesiredBand) {
-                    listState.scrollToItem(anchorIndex)
-                    listState.animateScrollToItem(anchorIndex)
+                var lastClickTime by remember { mutableStateOf(0L) }
+                var showDoubleTapHint by remember { mutableStateOf(false) }
+                var previousFirstVisibleIndex by remember { mutableStateOf(0) }
+                var hasShownHint by remember { mutableStateOf(false) }
+                
+                val listState = rememberLazyListState()
+                val musicListColumnCount = remember(screenConfig.orientation, screenConfig.screenWidthDp) {
+                    if (screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                        (screenConfig.screenWidthDp / 360).coerceIn(2, 4)
+                    } else {
+                        1
+                    }
                 }
-
-                triggerLocateHighlight(targetPath)
-                pendingLocateAudioPath = null
-            }
-             
-            val headbarTitle = when {
-                isMultiSelectMode -> "已选 ${selectedPaths.size}"
-                showDoubleTapHint -> "双击返回顶部"
-                else -> "LunaBeat"
-            }
-            
-            CommonHeadBar(
-                title = headbarTitle,
-                showBack = true,
-                leadingIconResId = R.drawable.menu,
-                showMenu = true,
-                onBackClick = { pageMenuExpanded = true },
-                leadingMenuContent = { backButtonPosition ->
-                    CustomDropdownMenu(
-                        expanded = pageMenuExpanded,
-                        onDismissRequest = { pageMenuExpanded = false },
-                        items = buildList {
-                            val artistMenuItem = MenuItem(
-                                title = "艺术家",
-                                onClick = {
-                                    pageMenuExpanded = false
-                                    exitMultiSelectMode()
-                                    internalPage = MusicLibraryInternalPage.ARTISTS
-                                    internalArtistName = ""
-                                    internalAlbumName = ""
-                                    internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
-                                }
-                            )
-                            val pageSwitchItems = buildPageSwitchMenuItems(
-                                context = context,
-                                currentPage = AppPageDestination.MUSIC_LIBRARY,
-                                includeCurrentPage = false
-                            )
-                            pageSwitchItems.forEach { item ->
-                                add(item)
-                                if (item.title == AppPageDestination.LYRIC_TIMING.title) {
-                                    add(artistMenuItem)
-                                }
-                            }
-                            if (pageSwitchItems.none { it.title == AppPageDestination.LYRIC_TIMING.title }) {
-                                add(0, artistMenuItem)
-                            }
-                        },
-                        anchorPosition = backButtonPosition ?: MenuAnchorPosition(0f, 0f)
-                    )
-                },
-                onTitleClick = {
-                    val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastClickTime < 300) {
-                        scope.launch {
-                            listState.animateScrollToItem(0)
-                        }
+                
+                LaunchedEffect(showDoubleTapHint) {
+                    if (showDoubleTapHint) {
+                        delay(2000)
                         showDoubleTapHint = false
                     }
-                    lastClickTime = currentTime
-                },
-                onMenuClick = { menuExpanded = true },
-                menuContent = { menuButtonPosition ->
-                    val menuItems = if (isMultiSelectMode) {
-                        listOf(
-                            MenuItem(
-                                title = "添加到收藏",
-                                onClick = {
-                                    menuExpanded = false
-                                    val selectedSnapshot = selectedPaths.toList()
-                                    if (selectedSnapshot.isNotEmpty()) {
-                                        val addedCount = selectedSnapshot.count { it !in favoritePaths }
-                                        favoritePaths.addAll(selectedSnapshot)
-                                        persistFavoritesPlaylist()
-                                        updateDisplayFiles()
-                                        bulkFavoriteAddedCount = addedCount
-                                        showBulkFavoriteResultDialog = true
+                }
+                
+                LaunchedEffect(listState.firstVisibleItemIndex) {
+                    val currentIndex = listState.firstVisibleItemIndex
+                    if (!hasShownHint && currentIndex * musicListColumnCount >= 14 && currentIndex > previousFirstVisibleIndex) {
+                        hasShownHint = true
+                        showDoubleTapHint = true
+                    }
+                    previousFirstVisibleIndex = currentIndex
+                }
+
+                fun requestLocatePlayingSong(path: String) {
+                    val directIndex = displayAudioFiles.indexOfFirst { it.path == path }
+                    if (directIndex >= 0) {
+                        pendingLocateAudioPath = path
+                        return
+                    }
+
+                    val existsInLibrary = allAudioFiles.any { it.path == path }
+                    if (!existsInLibrary) {
+                        Toast.makeText(context, "当前播放歌曲不在音乐库列表中", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+
+                    pendingLocateAudioPath = path
+                    if (searchQuery.isNotBlank()) {
+                        searchQuery = ""
+                        updateDisplayFiles()
+                    }
+                }
+
+                fun triggerLocateHighlight(path: String) {
+                    locateHighlightJob?.cancel()
+                    locateHighlightJob = scope.launch {
+                        locateHighlightPath = path
+                        locateHighlightActive = false
+                        repeat(2) {
+                            locateHighlightActive = true
+                            delay(180L)
+                            locateHighlightActive = false
+                            delay(140L)
+                        }
+                        locateHighlightPath = null
+                    }
+                }
+
+                LaunchedEffect(
+                    pendingLocateAudioPath,
+                    isUpdatingDisplayList,
+                    displayAudioFiles.size,
+                    musicListColumnCount,
+                    listState.firstVisibleItemIndex
+                ) {
+                    val targetPath = pendingLocateAudioPath ?: return@LaunchedEffect
+                    if (isUpdatingDisplayList || displayAudioFiles.isEmpty()) return@LaunchedEffect
+
+                    val targetIndex = displayAudioFiles.indexOfFirst { it.path == targetPath }
+                    if (targetIndex < 0) return@LaunchedEffect
+                    val targetRowIndex = targetIndex / musicListColumnCount
+
+                    val viewportHeightPx = listState.layoutInfo.viewportSize.height
+                    val desiredUpperBandMin = (viewportHeightPx * 0.18f).toInt()
+                    val desiredUpperBandMax = (viewportHeightPx * 0.42f).toInt()
+                    val estimatedItemHeightPx = with(density) { 84.dp.roundToPx().coerceAtLeast(1) }
+                    val leadRowCount = ((viewportHeightPx * 0.30f).toInt() / estimatedItemHeightPx).coerceAtLeast(2)
+                    val anchorIndex = (targetRowIndex - leadRowCount).coerceAtLeast(0)
+
+                    val visibleRange = listState.layoutInfo.visibleItemsInfo
+                    val currentTargetInfo = visibleRange.firstOrNull { it.index == targetRowIndex }
+                    val inDesiredBand = currentTargetInfo?.offset?.let { it in desiredUpperBandMin..desiredUpperBandMax } == true
+
+                    if (!inDesiredBand) {
+                        listState.scrollToItem(anchorIndex)
+                        listState.animateScrollToItem(anchorIndex)
+                    }
+
+                    triggerLocateHighlight(targetPath)
+                    pendingLocateAudioPath = null
+                }
+                
+                val headbarTitle = when {
+                    isMultiSelectMode -> "已选 ${selectedPaths.size}"
+                    showDoubleTapHint -> "双击返回顶部"
+                    else -> "LunaBeat"
+                }
+                
+                CommonHeadBar(
+                    title = headbarTitle,
+                    showBack = true,
+                    leadingIconResId = R.drawable.menu,
+                    showMenu = true,
+                    onBackClick = { pageMenuExpanded = true },
+                    leadingMenuContent = { backButtonPosition ->
+                        CustomDropdownMenu(
+                            expanded = pageMenuExpanded,
+                            onDismissRequest = { pageMenuExpanded = false },
+                            items = buildList {
+                                val artistMenuItem = MenuItem(
+                                    title = "艺术家",
+                                    onClick = {
+                                        pageMenuExpanded = false
+                                        exitMultiSelectMode()
+                                        internalPage = MusicLibraryInternalPage.ARTISTS
+                                        internalArtistName = ""
+                                        internalAlbumName = ""
+                                        internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
+                                    }
+                                )
+                                val pageSwitchItems = buildPageSwitchMenuItems(
+                                    context = context,
+                                    currentPage = AppPageDestination.MUSIC_LIBRARY,
+                                    includeCurrentPage = false
+                                )
+                                pageSwitchItems.forEach { item ->
+                                    add(item)
+                                    if (item.title == AppPageDestination.LYRIC_TIMING.title) {
+                                        add(artistMenuItem)
                                     }
                                 }
-                            )
+                                if (pageSwitchItems.none { it.title == AppPageDestination.LYRIC_TIMING.title }) {
+                                    add(0, artistMenuItem)
+                                }
+                            },
+                            anchorPosition = backButtonPosition ?: MenuAnchorPosition(0f, 0f)
                         )
-                    } else {
-                        buildList {
-                            if (canLocatePlayingSong) {
+                    },
+                    onTitleClick = {
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastClickTime < 300) {
+                            scope.launch {
+                                listState.animateScrollToItem(0)
+                            }
+                            showDoubleTapHint = false
+                        }
+                        lastClickTime = currentTime
+                    },
+                    onMenuClick = { menuExpanded = true },
+                    menuContent = { menuButtonPosition ->
+                        val menuItems = if (isMultiSelectMode) {
+                            listOf(
+                                MenuItem(
+                                    title = "添加到收藏",
+                                    onClick = {
+                                        menuExpanded = false
+                                        val selectedSnapshot = selectedPaths.toList()
+                                        if (selectedSnapshot.isNotEmpty()) {
+                                            val addedCount = selectedSnapshot.count { it !in favoritePaths }
+                                            favoritePaths.addAll(selectedSnapshot)
+                                            persistFavoritesPlaylist()
+                                            updateDisplayFiles()
+                                            bulkFavoriteAddedCount = addedCount
+                                            showBulkFavoriteResultDialog = true
+                                        }
+                                    }
+                                )
+                            )
+                        } else {
+                            buildList {
+                                if (canLocatePlayingSong) {
+                                    add(
+                                        MenuItem(
+                                            title = "定位正在播放歌曲",
+                                            onClick = {
+                                                menuExpanded = false
+                                                currentPlayingAudioPath?.let { requestLocatePlayingSong(it) }
+                                            }
+                                        )
+                                    )
+                                }
+                                add(
+                                    MenuItem(title = "多选模式", onClick = {
+                                        menuExpanded = false
+                                        isMultiSelectMode = true
+                                    })
+                                )
+                                add(MenuItem(title = "目录设置", onClick = { onOpenSettings() }))
                                 add(
                                     MenuItem(
-                                        title = "定位正在播放歌曲",
+                                        title = "刷新",
                                         onClick = {
-                                            menuExpanded = false
-                                            currentPlayingAudioPath?.let { requestLocatePlayingSong(it) }
-                                        }
-                                    )
-                                )
-                            }
-                            add(
-                                MenuItem(title = "多选模式", onClick = {
-                                    menuExpanded = false
-                                    isMultiSelectMode = true
-                                })
-                            )
-                            add(MenuItem(title = "目录设置", onClick = { onOpenSettings() }))
-                            add(
-                                MenuItem(
-                                    title = "刷新",
-                                    onClick = {
-                                        isScanning = true
-                                        showScanComplete = false
-                                        showScanPopupImmediately()
-                                        scanJob?.cancel()
-                                        scanJob = scope.launch {
-                                            scanAudioFiles(context, prefs, allAudioFiles,
-                                                onProgress = { current, total ->
-                                                    scanProgress = current to total
-                                                },
+                                            isScanning = true
+                                            showScanComplete = false
+                                            showScanPopupImmediately()
+                                            scanJob?.cancel()
+                                            scanJob = scope.launch {
+                                                scanAudioFiles(context, prefs, allAudioFiles,
+                                                    onProgress = { current, total ->
+                                                        scanProgress = current to total
+                                                    },
                                                 onComplete = { summary ->
                                                     isScanning = false
                                                     hideScanPopupImmediately()
@@ -3874,6 +3878,7 @@ fun MusicLibraryScreen(
                     }
                 }
             }
+        }
         }
         val miniPlayerDockAlignment = if (useWideMiniPlayerDock) {
             when (miniPlayerLandscapeAlignment) {

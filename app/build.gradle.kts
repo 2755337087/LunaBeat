@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.LyricBox"
+        applicationId = "com.example.LyricBox1"
 //        applicationId = "com.kugou.android"
         minSdk = 24
         targetSdk = 36

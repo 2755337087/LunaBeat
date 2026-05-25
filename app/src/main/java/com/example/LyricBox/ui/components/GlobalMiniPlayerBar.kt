@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
@@ -69,8 +70,10 @@ import com.example.LyricBox.normalizeCoverThemeBackground
 import com.example.LyricBox.resolveCachedCoverThemePair
 import com.example.LyricBox.utils.AudioMetadataReader
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.Dispatchers
@@ -209,6 +212,7 @@ fun GlobalMiniPlayerBar(
     val blurredBackgroundImage = remember(blurredPanelBitmap) { blurredPanelBitmap?.asImageBitmap() }
     val shouldDrawBlurBackground = backgroundStyle == MINI_PLAYER_BACKGROUND_STYLE_COVER_BLUR
     val shouldDrawRealtimeBlurBackground = backgroundStyle == MINI_PLAYER_BACKGROUND_STYLE_REALTIME_BLUR
+    val realtimeBlurBackdropLayer = rememberLayerBackdrop()
     val panelShape = RoundedCornerShape(18.dp)
     val onPanelColor = if (shouldDrawRealtimeBlurBackground) {
         if (isDarkTheme) Color.White else Color(0xFF151515)
@@ -223,24 +227,24 @@ fun GlobalMiniPlayerBar(
         Color.White.copy(alpha = 0.44f)
     }
     val realtimeBlurMaskColor = if (isDarkTheme) {
-        Color.Black.copy(alpha = 0.44f)
+        Color.Black.copy(alpha = 0.32f)
     } else {
-        Color.White.copy(alpha = 0.46f)
+        Color.White.copy(alpha = 0.30f)
     }
     val realtimeBlurDepthOverlay = if (isDarkTheme) {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.05f),
+                Color.White.copy(alpha = 0.035f),
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.10f)
+                Color.Black.copy(alpha = 0.07f)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.12f),
+                Color.White.copy(alpha = 0.08f),
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.04f)
+                Color.Black.copy(alpha = 0.025f)
             )
         )
     }
@@ -265,14 +269,15 @@ fun GlobalMiniPlayerBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(panelShape)
             .then(
                 if (shouldDrawRealtimeBlurBackground && backdrop != null) {
                     Modifier.drawBackdrop(
                         backdrop = backdrop,
                         shape = { panelShape },
+                        //液态玻璃效果
                         effects = {
-                            blur(56f.dp.toPx())
+                            blur(8f.dp.toPx())
+                            lens(16f.dp.toPx(), 16f.dp.toPx())
                         },
                         highlight = {
                             Highlight.Default.copy(alpha = if (isDarkTheme) 0.16f else 0.26f)
@@ -282,6 +287,7 @@ fun GlobalMiniPlayerBar(
                                 color = Color.Black.copy(alpha = if (isDarkTheme) 0.30f else 0.12f)
                             )
                         },
+                        exportedBackdrop = realtimeBlurBackdropLayer,
                         onDrawSurface = {
                             drawRect(realtimeBlurMaskColor)
                             drawRect(brush = realtimeBlurDepthOverlay)
