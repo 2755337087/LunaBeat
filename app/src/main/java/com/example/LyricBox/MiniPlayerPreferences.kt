@@ -46,7 +46,7 @@ fun getMiniPlayerBackgroundModeLabel(mode: Int): String {
     return when (normalizeMiniPlayerBackgroundMode(mode)) {
         MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR -> "封面取色"
         MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR -> "封面模糊"
-        MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR -> "实时模糊"
+        MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR -> "液态玻璃"
         else -> "默认"
     }
 }

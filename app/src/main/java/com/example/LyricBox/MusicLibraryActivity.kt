@@ -2236,6 +2236,16 @@ fun MusicLibraryScreen(
     }
 
     val screenConfig = LocalConfiguration.current
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        screenConfig.screenWidthDp,
+        screenConfig.screenHeightDp,
+        screenConfig.smallestScreenWidthDp,
+        screenConfig.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
     val inlinePreviewTransitionOffsetPx = with(density) {
         screenConfig.screenHeightDp.dp.toPx().coerceAtLeast(1f)
     }
@@ -2246,8 +2256,7 @@ fun MusicLibraryScreen(
     val previewScreenHeightPx = with(density) { screenConfig.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
     val isInlinePreviewLandscape =
         screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val isInlinePreviewLargeScreen =
-        screenConfig.smallestScreenWidthDp >= 600 || screenConfig.screenWidthDp >= 900
+    val isInlinePreviewLargeScreen = effectiveLayoutProfile == AppLayoutProfile.TABLET
     val useWideMiniPlayerDock = isInlinePreviewLandscape || isInlinePreviewLargeScreen
     val miniPlayerBackgroundStyle = resolveMiniPlayerBackgroundStyle(
         backgroundMode = miniPlayerBackgroundMode,
@@ -2881,11 +2890,21 @@ fun MusicLibraryScreen(
                 var hasShownHint by remember { mutableStateOf(false) }
                 
                 val listState = rememberLazyListState()
-                val musicListColumnCount = remember(screenConfig.orientation, screenConfig.screenWidthDp) {
-                    if (screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                        (screenConfig.screenWidthDp / 360).coerceIn(2, 4)
-                    } else {
-                        1
+                val musicListColumnCount = remember(
+                    effectiveLayoutProfile,
+                    screenConfig.orientation,
+                    screenConfig.screenWidthDp
+                ) {
+                    when (effectiveLayoutProfile) {
+                        AppLayoutProfile.WATCH -> 1
+                        AppLayoutProfile.PHONE -> {
+                            if (screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                                (screenConfig.screenWidthDp / 360).coerceIn(2, 4)
+                            } else {
+                                1
+                            }
+                        }
+                        AppLayoutProfile.TABLET -> (screenConfig.screenWidthDp / 360).coerceIn(2, 4)
                     }
                 }
                 

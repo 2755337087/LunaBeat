@@ -75,6 +75,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.painterResource
@@ -141,6 +142,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.core.view.ViewCompat
 
 private const val AUTO_SCROLL_LOG_TAG = "LyricPreviewScroll"
 private const val CREATOR_VS_LYRIC_LOG_TAG = "LyricPreviewCreatorSync"
@@ -3516,28 +3518,23 @@ fun LyricPreviewScreen(
     val settingsDarkMode = com.example.LyricBox.ui.theme.getDarkModeFromSettings(context)
     val isDarkTheme = settingsDarkMode ?: systemDarkTheme
     val screenConfig = LocalConfiguration.current
-    val screenMetrics = context.resources.displayMetrics
-    val screenShortEdgePx = min(screenMetrics.widthPixels, screenMetrics.heightPixels)
-    val screenLongEdgePx = max(screenMetrics.widthPixels, screenMetrics.heightPixels)
-    val screenMinDp = min(screenConfig.screenWidthDp, screenConfig.screenHeightDp)
-    val isWatchFeatureDevice = context.packageManager.hasSystemFeature("android.hardware.type.watch")
-    val isWatchUiMode = (
-        context.resources.configuration.uiMode and
-            android.content.res.Configuration.UI_MODE_TYPE_MASK
-        ) == android.content.res.Configuration.UI_MODE_TYPE_WATCH
-    val isRoundScreen = context.resources.configuration.isScreenRound
-    val isLargeScreenDevice = screenConfig.smallestScreenWidthDp >= 600 || screenConfig.screenWidthDp >= 900
-    val isWatchLikeSmallScreen = (
-        isWatchFeatureDevice ||
-            isWatchUiMode ||
-            isRoundScreen ||
-            screenMinDp <= 260 ||
-            (screenShortEdgePx <= 420 && screenLongEdgePx <= 520)
-        )
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        screenConfig.screenWidthDp,
+        screenConfig.screenHeightDp,
+        screenConfig.smallestScreenWidthDp,
+        screenConfig.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
+    val isLargeScreenDevice = effectiveLayoutProfile == AppLayoutProfile.TABLET
+    val isWatchLikeSmallScreen = effectiveLayoutProfile == AppLayoutProfile.WATCH
     val isLandscape = screenConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val useSidePanelLayout = showChrome && isLandscape && !isWatchLikeSmallScreen
     val shouldHideSystemBarsForLandscapePhone = useSidePanelLayout && !isLargeScreenDevice
     val useMiniHeader = showChrome && isWatchLikeSmallScreen
+    val useWatchPlaybackLayout = useMiniHeader
     val usePortraitPlaybackLayout = showChrome && !isLandscape && !isWatchLikeSmallScreen
     val coverThemeCacheKey = remember(sourceAudioPath, sourceMediaStoreId) {
         buildCoverThemeCacheKey(
@@ -3571,10 +3568,14 @@ fun LyricPreviewScreen(
     var landscapeLyricDisplaySelected by remember(rememberedLyricDisplaySelected) {
         mutableStateOf(rememberedLyricDisplaySelected)
     }
+    var watchLyricDisplaySelected by remember(rememberedLyricDisplaySelected) {
+        mutableStateOf(rememberedLyricDisplaySelected)
+    }
     val lyricDisplayLayoutMode = when {
         usePortraitPlaybackLayout -> 0
         useSidePanelLayout -> 1
-        else -> 2
+        useWatchPlaybackLayout -> 2
+        else -> 3
     }
     var lyricDisplaySelectionMemory by remember(rememberedLyricDisplaySelected) {
         mutableStateOf(rememberedLyricDisplaySelected)
@@ -3591,40 +3592,48 @@ fun LyricPreviewScreen(
         when (lyricDisplayLayoutMode) {
             0 -> portraitLyricDisplaySelected = rememberedSelection
             1 -> landscapeLyricDisplaySelected = rememberedSelection
+            2 -> watchLyricDisplaySelected = rememberedSelection
         }
         previousLyricDisplayLayoutMode = lyricDisplayLayoutMode
     }
     LaunchedEffect(
         usePortraitPlaybackLayout,
         useSidePanelLayout,
+        useWatchPlaybackLayout,
         portraitLyricDisplaySelected,
-        landscapeLyricDisplaySelected
+        landscapeLyricDisplaySelected,
+        watchLyricDisplaySelected
     ) {
         lyricDisplaySelectionMemory = when {
             usePortraitPlaybackLayout -> portraitLyricDisplaySelected
             useSidePanelLayout -> landscapeLyricDisplaySelected
+            useWatchPlaybackLayout -> watchLyricDisplaySelected
             else -> lyricDisplaySelectionMemory
         }
     }
     val lyricDisplaySelected = when {
         usePortraitPlaybackLayout -> portraitLyricDisplaySelected
         useSidePanelLayout -> landscapeLyricDisplaySelected
-        else -> true
+        useWatchPlaybackLayout -> watchLyricDisplaySelected
+        else -> lyricDisplaySelectionMemory
     }
     val lyricLayoutSelected = when {
         usePortraitPlaybackLayout -> portraitLyricLayoutSelected
         useSidePanelLayout -> landscapeLyricDisplaySelected
-        else -> true
+        useWatchPlaybackLayout -> watchLyricDisplaySelected
+        else -> lyricDisplaySelectionMemory
     }
     val activeLyricDisplaySelection = when {
         usePortraitPlaybackLayout -> portraitLyricDisplaySelected
         useSidePanelLayout -> landscapeLyricDisplaySelected
+        useWatchPlaybackLayout -> watchLyricDisplaySelected
         else -> lyricDisplaySelectionMemory
     }
     val lyricLayerVisible = when {
         usePortraitPlaybackLayout -> portraitLyricLayerVisible
         useSidePanelLayout -> landscapeLyricDisplaySelected
-        else -> true
+        useWatchPlaybackLayout -> watchLyricDisplaySelected
+        else -> lyricDisplaySelectionMemory
     }
     var lastReportedLyricDisplaySelection by remember { mutableStateOf<Boolean?>(null) }
     val syncLyricDisplaySelection: (Boolean) -> Unit = sync@{ selected ->
@@ -3825,6 +3834,7 @@ fun LyricPreviewScreen(
     val clearLyricDisplaySelectionState: () -> Unit = {
         portraitLyricDisplaySelected = false
         landscapeLyricDisplaySelected = false
+        watchLyricDisplaySelected = false
         portraitLyricLayoutSelected = false
         portraitLyricLayerVisible = false
         portraitControlsVisible = true
@@ -3838,7 +3848,8 @@ fun LyricPreviewScreen(
     val handleBackRequest: () -> Unit = {
         val shouldDisableLyricDisplayFirst =
             (usePortraitPlaybackLayout && portraitLyricDisplaySelected) ||
-                (useSidePanelLayout && landscapeLyricDisplaySelected)
+                (useSidePanelLayout && landscapeLyricDisplaySelected) ||
+                (useWatchPlaybackLayout && watchLyricDisplaySelected)
         if (shouldDisableLyricDisplayFirst) {
             clearLyricDisplaySelectionState()
         } else {
@@ -3909,6 +3920,8 @@ fun LyricPreviewScreen(
     } else {
         nowPlayingTopText
     }
+    val view = LocalView.current
+    val cutoutInsetsDensity = LocalDensity.current
     val landscapeOuterHorizontalPadding = if (useSidePanelLayout && isLargeScreenDevice) {
         screenConfig.screenWidthDp.dp * 0.08f
     } else {
@@ -3932,6 +3945,32 @@ fun LyricPreviewScreen(
     val landscapeRightPanelWidth = (landscapeContentWidth - landscapeLeftPanelWidth)
         .coerceAtLeast(0.dp)
     val portraitLyricHorizontalPadding = 16.dp
+    val isPhoneLandscapeLayout = useSidePanelLayout && !isLargeScreenDevice
+    val (landscapeSymmetricLeftPadding, landscapeSymmetricRightPadding) = if (!isPhoneLandscapeLayout) {
+        0.dp to 0.dp
+    } else {
+        val rootInsets = ViewCompat.getRootWindowInsets(view)
+        val displayCutout = rootInsets?.displayCutout
+        val safeLeftPx = displayCutout?.safeInsetLeft ?: 0
+        val safeRightPx = displayCutout?.safeInsetRight ?: 0
+        val screenWidthPx = context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
+        var rectLeftPx = 0
+        var rectRightPx = 0
+        displayCutout?.boundingRects?.forEach { rect ->
+            if (rect.width() <= 0 || rect.height() <= 0) return@forEach
+            if (rect.left <= 0) {
+                rectLeftPx = max(rectLeftPx, rect.width())
+            }
+            if (rect.right >= screenWidthPx - 1) {
+                rectRightPx = max(rectRightPx, rect.width())
+            }
+        }
+        val occupiedLeftPx = max(safeLeftPx, rectLeftPx)
+        val occupiedRightPx = max(safeRightPx, rectRightPx)
+        val extraLeftPx = (occupiedRightPx - occupiedLeftPx).coerceAtLeast(0)
+        val extraRightPx = (occupiedLeftPx - occupiedRightPx).coerceAtLeast(0)
+        with(cutoutInsetsDensity) { extraLeftPx.toDp() to extraRightPx.toDp() }
+    }
     val landscapeSafeAreaInsets = WindowInsets.safeDrawing.only(
         WindowInsetsSides.Horizontal + WindowInsetsSides.Vertical
     )
@@ -5242,19 +5281,19 @@ fun LyricPreviewScreen(
                         Modifier
                     }
                 )
-                .padding(
-                    start = if (useSidePanelLayout) {
-                        landscapeOuterHorizontalPadding +
-                            landscapeLeftPanelWidth +
-                            landscapePaneSpacing +
-                            landscapeRightPaneHorizontalPadding
+                .then(
+                    if (useSidePanelLayout) {
+                        Modifier.absolutePadding(
+                            left = landscapeOuterHorizontalPadding +
+                                landscapeSymmetricLeftPadding +
+                                landscapeLeftPanelWidth +
+                                landscapePaneSpacing +
+                                landscapeRightPaneHorizontalPadding,
+                            right = landscapeSymmetricRightPadding +
+                                landscapeRightPaneHorizontalPadding
+                        )
                     } else {
-                        portraitLyricHorizontalPadding
-                    },
-                    end = if (useSidePanelLayout) {
-                        landscapeRightPaneHorizontalPadding
-                    } else {
-                        portraitLyricHorizontalPadding
+                        Modifier.padding(horizontal = portraitLyricHorizontalPadding)
                     }
                 )
             ) {
@@ -5836,6 +5875,10 @@ fun LyricPreviewScreen(
                                 val nextSelected = !landscapeLyricDisplaySelected
                                 landscapeLyricDisplaySelected = nextSelected
                                 syncLyricDisplaySelection(nextSelected)
+                            } else if (useWatchPlaybackLayout) {
+                                val nextSelected = !watchLyricDisplaySelected
+                                watchLyricDisplaySelected = nextSelected
+                                syncLyricDisplaySelection(nextSelected)
                             } else {
                                 showLyricSettingsSheet = true
                             }
@@ -5880,7 +5923,10 @@ fun LyricPreviewScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(landscapeSafeAreaInsets)
-                        .padding(horizontal = landscapeOuterHorizontalPadding),
+                        .absolutePadding(
+                            left = landscapeOuterHorizontalPadding + landscapeSymmetricLeftPadding,
+                            right = landscapeOuterHorizontalPadding + landscapeSymmetricRightPadding
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(landscapePaneSpacing)
                 ) {
                     Column(
@@ -6100,8 +6146,35 @@ fun LyricPreviewScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
-                    )
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(
+                            targetState = watchLyricDisplaySelected,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(durationMillis = 220)) togetherWith
+                                    fadeOut(animationSpec = tween(durationMillis = 180))
+                            },
+                            label = "watchCoverLyricToggle",
+                            modifier = Modifier.fillMaxSize()
+                        ) { showLyrics ->
+                            if (showLyrics) {
+                                Spacer(modifier = Modifier.fillMaxSize())
+                            } else {
+                                LyricPreviewSideCover(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    coverBitmap = displayedVisualCoverBitmap,
+                                    accentColor = accentColor,
+                                    backgroundColor = backgroundColor,
+                                    isPlaying = coverVisualPlaying,
+                                    sharedCoverId = sharedCoverId,
+                                    coverAlpha = if (showCoverContent) 1f else 0f
+                                )
+                            }
+                        }
+                    }
                     playbackControlsPanel(null, Modifier, false, false)
                 }
             } else {
@@ -6366,12 +6439,14 @@ fun LyricPreviewScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(landscapeSafeAreaInsets)
-                    .padding(
-                        start = landscapeOuterHorizontalPadding +
+                    .absolutePadding(
+                        left = landscapeOuterHorizontalPadding +
+                            landscapeSymmetricLeftPadding +
                             landscapeLeftPanelWidth +
                             landscapePaneSpacing +
                             landscapeRightPaneHorizontalPadding,
-                        end = landscapeRightPaneHorizontalPadding
+                        right = landscapeSymmetricRightPadding +
+                            landscapeRightPaneHorizontalPadding
                     )
             ) {
                 if (landscapeLyricDisplaySelected && companionAvailable) {

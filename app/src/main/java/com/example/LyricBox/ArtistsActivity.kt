@@ -301,17 +301,24 @@ private fun ArtistListWithScrollbar(
     listState: LazyListState,
     miniPlayerExtraBottomPadding: Dp,
     listTopPadding: Dp,
+    layoutProfile: AppLayoutProfile,
     onArtistClick: (ArtistInfo) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val columnCount = remember(configuration.orientation, configuration.screenWidthDp) {
-        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            (configuration.screenWidthDp / 360).coerceIn(2, 4)
-        } else {
-            1
+    val columnCount = remember(layoutProfile, configuration.orientation, configuration.screenWidthDp) {
+        when (layoutProfile) {
+            AppLayoutProfile.WATCH -> 1
+            AppLayoutProfile.PHONE -> {
+                if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    (configuration.screenWidthDp / 360).coerceIn(2, 4)
+                } else {
+                    1
+                }
+            }
+            AppLayoutProfile.TABLET -> (configuration.screenWidthDp / 360).coerceIn(2, 4)
         }
     }
     val artistRows = remember(artists, columnCount) {
@@ -487,6 +494,17 @@ internal fun EmbeddedArtistsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
     val scope = rememberCoroutineScope()
     val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
@@ -652,6 +670,7 @@ internal fun EmbeddedArtistsScreen(
                         listState = artistListState,
                         miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
                         listTopPadding = listTopPadding,
+                        layoutProfile = effectiveLayoutProfile,
                         onArtistClick = { artist -> onArtistClick(artist.name) },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -676,6 +695,17 @@ internal fun EmbeddedArtistDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
     var isLoading by remember { mutableStateOf(true) }
     var detailInfo by remember { mutableStateOf<ArtistDetailInfo?>(null) }
     var avatarRefreshVersion by remember(artistName) { mutableStateOf(0) }
@@ -769,6 +799,7 @@ internal fun EmbeddedArtistDetailScreen(
                     selectedTab = selectedTab,
                     onTabSelected = onTabSelected,
                     miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
+                    layoutProfile = effectiveLayoutProfile,
                     avatarRefreshVersion = avatarRefreshVersion,
                     onSongClick = { audio -> onSongClick(detail.songs, audio) },
                     onSongMoreClick = onSongMoreClick,
@@ -808,6 +839,17 @@ internal fun EmbeddedAlbumDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
     var isLoading by remember { mutableStateOf(true) }
     var detailInfo by remember { mutableStateOf<AlbumDetailInfo?>(null) }
     var coverRefreshVersion by remember(albumName) { mutableStateOf(0) }
@@ -868,6 +910,7 @@ internal fun EmbeddedAlbumDetailScreen(
                 AlbumDetailContent(
                     detail = detail,
                     miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
+                    layoutProfile = effectiveLayoutProfile,
                     coverRefreshVersion = coverRefreshVersion,
                     onHeadBarContentColorChange = { color -> headBarContentColor = color },
                     onHeadBarBackgroundColorChange = { color -> headBarThemeColor = color },
@@ -903,6 +946,17 @@ private fun ArtistsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
     val scope = rememberCoroutineScope()
     val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val prefs = remember { context.getSharedPreferences("MusicLibrarySettings", Context.MODE_PRIVATE) }
@@ -1075,6 +1129,7 @@ private fun ArtistsScreen(
                             listState = artistListState,
                             miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
                             listTopPadding = listTopPadding,
+                            layoutProfile = effectiveLayoutProfile,
                             onArtistClick = { artist ->
                                 val intent = Intent(context, ArtistsActivity::class.java).apply {
                                     putExtra(ArtistsActivity.EXTRA_ARTIST_NAME, artist.name)
@@ -1133,6 +1188,17 @@ private fun ArtistDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val layoutModePreference = getSavedAppLayoutModePreference(context)
+    val effectiveLayoutProfile = remember(
+        layoutModePreference,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        resolveAppLayoutProfile(context, layoutModePreference)
+    }
     val playbackController = rememberMusicPlaybackController()
     val showMiniPlayer = playbackController.hasCurrentItem
     val miniPlayerExtraBottomPadding = if (showMiniPlayer) 84.dp else 0.dp
@@ -1231,6 +1297,7 @@ private fun ArtistDetailScreen(
                         selectedTab = selectedTab,
                         onTabSelected = { selectedTab = it },
                         miniPlayerExtraBottomPadding = miniPlayerExtraBottomPadding,
+                        layoutProfile = effectiveLayoutProfile,
                         avatarRefreshVersion = avatarRefreshVersion,
                         onSongClick = { audio ->
                             detailInfo?.songs?.let { songs ->
@@ -1318,6 +1385,7 @@ private fun ArtistDetailContent(
     selectedTab: ArtistDetailTab,
     onTabSelected: (ArtistDetailTab) -> Unit,
     miniPlayerExtraBottomPadding: androidx.compose.ui.unit.Dp,
+    layoutProfile: AppLayoutProfile,
     avatarRefreshVersion: Int,
     onSongClick: (AudioFile) -> Unit,
     onSongMoreClick: (AudioFile) -> Unit,
@@ -1325,6 +1393,11 @@ private fun ArtistDetailContent(
     onHeadBarCollapsedChange: (Boolean) -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
+    val useLandscapeLayout = when (layoutProfile) {
+        AppLayoutProfile.WATCH -> false
+        AppLayoutProfile.PHONE -> configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        AppLayoutProfile.TABLET -> true
+    }
     val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
     val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 24.dp + miniPlayerExtraBottomPadding
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(
@@ -1347,13 +1420,13 @@ private fun ArtistDetailContent(
         }
     }
 
-    LaunchedEffect(configuration.orientation) {
-        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    LaunchedEffect(useLandscapeLayout) {
+        if (useLandscapeLayout) {
             onHeadBarCollapsedChange(false)
         }
     }
 
-    if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    if (useLandscapeLayout) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -1581,6 +1654,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.artistDetailListItems
 private fun AlbumDetailContent(
     detail: AlbumDetailInfo,
     miniPlayerExtraBottomPadding: Dp,
+    layoutProfile: AppLayoutProfile,
     coverRefreshVersion: Int,
     onHeadBarContentColorChange: (Color) -> Unit = {},
     onHeadBarBackgroundColorChange: (Color) -> Unit = {},
@@ -1590,6 +1664,11 @@ private fun AlbumDetailContent(
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
+    val useLandscapeLayout = when (layoutProfile) {
+        AppLayoutProfile.WATCH -> false
+        AppLayoutProfile.PHONE -> configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        AppLayoutProfile.TABLET -> true
+    }
     val density = LocalDensity.current
     val navigationBarsPadding = WindowInsets.navigationBars.asPaddingValues()
     val bottomPadding = navigationBarsPadding.calculateBottomPadding() + 24.dp + miniPlayerExtraBottomPadding
@@ -1672,8 +1751,8 @@ private fun AlbumDetailContent(
     LaunchedEffect(backgroundColor) {
         onHeadBarBackgroundColorChange(backgroundColor)
     }
-    LaunchedEffect(configuration.orientation) {
-        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    LaunchedEffect(useLandscapeLayout) {
+        if (useLandscapeLayout) {
             onHeadBarCollapsedChange(false)
         }
     }
@@ -1684,7 +1763,7 @@ private fun AlbumDetailContent(
                 .fillMaxSize()
                 .background(backgroundColor)
         ) {
-            if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            if (useLandscapeLayout) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()

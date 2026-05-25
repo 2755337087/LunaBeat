@@ -49,13 +49,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +110,8 @@ private val AM_REGION_OPTIONS = listOf(
     "KR" to "KR - 韩国",
     "US" to "US - 美国"
 )
+
+private val LocalSettingsLayoutProfile = compositionLocalOf { AppLayoutProfile.PHONE }
 
 fun getSavedAMDefaultRegion(context: Context): String {
     return context.getSharedPreferences(APP_SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
@@ -226,10 +231,13 @@ fun SettingsScreen(
     
     val savedSeekTimeSeconds = remember { prefs.getFloat("seekTimeSeconds", 2f) }
     val savedVibrationIntensity = remember { prefs.getString("vibrationIntensity", "weak") }
+    val savedLayoutModePreference = remember { getSavedAppLayoutModePreference(context) }
+    val configuration = LocalConfiguration.current
     
     var showDarkModeDialog by remember { mutableStateOf(false) }
     var showSeekTimeDialog by remember { mutableStateOf(false) }
     var showVibrationIntensityDialog by remember { mutableStateOf(false) }
+    var showLayoutModeDialog by remember { mutableStateOf(false) }
     
     val savedCoverSize = remember { prefs.getInt("amCoverSize", 3000) }
     val savedQmCoverSize = remember { prefs.getInt("qmCoverSize", 1200) }
@@ -257,6 +265,7 @@ fun SettingsScreen(
     
     var tempDarkModeType by remember { mutableStateOf(savedDarkModeType) }
     var tempSeekTimeSeconds by remember { mutableFloatStateOf(savedSeekTimeSeconds) }
+    var tempLayoutModePreference by remember { mutableStateOf(savedLayoutModePreference) }
     var tempCoverSize by remember { mutableStateOf(savedCoverSize) }
     var tempQmCoverSize by remember { mutableStateOf(savedQmCoverSize) }
     var tempNeCoverSize by remember { mutableStateOf(savedNeCoverSize) }
@@ -273,6 +282,21 @@ fun SettingsScreen(
     
     val currentDarkModeType = remember { mutableStateOf(savedDarkModeType) }
     val currentSeekTimeSeconds = remember { mutableFloatStateOf(savedSeekTimeSeconds) }
+    val currentLayoutModePreference = remember { mutableStateOf(savedLayoutModePreference) }
+    val effectiveLayoutProfile = remember(
+        currentLayoutModePreference.value,
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        resolveAppLayoutProfile(context, currentLayoutModePreference.value)
+    }
+    val settingsListHorizontalPadding = when (effectiveLayoutProfile) {
+        AppLayoutProfile.WATCH -> 12.dp
+        AppLayoutProfile.PHONE -> 16.dp
+        AppLayoutProfile.TABLET -> 24.dp
+    }
     val currentCoverSize = remember { mutableStateOf(savedCoverSize) }
     val currentQmCoverSize = remember { mutableStateOf(savedQmCoverSize) }
     val currentNeCoverSize = remember { mutableStateOf(savedNeCoverSize) }
@@ -542,31 +566,25 @@ fun SettingsScreen(
         }
     }
     
-    Column(modifier = modifier.fillMaxSize()) {
-        CommonHeadBar(
-            title = "设置",
-            showBack = true,
-            showMenu = false,
-            onBackClick = onBack
-        )
-        
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 16.dp)
-        ) {
+    CompositionLocalProvider(LocalSettingsLayoutProfile provides effectiveLayoutProfile) {
+        Column(modifier = modifier.fillMaxSize()) {
+            CommonHeadBar(
+                title = "设置",
+                showBack = true,
+                showMenu = false,
+                onBackClick = onBack
+            )
+            
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = settingsListHorizontalPadding)
+            ) {
             item {
                 Spacer(modifier = Modifier.height(16.dp))
             }
             
-            item {
-                Text(
-                    text = "软件设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("软件设置") }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -582,19 +600,27 @@ fun SettingsScreen(
                     }
                 )
             }
-            
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "布局模式",
+                    summary = getAppLayoutModeSummary(context, currentLayoutModePreference.value),
+                    onClick = {
+                        tempLayoutModePreference = currentLayoutModePreference.value
+                        showLayoutModeDialog = true
+                    }
+                )
+            }
+             
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-            item {
-                Text(
-                    text = "打轴设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("打轴设置") }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -636,14 +662,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            item {
-                Text(
-                    text = "主页设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("主页设置") }
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -694,14 +713,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-            item {
-                Text(
-                    text = "音乐库设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("音乐库设置") }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -801,14 +813,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            item {
-                Text(
-                    text = "元数据编辑设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("元数据编辑设置") }
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -844,14 +849,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            item {
-                Text(
-                    text = "音频元数据下载设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("音频元数据下载设置") }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -934,14 +932,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-            item {
-                Text(
-                    text = "歌词下载设置",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
+                item { SettingsSectionTitle("歌词下载设置") }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -968,6 +959,7 @@ fun SettingsScreen(
             item {
                 Spacer(modifier = Modifier.height(16.dp + bottomContentPadding))
             }
+            }
         }
     }
     
@@ -981,6 +973,19 @@ fun SettingsScreen(
                 prefs.edit().putString("darkModeType", tempDarkModeType.name).commit()
                 showDarkModeDialog = false
                 restartApp(context)
+            }
+        )
+    }
+
+    if (showLayoutModeDialog) {
+        LayoutModeDialog(
+            currentValue = tempLayoutModePreference,
+            onValueChange = { tempLayoutModePreference = it },
+            onDismiss = { showLayoutModeDialog = false },
+            onConfirm = {
+                currentLayoutModePreference.value = tempLayoutModePreference
+                saveAppLayoutModePreference(context, tempLayoutModePreference)
+                showLayoutModeDialog = false
             }
         )
     }
@@ -1399,32 +1404,69 @@ fun SettingsScreen(
 }
 
 @Composable
+fun SettingsSectionTitle(title: String) {
+    val profile = LocalSettingsLayoutProfile.current
+    val titleSize = when (profile) {
+        AppLayoutProfile.WATCH -> 16.sp
+        AppLayoutProfile.PHONE -> 18.sp
+        AppLayoutProfile.TABLET -> 20.sp
+    }
+    Text(
+        text = title,
+        fontSize = titleSize,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onBackground
+    )
+}
+
+@Composable
 fun SettingsItem(
     title: String,
     summary: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val profile = LocalSettingsLayoutProfile.current
+    val horizontalPadding = when (profile) {
+        AppLayoutProfile.WATCH -> 12.dp
+        AppLayoutProfile.PHONE -> 16.dp
+        AppLayoutProfile.TABLET -> 20.dp
+    }
+    val verticalPadding = when (profile) {
+        AppLayoutProfile.WATCH -> 12.dp
+        AppLayoutProfile.PHONE -> 16.dp
+        AppLayoutProfile.TABLET -> 18.dp
+    }
+    val titleSize = when (profile) {
+        AppLayoutProfile.WATCH -> 15.sp
+        AppLayoutProfile.PHONE -> 16.sp
+        AppLayoutProfile.TABLET -> 17.sp
+    }
+    val summarySize = when (profile) {
+        AppLayoutProfile.WATCH -> 12.sp
+        AppLayoutProfile.PHONE -> 14.sp
+        AppLayoutProfile.TABLET -> 15.sp
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = titleSize,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = summary,
-                fontSize = 14.sp,
+                fontSize = summarySize,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         }
@@ -1439,26 +1481,47 @@ fun SettingsItemWithSwitch(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val profile = LocalSettingsLayoutProfile.current
+    val horizontalPadding = when (profile) {
+        AppLayoutProfile.WATCH -> 12.dp
+        AppLayoutProfile.PHONE -> 16.dp
+        AppLayoutProfile.TABLET -> 20.dp
+    }
+    val verticalPadding = when (profile) {
+        AppLayoutProfile.WATCH -> 12.dp
+        AppLayoutProfile.PHONE -> 16.dp
+        AppLayoutProfile.TABLET -> 18.dp
+    }
+    val titleSize = when (profile) {
+        AppLayoutProfile.WATCH -> 15.sp
+        AppLayoutProfile.PHONE -> 16.sp
+        AppLayoutProfile.TABLET -> 17.sp
+    }
+    val summarySize = when (profile) {
+        AppLayoutProfile.WATCH -> 12.sp
+        AppLayoutProfile.PHONE -> 14.sp
+        AppLayoutProfile.TABLET -> 15.sp
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 16.sp,
+                fontSize = titleSize,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = summary,
-                fontSize = 14.sp,
+                fontSize = summarySize,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         }
@@ -1498,6 +1561,80 @@ fun DarkModeDialog(
                             text = type.displayName,
                             fontSize = 16.sp
                         )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+fun LayoutModeDialog(
+    currentValue: AppLayoutModePreference,
+    onValueChange: (AppLayoutModePreference) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val autoProfile = remember(
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        configuration.smallestScreenWidthDp,
+        configuration.orientation
+    ) {
+        detectAutoAppLayoutProfile(context)
+    }
+    val options = listOf(
+        AppLayoutModePreference.AUTO,
+        AppLayoutModePreference.WATCH,
+        AppLayoutModePreference.PHONE,
+        AppLayoutModePreference.TABLET
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("布局模式") },
+        text = {
+            Column {
+                options.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueChange(option) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentValue == option,
+                            onClick = { onValueChange(option) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (option == AppLayoutModePreference.AUTO) {
+                                "${option.displayName}（当前：${autoProfile.displayName}）"
+                            } else {
+                                option.displayName
+                            },
+                            fontSize = 16.sp
+                        )
+                        if (option == AppLayoutModePreference.AUTO) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "(默认)",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }
