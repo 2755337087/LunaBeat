@@ -159,7 +159,7 @@ class MusicPlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    enforceManualNextPriorityOnAutoTransition(this@apply, reason)
+                    enforceManualNextPriorityOnAutoAdvance(this@apply, reason)
                     lastTransitionSourcePath = mediaItem?.resolveOriginalAudioPath()
                     lastTransitionIndex = this@apply.currentMediaItemIndex
                     lastTransitionAtMs = SystemClock.elapsedRealtime()
@@ -619,7 +619,7 @@ class MusicPlaybackService : MediaSessionService() {
         return true
     }
 
-    private fun enforceManualNextPriorityOnAutoTransition(player: ExoPlayer, reason: Int) {
+    private fun enforceManualNextPriorityOnAutoAdvance(player: ExoPlayer, reason: Int) {
         if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
         if (player.mediaItemCount <= 0) return
         val manualNextIndex = resolveManualNextIndex(applicationContext, player, consume = true)
@@ -1191,8 +1191,6 @@ class MusicPlaybackService : MediaSessionService() {
 
         val targetIndex = player.currentMediaItemIndex
         if (targetIndex < 0) return
-        val resumePosition = player.currentPosition.coerceAtLeast(0L)
-        val shouldPlay = player.playWhenReady
         isUpdatingArtwork = true
 
         artworkExecutor.execute {
@@ -1224,9 +1222,11 @@ class MusicPlaybackService : MediaSessionService() {
 
                 val latestIndex = player.currentMediaItemIndex
                 if (latestIndex < 0) return@post
+                val latestPosition = player.currentPosition.coerceAtLeast(0L)
+                val shouldPlay = player.playWhenReady || player.isPlaying
 
                 player.replaceMediaItem(latestIndex, updatedItem)
-                player.seekTo(latestIndex, resumePosition)
+                player.seekTo(latestIndex, latestPosition)
                 player.playWhenReady = shouldPlay
                 if (shouldPlay) player.play()
                 lastArtworkUpdatedSourcePath = sourcePath

@@ -4251,8 +4251,7 @@ fun MusicLibraryScreen(
                                 runCatching {
                                     playbackController.switchCurrentAudioKeepingMetadata(
                                         expectedSourcePath = sourcePath,
-                                        targetAudioPath = targetPath,
-                                        crossfadeDurationMs = 420L
+                                        targetAudioPath = targetPath
                                     )
                                 }
                                 inlineCompanionSwitching = false

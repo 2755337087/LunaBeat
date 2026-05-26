@@ -1306,7 +1306,6 @@ class LyricPreviewActivity : ComponentActivity() {
         private const val STATE_IS_PLAYING = "state_is_playing"
         private const val DEFAULT_COMPANION_FOLDER_NAME = "sing"
         private const val DEFAULT_COMPANION_EXACT_DIR = "/storage/emulated/0/Music/.sing"
-        private const val CROSSFADE_DURATION_MS = 420L
         
         fun createIntent(
             context: Context,
@@ -1830,14 +1829,10 @@ class LyricPreviewActivity : ComponentActivity() {
                                         val switchSucceeded = if (useSharedPlayback) {
                                             sharedPlaybackController?.switchCurrentAudioKeepingMetadata(
                                                 expectedSourcePath = sourcePathForToggle,
-                                                targetAudioPath = targetPath,
-                                                crossfadeDurationMs = CROSSFADE_DURATION_MS
+                                                targetAudioPath = targetPath
                                             ) == true
                                         } else {
-                                            switchLocalPreviewAudioKeepingProgress(
-                                                targetPath = targetPath,
-                                                crossfadeDurationMs = CROSSFADE_DURATION_MS
-                                            )
+                                            switchLocalPreviewAudioKeepingProgress(targetPath = targetPath)
                                         }
                                         if (switchSucceeded) {
                                             companionModeEnabled = enabled
@@ -2123,10 +2118,7 @@ class LyricPreviewActivity : ComponentActivity() {
         return normalizedA == normalizedB
     }
 
-    private suspend fun switchLocalPreviewAudioKeepingProgress(
-        targetPath: String,
-        crossfadeDurationMs: Long
-    ): Boolean {
+    private fun switchLocalPreviewAudioKeepingProgress(targetPath: String): Boolean {
         return try {
             val targetFile = File(targetPath)
             if (!targetFile.exists() || !targetFile.isFile) return false
@@ -2138,57 +2130,27 @@ class LyricPreviewActivity : ComponentActivity() {
             val resumePosition = primaryPlayer.currentPosition.coerceAtLeast(0L)
             val keepPlaying = primaryPlayer.isPlaying || primaryPlayer.playWhenReady
             val baselineVolume = primaryPlayer.volume.takeIf { it > 0f } ?: 1f
-            val halfDuration = (crossfadeDurationMs / 2L).coerceAtLeast(90L)
-
             companionPlayer?.release()
-            companionPlayer = ExoPlayer.Builder(
-                this,
-                DefaultRenderersFactory(this).apply {
-                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-                }
-            ).build().apply {
-                attachPreviewPlayerListener(this, fallbackPath = targetPath, allowFallback = false)
-                val playableUri = resolvePlayablePreviewUri(targetPath)
-                setMediaItem(MediaItem.fromUri(playableUri))
-                prepare()
-                if (resumePosition > 0L) {
-                    seekTo(resumePosition)
-                }
-                volume = 0f
-                playWhenReady = keepPlaying
-                if (keepPlaying) {
-                    play()
-                }
-            }
-
-            val targetPlayer = companionPlayer ?: return false
-
-            var waitRounds = 0
-            while (
-                waitRounds < 12 &&
-                (targetPlayer.playbackState == Player.STATE_IDLE || targetPlayer.playbackState == Player.STATE_BUFFERING)
-            ) {
-                delay(35L)
-                waitRounds += 1
-            }
-
-            animateDualPlayerVolume(primaryPlayer, targetPlayer, baselineVolume, halfDuration)
-
-            val oldPlayer = mediaPlayer
-            mediaPlayer = targetPlayer
             companionPlayer = null
-            oldPlayer?.release()
-            mediaPlayer?.volume = baselineVolume
+            val playableUri = resolvePlayablePreviewUri(targetPath)
+            primaryPlayer.volume = baselineVolume
+            primaryPlayer.setMediaItem(MediaItem.fromUri(playableUri))
+            primaryPlayer.prepare()
+            if (resumePosition > 0L) {
+                primaryPlayer.seekTo(resumePosition)
+            }
+            primaryPlayer.playWhenReady = keepPlaying
+            if (keepPlaying) {
+                primaryPlayer.play()
+            }
             playbackCompleted = false
-            previewAudioDuration = mediaPlayer?.duration
-                ?.takeIf { it != C.TIME_UNSET && it > 0L }
+            previewAudioDuration = primaryPlayer.duration
+                .takeIf { it != C.TIME_UNSET && it > 0L }
                 ?: previewAudioDuration
             if (previewAudioDuration > 0L) {
                 previewLastKnownDuration = previewAudioDuration
-            } else if (previewLastKnownDuration > 0L) {
-                previewAudioDuration = previewLastKnownDuration
             }
-            currentPlaybackPosition = mediaPlayer?.currentPosition?.coerceAtLeast(0L) ?: currentPlaybackPosition
+            currentPlaybackPosition = resumePosition
             true
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to switch preview companion audio: $targetPath", e)
@@ -2237,30 +2199,6 @@ class LyricPreviewActivity : ComponentActivity() {
             if (mediaStoreUri != null) return mediaStoreUri
         }
         return android.net.Uri.fromFile(File(path))
-    }
-
-    private suspend fun animateDualPlayerVolume(
-        fadeOutPlayer: Player,
-        fadeInPlayer: Player,
-        targetVolume: Float,
-        durationMs: Long
-    ) {
-        val clampedTarget = targetVolume.coerceIn(0f, 1f)
-        if (durationMs <= 0L) {
-            fadeOutPlayer.volume = 0f
-            fadeInPlayer.volume = clampedTarget
-            return
-        }
-        val steps = 12
-        val stepDelay = (durationMs / steps).coerceAtLeast(12L)
-        for (step in 0..steps) {
-            val fraction = step / steps.toFloat()
-            fadeOutPlayer.volume = clampedTarget * (1f - fraction)
-            fadeInPlayer.volume = clampedTarget * fraction
-            delay(stepDelay)
-        }
-        fadeOutPlayer.volume = 0f
-        fadeInPlayer.volume = clampedTarget
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

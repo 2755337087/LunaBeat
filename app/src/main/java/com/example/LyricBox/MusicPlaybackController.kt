@@ -457,8 +457,7 @@ class MusicPlaybackController(private val context: Context) {
 
     suspend fun switchCurrentAudioKeepingMetadata(
         expectedSourcePath: String,
-        targetAudioPath: String,
-        crossfadeDurationMs: Long = 360L
+        targetAudioPath: String
     ): Boolean {
         val player = controller ?: return false
         val currentIndex = player.currentMediaItemIndex
@@ -482,32 +481,60 @@ class MusicPlaybackController(private val context: Context) {
             playbackPath = resolvedTargetFile.absolutePath
         )
 
+        val enablingCompanion = File(targetAudioPath).absolutePath != File(expectedSourcePath).absolutePath
         val currentUriPath = currentItem.localConfiguration?.uri?.path
-        if (currentItem.localConfiguration?.uri == targetPlayableUri || currentUriPath == resolvedTargetFile.absolutePath) return true
+        if (currentItem.localConfiguration?.uri == targetPlayableUri || currentUriPath == resolvedTargetFile.absolutePath) {
+            updateTemporaryCompanionState(enablingCompanion, currentIndex, expectedSourcePath)
+            syncFromPlayer(player)
+            return true
+        }
 
         val wasPlaying = player.isPlaying || player.playWhenReady
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
-        val baselineVolume = player.volume.takeIf { it > 0f } ?: 1f
-        val halfDuration = (crossfadeDurationMs / 2L).coerceAtLeast(90L)
-
-        animatePlayerVolume(player, baselineVolume, 0f, halfDuration)
 
         val updatedItem = currentItem.buildUpon()
             .setUri(targetPlayableUri)
             .build()
-        player.replaceMediaItem(currentIndex, updatedItem)
+        val switched = applyCurrentAudioItemKeepingMetadata(
+            player = player,
+            index = currentIndex,
+            updatedItem = updatedItem,
+            resumePosition = resumePosition,
+            shouldPlay = wasPlaying
+        )
+        if (!switched) {
+            return false
+        }
+        updateTemporaryCompanionState(enablingCompanion, currentIndex, expectedSourcePath)
+        syncFromPlayer(player)
+        return true
+    }
+
+    private fun applyCurrentAudioItemKeepingMetadata(
+        player: MediaController,
+        index: Int,
+        updatedItem: MediaItem,
+        resumePosition: Long,
+        shouldPlay: Boolean
+    ): Boolean {
+        if (index !in 0 until player.mediaItemCount) return false
+        player.replaceMediaItem(index, updatedItem)
         if (player.playbackState == Player.STATE_IDLE) {
             player.prepare()
         }
-        player.seekTo(currentIndex, resumePosition)
-        player.playWhenReady = wasPlaying
-        if (wasPlaying) {
+        player.seekTo(index, resumePosition)
+        player.playWhenReady = shouldPlay
+        if (shouldPlay) {
             player.play()
         }
+        return true
+    }
 
-        player.volume = 0f
-        animatePlayerVolume(player, 0f, baselineVolume, halfDuration)
-        val enablingCompanion = File(targetAudioPath).absolutePath != File(expectedSourcePath).absolutePath
+    private fun updateTemporaryCompanionState(
+        enablingCompanion: Boolean,
+        currentIndex: Int,
+        expectedSourcePath: String
+    ) {
         if (enablingCompanion) {
             temporaryCompanionMediaIndex = currentIndex
             temporaryCompanionSourcePath = expectedSourcePath
@@ -515,8 +542,6 @@ class MusicPlaybackController(private val context: Context) {
             temporaryCompanionMediaIndex = -1
             temporaryCompanionSourcePath = null
         }
-        syncFromPlayer(player)
-        return true
     }
 
     fun playAtQueueIndex(index: Int) {
