@@ -434,6 +434,7 @@ private fun MusicPlayerScreen(
         SongInfoBottomSheet(
             audio = infoAudio,
             isFavorite = infoAudio.path in LocalPlaylistStore.loadFavoritePaths(context),
+            currentPlaybackPositionMs = controller.positionMs.coerceAtLeast(0L),
             isSleepTimerRunning = controller.sleepTimerState.isActive,
             renameSuccessSignal = 0L,
             onDismiss = {

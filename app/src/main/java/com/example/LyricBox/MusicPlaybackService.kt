@@ -85,6 +85,9 @@ class MusicPlaybackService : MediaSessionService() {
     private val lyricPreviewPrefs by lazy {
         getSharedPreferences(LyricPreviewActivity.PREFS_NAME, MODE_PRIVATE)
     }
+    private val playbackStatsManager by lazy { playbackStatsManagerOf(this) }
+    private var lastPlaybackStatsSong: PlaybackStatsSong? = null
+    private var playbackStatsLastTickRealtimeMs: Long = 0L
     private val lyriconBridge by lazy { LyriconStatusBarBridge(this) }
     private val flymeStatusBarLyricBridge by lazy { FlymeStatusBarLyricBridge(this) }
     private var lyriconEnabled = false
@@ -103,6 +106,12 @@ class MusicPlaybackService : MediaSessionService() {
     private val sleepTimerRunnable = object : Runnable {
         override fun run() {
             evaluateSleepTimer()
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
+    private val playbackStatsTickRunnable = object : Runnable {
+        override fun run() {
+            drainPlaybackStatsTick()
             mainHandler.postDelayed(this, 1000L)
         }
     }
@@ -159,6 +168,11 @@ class MusicPlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    drainPlaybackStatsTick()
+                    val oldSong = lastPlaybackStatsSong
+                    val newSong = mediaItem?.toPlaybackStatsSong()
+                    playbackStatsManager.onSongChanged(oldSong = oldSong, newSong = newSong)
+                    lastPlaybackStatsSong = newSong
                     enforceManualNextPriorityOnAutoAdvance(this@apply, reason)
                     lastTransitionSourcePath = mediaItem?.resolveOriginalAudioPath()
                     lastTransitionIndex = this@apply.currentMediaItemIndex
@@ -222,8 +236,37 @@ class MusicPlaybackService : MediaSessionService() {
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    drainPlaybackStatsTick()
+                    if (isPlaying) {
+                        val currentSong = this@apply.currentMediaItem?.toPlaybackStatsSong(this@apply)
+                        playbackStatsManager.onPlaybackStarted(currentSong)
+                        if (currentSong != null) {
+                            lastPlaybackStatsSong = currentSong
+                        }
+                    } else {
+                        playbackStatsManager.onPlaybackPaused()
+                        playbackStatsManager.flush()
+                    }
                     if (hasStatusBarLyricEnabled()) {
                         pushStatusBarLyricPlayback(isSeek = false)
+                    }
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_BUFFERING -> {
+                            drainPlaybackStatsTick()
+                            playbackStatsManager.onBufferingStateChanged(true)
+                        }
+                        Player.STATE_READY -> {
+                            playbackStatsManager.onBufferingStateChanged(false)
+                        }
+                        Player.STATE_IDLE, Player.STATE_ENDED -> {
+                            drainPlaybackStatsTick()
+                            playbackStatsManager.onBufferingStateChanged(false)
+                            playbackStatsManager.onPlaybackStopped()
+                            playbackStatsManager.flush()
+                        }
                     }
                 }
 
@@ -232,6 +275,11 @@ class MusicPlaybackService : MediaSessionService() {
                     newPosition: Player.PositionInfo,
                     reason: Int
                 ) {
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                        drainPlaybackStatsTick()
+                        playbackStatsManager.onSeekStarted()
+                        playbackStatsManager.onSeekFinished()
+                    }
                     if (hasStatusBarLyricEnabled()) {
                         pushStatusBarLyricPlayback(isSeek = true)
                     }
@@ -296,6 +344,8 @@ class MusicPlaybackService : MediaSessionService() {
         syncLyriconEnabledFromPrefs()
         syncFlymeStatusBarLyricEnabledFromPrefs()
         syncFlymeHideNotificationFromPrefs()
+        playbackStatsLastTickRealtimeMs = SystemClock.elapsedRealtime()
+        mainHandler.post(playbackStatsTickRunnable)
         mainHandler.post(sleepTimerRunnable)
     }
 
@@ -305,6 +355,8 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player ?: return
+        drainPlaybackStatsTick()
+        playbackStatsManager.flush()
         persistPlaybackStateForRestore(player, force = true)
         if (!player.playWhenReady || player.mediaItemCount == 0) {
             stopSelf()
@@ -312,8 +364,12 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        drainPlaybackStatsTick()
+        playbackStatsManager.onPlaybackStopped()
+        playbackStatsManager.flushBlocking()
         mediaSession?.player?.let { persistPlaybackStateForRestore(it, force = true) }
         mainHandler.removeCallbacks(lyriconProgressRunnable)
+        mainHandler.removeCallbacks(playbackStatsTickRunnable)
         mainHandler.removeCallbacks(sleepTimerRunnable)
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
         lyriconBridge.release()
@@ -333,6 +389,42 @@ class MusicPlaybackService : MediaSessionService() {
         artworkExecutor.shutdownNow()
         PlaybackAlacTranscodeManager.releaseStreamingResources()
         super.onDestroy()
+    }
+
+    private fun drainPlaybackStatsTick() {
+        val nowRealtime = SystemClock.elapsedRealtime()
+        val previous = playbackStatsLastTickRealtimeMs
+        playbackStatsLastTickRealtimeMs = nowRealtime
+        if (previous <= 0L) return
+        val deltaMs = nowRealtime - previous
+        if (deltaMs <= 0L) return
+
+        val currentPlayer = player
+        val currentSong = currentPlayer?.currentMediaItem?.toPlaybackStatsSong(currentPlayer) ?: lastPlaybackStatsSong
+        if (currentSong != null) {
+            lastPlaybackStatsSong = currentSong
+        }
+        playbackStatsManager.onPlaybackTick(
+            currentSong = currentSong,
+            deltaMs = deltaMs,
+            tickEndWallClockMs = System.currentTimeMillis()
+        )
+    }
+
+    private fun MediaItem.toPlaybackStatsSong(player: Player? = null): PlaybackStatsSong? {
+        val songKey = resolveOriginalAudioPath()?.takeIf { it.isNotBlank() } ?: return null
+        val metadata = mediaMetadata
+        val durationMs = when {
+            player != null && player.duration > 0L && player.duration != C.TIME_UNSET -> player.duration
+            else -> 0L
+        }
+        return PlaybackStatsSong(
+            songKey = songKey,
+            title = metadata.title?.toString().orEmpty(),
+            artist = metadata.artist?.toString().orEmpty(),
+            album = metadata.albumTitle?.toString().orEmpty(),
+            durationMs = durationMs
+        )
     }
 
     private fun persistPlaybackStateForRestore(player: Player, force: Boolean) {

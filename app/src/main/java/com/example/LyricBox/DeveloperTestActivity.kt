@@ -193,6 +193,16 @@ fun DeveloperTestScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(context, PlaybackStatsDebugActivity::class.java))
+                }
+            ) {
+                Text("播放统计详情")
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
             Text(
                 text = "163key 解密测试",
                 style = MaterialTheme.typography.titleMedium,

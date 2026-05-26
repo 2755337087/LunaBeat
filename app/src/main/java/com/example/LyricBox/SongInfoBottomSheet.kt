@@ -74,6 +74,7 @@ data class SongInfoState(
 fun SongInfoBottomSheet(
     audio: AudioFile,
     isFavorite: Boolean,
+    currentPlaybackPositionMs: Long = 0L,
     isSleepTimerRunning: Boolean = false,
     renameSuccessSignal: Long,
     onDismiss: () -> Unit,
@@ -87,7 +88,7 @@ fun SongInfoBottomSheet(
     onEditLyricsFromPreview: (() -> Unit)? = null,
     onEditMetadataFromSheet: ((AudioFile) -> Unit)? = null,
     onSearchNavigateDone: (() -> Unit)? = null,
-    onOpenLyricTimingFromSheet: ((AudioFile, SongInfoState, String?, String) -> Unit)? = null,
+    onOpenLyricTimingFromSheet: ((AudioFile, SongInfoState, String?, String, Long) -> Unit)? = null,
     onOpenSleepTimer: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -278,14 +279,21 @@ fun SongInfoBottomSheet(
                             },
                             onStartLyricTimingEditor = { targetAudio, lyricsContent, format ->
                                 if (onOpenLyricTimingFromSheet != null) {
-                                    onOpenLyricTimingFromSheet(targetAudio, infoState, lyricsContent, format)
+                                    onOpenLyricTimingFromSheet(
+                                        targetAudio,
+                                        infoState,
+                                        lyricsContent,
+                                        format,
+                                        currentPlaybackPositionMs.coerceAtLeast(0L)
+                                    )
                                 } else {
                                     launchLyricTimingEditorFromSongInfo(
                                         context = context,
                                         audio = targetAudio,
                                         songInfo = infoState,
                                         lyricsContent = lyricsContent,
-                                        lyricsFormatLabel = format
+                                        lyricsFormatLabel = format,
+                                        initialPlaybackPositionMs = currentPlaybackPositionMs.coerceAtLeast(0L)
                                     )
                                 }
                                 onDismiss()
@@ -358,14 +366,21 @@ fun SongInfoBottomSheet(
             onEditLyrics = { lyricsContent, lyricsFormat ->
                 showLyricsSourceSheet = false
                 if (onOpenLyricTimingFromSheet != null) {
-                    onOpenLyricTimingFromSheet(audio, infoState, lyricsContent, lyricsFormat)
+                    onOpenLyricTimingFromSheet(
+                        audio,
+                        infoState,
+                        lyricsContent,
+                        lyricsFormat,
+                        currentPlaybackPositionMs.coerceAtLeast(0L)
+                    )
                 } else {
                     launchLyricTimingEditorFromSongInfo(
                         context = context,
                         audio = audio,
                         songInfo = infoState,
                         lyricsContent = lyricsContent,
-                        lyricsFormatLabel = lyricsFormat
+                        lyricsFormatLabel = lyricsFormat,
+                        initialPlaybackPositionMs = currentPlaybackPositionMs.coerceAtLeast(0L)
                     )
                 }
                 onDismiss()
@@ -665,7 +680,8 @@ private fun launchLyricTimingEditorFromSongInfo(
     audio: AudioFile,
     songInfo: SongInfoState,
     lyricsContent: String?,
-    lyricsFormatLabel: String
+    lyricsFormatLabel: String,
+    initialPlaybackPositionMs: Long = 0L
 ) {
     val intent = Intent(context, LyricTimingActivity::class.java).apply {
         putExtra("audioPath", audio.path)
@@ -674,6 +690,7 @@ private fun launchLyricTimingEditorFromSongInfo(
         putExtra("sourceArtist", songInfo.artist.ifBlank { audio.displayArtist })
         putExtra("lyricsFormat", lyricsFormatLabel)
         putExtra(SongMetadataEditActivity.EXTRA_MEDIA_STORE_ID, audio.mediaStoreId)
+        putExtra(LyricTimingActivity.EXTRA_INITIAL_PLAYBACK_POSITION_MS, initialPlaybackPositionMs.coerceAtLeast(0L))
         if (context !is Activity) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

@@ -43,6 +43,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -205,6 +206,7 @@ private fun summarizeTimingLyricLinesForLog(lines: List<LyricLine>): String {
 class LyricTimingActivity : ComponentActivity() {
     companion object {
         const val EXTRA_MEDIA_STORE_ID = "media_store_id"
+        const val EXTRA_INITIAL_PLAYBACK_POSITION_MS = "initial_playback_position_ms"
         private const val KEY_SOURCE_AUDIO_PATH = "lyric_timing.source_audio_path"
         private const val KEY_SOURCE_TITLE = "lyric_timing.source_title"
         private const val KEY_SOURCE_ARTIST = "lyric_timing.source_artist"
@@ -701,6 +703,7 @@ class LyricTimingActivity : ComponentActivity() {
         val intentSourceArtist = intent.getStringExtra("sourceArtist") ?: ""
         val intentLyricsContent = intent.getStringExtra("lyricsContent") ?: ""
         val intentMediaStoreId = intent.getLongExtra(EXTRA_MEDIA_STORE_ID, -1L)
+        val intentInitialPlaybackPositionMs = intent.getLongExtra(EXTRA_INITIAL_PLAYBACK_POSITION_MS, -1L)
         val intentLyricsFormat = when (intent.getStringExtra("lyricsFormat") ?: "") {
             "纯文本歌词" -> 0
             "LRC歌词", "LRC逐行/逐字歌词" -> 1
@@ -748,10 +751,16 @@ class LyricTimingActivity : ComponentActivity() {
             sourceMediaStoreId = intentMediaStoreId
             importedLyricsContent = intentLyricsContent
             importedLyricsFormat = intentLyricsFormat
-            pendingRestoreSeekMs = null
+            pendingRestoreSeekMs = intentInitialPlaybackPositionMs.takeIf { it >= 0L }
+            lastKnownPlaybackPositionMs = pendingRestoreSeekMs ?: 0L
             restoredLyricLines = emptyList()
             restoredSelectedLineIndex = 0
             restoredSelectedWordIndex = 0
+        }
+        val launchSelectionPositionMs = if (savedInstanceState == null) {
+            intentInitialPlaybackPositionMs.takeIf { it >= 0L } ?: -1L
+        } else {
+            -1L
         }
         
         // 如果是TTML歌词，解析创作者信息
@@ -861,6 +870,7 @@ class LyricTimingActivity : ComponentActivity() {
                         onPendingLyricsCreatorsChange = { pendingLyricsCreators = it },
                         onStartManualConversion = { startManualConversion() },
                         initialPlaybackPositionMs = pendingRestoreSeekMs ?: lastKnownPlaybackPositionMs,
+                        launchSelectionPositionMs = launchSelectionPositionMs,
                         initialLyricLines = restoredLyricLines,
                         initialSelectedLineIndex = restoredSelectedLineIndex,
                         initialSelectedWordIndex = restoredSelectedWordIndex,
@@ -1252,6 +1262,31 @@ data class LyricLine(
 
 private fun isBlankLyricLine(lyricLine: LyricLine): Boolean {
     return lyricLine.timeUnits.isEmpty() || lyricLine.timeUnits.all { it.text.isBlank() }
+}
+
+private fun lyricUnitCountForTimingCheck(lyricLine: LyricLine): Int {
+    return lyricLine.timeUnits.count { it.text.isNotBlank() }
+}
+
+private fun isSingleUnitLyricLineForTimingCheck(lyricLine: LyricLine): Boolean {
+    return !isBlankLyricLine(lyricLine) && lyricUnitCountForTimingCheck(lyricLine) == 1
+}
+
+private fun isLineByLineTimingLine(
+    lyricLines: List<LyricLine>,
+    lineIndex: Int
+): Boolean {
+    if (lineIndex !in lyricLines.indices) return false
+    val currentLine = lyricLines[lineIndex]
+    if (!isSingleUnitLyricLineForTimingCheck(currentLine)) return false
+
+    val prevLine = lyricLines.getOrNull(lineIndex - 1)
+    return if (prevLine != null && !isBlankLyricLine(prevLine)) {
+        isSingleUnitLyricLineForTimingCheck(prevLine)
+    } else {
+        val nextLine = lyricLines.getOrNull(lineIndex + 1)
+        nextLine != null && isSingleUnitLyricLineForTimingCheck(nextLine)
+    }
 }
 
 private fun findNextSelectableTimingUnit(
@@ -5590,12 +5625,28 @@ fun LyricLineItem(
                             .widthIn(min = 72.dp)
                     )
                 } else {
+                    val isLineByLineLyric = isLineByLineTimingLine(lyricLines, lineIndex)
                     lyricLine.timeUnits.forEachIndexed { unitIndex, timeUnit ->
                     if (timeUnit.text.isNotBlank()) {
                         val isSelected = lineIndex == selectedLineIndex && unitIndex == selectedWordIndex
                         val startMs = parseTimeToMs(timeUnit.startTime)
                         val endMs = parseTimeToMs(timeUnit.endTime)
+                        val shouldWarnZeroTimestamp = if (isLineByLineLyric) {
+                            startMs == 0L
+                        } else {
+                            startMs == 0L || endMs == 0L
+                        }
                         val isPlayingHighlight = startMs <= currentTime && currentTime < endMs
+                        val unitBorderColor = when {
+                            shouldWarnZeroTimestamp -> if (isDarkTheme) Color(0xFFFF8A80) else Color(0xFFD32F2F)
+                            isSelected -> MaterialTheme.colorScheme.primary
+                            else -> Color.Transparent
+                        }
+                        val unitBackgroundColor = when {
+                            shouldWarnZeroTimestamp -> if (isDarkTheme) Color(0x33D32F2F) else Color(0x1FD32F2F)
+                            isPlayingHighlight -> if (isDarkTheme) Color(0x406200EE) else Color(0x206200EE)
+                            else -> Color.Transparent
+                        }
                         
                         // 获取要显示的注音
                         val displayTransliteration = if (timeUnit.charTransliterations.isNotEmpty()) {
@@ -5652,22 +5703,13 @@ fun LyricLineItem(
                                     }
                                 )
                                 .padding(4.dp)
-                                .then(
-                                    if (isSelected) {
-                                        Modifier.border(
-                                            width = 2.dp,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                    } else {
-                                        Modifier
-                                    }
+                                .border(
+                                    width = 2.dp,
+                                    color = unitBorderColor,
+                                    shape = RoundedCornerShape(8.dp)
                                 )
                                 .background(
-                                    when {
-                                        isPlayingHighlight -> if (isDarkTheme) Color(0x406200EE) else Color(0x206200EE)
-                                        else -> Color.Transparent
-                                    },
+                                    unitBackgroundColor,
                                     shape = RoundedCornerShape(8.dp)
                                 )
                                 .padding(8.dp)
@@ -6227,6 +6269,57 @@ fun LyricDisplayArea(
 ) {
     var showEditCreatorSheet by remember { mutableStateOf(false) }
     var editingCreatorIndex by remember { mutableStateOf(-1) }
+    var lyricScrollbarDragging by remember { mutableStateOf(false) }
+    var lyricScrollbarProgress by remember { mutableStateOf(0f) }
+    var targetScrollbarAlpha by remember { mutableStateOf(1f) }
+    val animatedScrollbarAlpha by animateFloatAsState(
+        targetValue = targetScrollbarAlpha,
+        animationSpec = tween(durationMillis = 300),
+        label = "lyricScrollbarAlpha"
+    )
+    var scrollbarHideTimerJob by remember { mutableStateOf<Job?>(null) }
+
+    fun resetScrollbarHideTimer() {
+        scrollbarHideTimerJob?.cancel()
+        targetScrollbarAlpha = 1f
+        scrollbarHideTimerJob = coroutineScope.launch {
+            delay(1000)
+            targetScrollbarAlpha = 0.2f
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        resetScrollbarHideTimer()
+    }
+    LaunchedEffect(
+        lazyListState.firstVisibleItemIndex,
+        lazyListState.firstVisibleItemScrollOffset,
+        lyricLines.size,
+        hasLyrics
+    ) {
+        resetScrollbarHideTimer()
+        if (!lyricScrollbarDragging) {
+            val totalItemsForScrollbar = lazyListState.layoutInfo.totalItemsCount
+            val visibleItemsCount = lazyListState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+            val maxScrollIndex = (totalItemsForScrollbar - visibleItemsCount).coerceAtLeast(0)
+            val firstVisibleItemSize = lazyListState.layoutInfo.visibleItemsInfo
+                .firstOrNull()
+                ?.size
+                ?.coerceAtLeast(1)
+                ?: 1
+            val rawPosition = lazyListState.firstVisibleItemIndex.toFloat() +
+                lazyListState.firstVisibleItemScrollOffset.toFloat() / firstVisibleItemSize.toFloat()
+            lyricScrollbarProgress = if (maxScrollIndex > 0) {
+                when {
+                    !lazyListState.canScrollBackward -> 0f
+                    !lazyListState.canScrollForward -> 1f
+                    else -> rawPosition / maxScrollIndex.toFloat()
+                }
+            } else {
+                0f
+            }
+        }
+    }
     
     Box(
         modifier = modifier.fillMaxWidth()
@@ -6274,6 +6367,97 @@ fun LyricDisplayArea(
                             showEditCreatorSheet = true
                         }
                     )
+                }
+            }
+        }
+
+        val totalItemsForScrollbar = lazyListState.layoutInfo.totalItemsCount
+        if (totalItemsForScrollbar > 0) {
+            val viewportHeight = lazyListState.layoutInfo.viewportSize.height
+            if (viewportHeight > 0) {
+                val density = LocalDensity.current
+                val visibleItemsCount = lazyListState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+                val hasScrollableContent = totalItemsForScrollbar > visibleItemsCount ||
+                    lazyListState.canScrollBackward ||
+                    lazyListState.canScrollForward
+                val scrollbarHeightPx = (viewportHeight - 16f).coerceAtLeast(1f)
+                val thumbHeightPx = if (hasScrollableContent) {
+                    (scrollbarHeightPx * 0.18f).coerceIn(80f, scrollbarHeightPx)
+                } else {
+                    scrollbarHeightPx
+                }
+                val maxScrollIndex = (totalItemsForScrollbar - visibleItemsCount).coerceAtLeast(0)
+                val scrollRangePx = (scrollbarHeightPx - thumbHeightPx).coerceAtLeast(1f)
+                val thumbOffsetY = lyricScrollbarProgress.coerceIn(0f, 1f) * scrollRangePx
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(end = 4.dp, top = 8.dp, bottom = 8.dp)
+                        .width(24.dp)
+                        .height(with(density) { scrollbarHeightPx.toDp() })
+                        .graphicsLayer {
+                            alpha = animatedScrollbarAlpha
+                        }
+                        .pointerInput(totalItemsForScrollbar, viewportHeight) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    resetScrollbarHideTimer()
+                                    lyricScrollbarDragging = true
+                                    lyricScrollbarProgress =
+                                        ((offset.y - thumbHeightPx / 2f) / scrollRangePx).coerceIn(0f, 1f)
+                                    val targetIndex = (lyricScrollbarProgress * maxScrollIndex).toInt()
+                                        .coerceIn(0, maxScrollIndex)
+                                    coroutineScope.launch { lazyListState.scrollToItem(targetIndex) }
+                                },
+                                onDragEnd = {
+                                    lyricScrollbarDragging = false
+                                    resetScrollbarHideTimer()
+                                },
+                                onDragCancel = {
+                                    lyricScrollbarDragging = false
+                                    resetScrollbarHideTimer()
+                                }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                resetScrollbarHideTimer()
+                                lyricScrollbarProgress = if (hasScrollableContent) {
+                                    ((change.position.y - thumbHeightPx / 2f) / scrollRangePx)
+                                        .coerceIn(0f, 1f)
+                                } else {
+                                    0f
+                                }
+                                val targetIndex =
+                                    (lyricScrollbarProgress * maxScrollIndex).toInt()
+                                        .coerceIn(0, maxScrollIndex)
+                                coroutineScope.launch {
+                                    lazyListState.scrollToItem(targetIndex)
+                                }
+                            }
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(y = with(density) { thumbOffsetY.toDp() })
+                            .width(24.dp)
+                            .height(with(density) { thumbHeightPx.toDp() })
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(8.dp)
+                                .height(with(density) { thumbHeightPx.toDp() })
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(
+                                    if (lyricScrollbarDragging) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    }
+                                )
+                        )
+                    }
                 }
             }
         }
@@ -7947,6 +8131,7 @@ fun LyricTimingScreen(
     onPendingLyricsCreatorsChange: (List<String>) -> Unit = {},
     onStartManualConversion: () -> Unit = {},
     initialPlaybackPositionMs: Long = 0L,
+    launchSelectionPositionMs: Long = -1L,
     initialLyricLines: List<LyricLine> = emptyList(),
     onLyricLinesSnapshot: (List<LyricLine>) -> Unit = {},
     initialSelectedLineIndex: Int = 0,
@@ -8235,6 +8420,35 @@ fun LyricTimingScreen(
             if (initialLyricLines.isNotEmpty()) initialLyricLines else defaultLyricLines
         )
     }
+    var hasAppliedLaunchSelection by rememberSaveable { mutableStateOf(false) }
+
+    fun resolveLineTimeRangeMs(line: LyricLine): Pair<Long, Long>? {
+        if (line.timeUnits.isEmpty()) return null
+        val starts = line.timeUnits.mapNotNull { unit ->
+            parseTimeToMs(unit.startTime).takeIf { it > 0L }
+        }
+        val ends = line.timeUnits.mapNotNull { unit ->
+            parseTimeToMs(unit.endTime).takeIf { it > 0L }
+        }
+        val startMs = starts.minOrNull() ?: ends.minOrNull() ?: return null
+        val endMs = ends.maxOrNull() ?: starts.maxOrNull() ?: startMs
+        return startMs to maxOf(endMs, startMs)
+    }
+
+    fun findLineIndexForLaunchPosition(lines: List<LyricLine>, targetMs: Long): Int {
+        var fallbackIndex = -1
+        lines.forEachIndexed { index, line ->
+            val range = resolveLineTimeRangeMs(line) ?: return@forEachIndexed
+            val (startMs, endMs) = range
+            if (targetMs in startMs..endMs) {
+                return index
+            }
+            if (targetMs >= startMs) {
+                fallbackIndex = index
+            }
+        }
+        return fallbackIndex.takeIf { it >= 0 } ?: 0
+    }
     
     // 创作者列表
         var creators: List<String> by remember { mutableStateOf(emptyList()) }
@@ -8244,6 +8458,23 @@ fun LyricTimingScreen(
         if (lyricLines.isNotEmpty() != hasLyrics) {
             onHasLyricsChange(lyricLines.isNotEmpty())
         }
+    }
+    LaunchedEffect(launchSelectionPositionMs, lyricLines, hasAppliedLaunchSelection) {
+        if (hasAppliedLaunchSelection) return@LaunchedEffect
+        val targetMs = launchSelectionPositionMs.takeIf { it >= 0L } ?: return@LaunchedEffect
+        if (lyricLines.isEmpty()) return@LaunchedEffect
+        val targetLineIndex = findLineIndexForLaunchPosition(lyricLines, targetMs)
+        val safeTargetLineIndex = targetLineIndex.coerceIn(0, lyricLines.size - 1)
+        selectedLineIndex = safeTargetLineIndex
+        selectedWordIndex = 0
+        currentTime = targetMs
+        runCatching {
+            lazyListState.animateScrollToItem(
+                index = safeTargetLineIndex,
+                scrollOffset = 0
+            )
+        }
+        hasAppliedLaunchSelection = true
     }
     LaunchedEffect(lyricLines) {
         onLyricLinesSnapshot(lyricLines)
@@ -10469,6 +10700,7 @@ fun LyricTimingScreen(
             
             // 播放控制区域（已导入音频）
             if (hasAudio) {
+                val sideControlButtonWidth = 72.dp
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -10493,6 +10725,7 @@ fun LyricTimingScreen(
                     // 播放暂停按钮
                     Box(
                         modifier = Modifier
+                            .width(sideControlButtonWidth)
                             .clip(RoundedCornerShape(20.dp))
                             .background(MaterialTheme.colorScheme.primary)
                             .combinedClickable(
@@ -10559,7 +10792,9 @@ fun LyricTimingScreen(
                             tempSpeed = playbackSpeed
                             showSpeedDialog = true
                         },
-                        modifier = Modifier.padding(start = 8.dp)
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .width(sideControlButtonWidth)
                     ) {
                         Text(text = "${String.format("%.2f", playbackSpeed).trimEnd('0').trimEnd('.')}X")
                     }

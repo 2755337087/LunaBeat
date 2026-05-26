@@ -4012,7 +4012,8 @@ fun LyricPreviewScreen(
         targetAudio: AudioFile,
         songInfo: SongInfoState,
         lyricsContent: String?,
-        lyricsFormatLabel: String
+        lyricsFormatLabel: String,
+        initialPlaybackPositionMs: Long
     ) {
         pendingResetLyricDisplayOnResume = true
         pendingPreviewDataRefreshOnResume = false
@@ -4023,6 +4024,10 @@ fun LyricPreviewScreen(
             putExtra("sourceArtist", songInfo.artist.ifBlank { targetAudio.displayArtist })
             putExtra("lyricsFormat", lyricsFormatLabel)
             putExtra(LyricTimingActivity.EXTRA_MEDIA_STORE_ID, targetAudio.mediaStoreId)
+            putExtra(
+                LyricTimingActivity.EXTRA_INITIAL_PLAYBACK_POSITION_MS,
+                initialPlaybackPositionMs.coerceAtLeast(0L)
+            )
         }
         lyricTimingEditorLauncher.launch(intent)
     }
@@ -6552,6 +6557,7 @@ fun LyricPreviewScreen(
             SongInfoBottomSheet(
                 audio = previewSongInfoAudio,
                 isFavorite = previewSongInfoIsFavorite,
+                currentPlaybackPositionMs = (activePlaybackController?.positionMs ?: 0L).coerceAtLeast(0L),
                 isSleepTimerRunning = activePlaybackController?.sleepTimerState?.isActive == true,
                 renameSuccessSignal = 0L,
                 onDismiss = { showSongInfoSheet = false },
@@ -6563,12 +6569,13 @@ fun LyricPreviewScreen(
                 onEditLyricsFromPreview = {
                     pendingResetLyricDisplayOnResume = true
                 },
-                onOpenLyricTimingFromSheet = { targetAudio, songInfo, lyricsContent, lyricsFormat ->
+                onOpenLyricTimingFromSheet = { targetAudio, songInfo, lyricsContent, lyricsFormat, playbackPositionMs ->
                     launchLyricTimingFromPreviewSongInfo(
                         targetAudio = targetAudio,
                         songInfo = songInfo,
                         lyricsContent = lyricsContent,
-                        lyricsFormatLabel = lyricsFormat
+                        lyricsFormatLabel = lyricsFormat,
+                        initialPlaybackPositionMs = playbackPositionMs
                     )
                 },
                 onEditMetadataFromSheet = { audioToEdit ->
