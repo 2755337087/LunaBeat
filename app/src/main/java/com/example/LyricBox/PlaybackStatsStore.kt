@@ -164,6 +164,7 @@ class PlaybackStatsManager(context: Context) {
         get() = database.playbackStatsDao()
 
     private var currentSong: PlaybackStatsSong? = null
+    private var currentSongArtists: List<String> = emptyList()
     private var isPlaybackActive = false
     private var isSeeking = false
     private var isBuffering = false
@@ -205,10 +206,11 @@ class PlaybackStatsManager(context: Context) {
             val previous = currentSong
             if (oldSong != null && previous?.songKey == oldSong.songKey) {
                 // Keep metadata current until switch.
-                currentSong = oldSong
+                currentSong = oldSong.normalized()
             }
             if (newSong == null) {
                 currentSong = null
+                currentSongArtists = emptyList()
                 resetPlayCountSessionLocked()
                 return
             }
@@ -324,11 +326,13 @@ class PlaybackStatsManager(context: Context) {
     }
 
     private fun switchCurrentSongLocked(song: PlaybackStatsSong) {
-        if (currentSong?.songKey == song.songKey) {
-            currentSong = song
+        val safeSong = song.normalized()
+        if (currentSong?.songKey == safeSong.songKey) {
+            currentSong = safeSong
             return
         }
-        currentSong = song
+        currentSong = safeSong
+        currentSongArtists = resolveArtistsForStats(safeSong)
         resetPlayCountSessionLocked()
     }
 
@@ -339,6 +343,11 @@ class PlaybackStatsManager(context: Context) {
 
     private fun addDurationLocked(song: PlaybackStatsSong, deltaMs: Long, tickEndWallClockMs: Long) {
         val safeSong = song.normalized()
+        val artistsForStats = if (currentSongArtists.isNotEmpty()) {
+            currentSongArtists
+        } else {
+            listOf(safeSong.artist)
+        }
         splitByDate(tickEndWallClockMs, deltaMs).forEach { (date, durationPart) ->
             val daily = pendingDaily.getOrPut(date) { PendingDaily(date = date) }
             daily.totalDurationMs += durationPart
@@ -360,30 +369,37 @@ class PlaybackStatsManager(context: Context) {
         songPending.artist = safeSong.artist
         songPending.album = safeSong.album
 
-        val artistPending = pendingArtist.getOrPut(safeSong.artist) {
-            PendingArtist(artistName = safeSong.artist)
-        }
-        artistPending.totalDurationMs += deltaMs
-        artistPending.lastPlayedAt = maxOf(artistPending.lastPlayedAt, tickEndWallClockMs)
-        artistPending.updatedAt = tickEndWallClockMs
+        artistsForStats.forEach { artistName ->
+            val artistPending = pendingArtist.getOrPut(artistName) {
+                PendingArtist(artistName = artistName)
+            }
+            artistPending.totalDurationMs += deltaMs
+            artistPending.lastPlayedAt = maxOf(artistPending.lastPlayedAt, tickEndWallClockMs)
+            artistPending.updatedAt = tickEndWallClockMs
 
-        val albumKey = buildAlbumKey(safeSong.album, safeSong.artist)
-        val albumPending = pendingAlbum.getOrPut(albumKey) {
-            PendingAlbum(
-                albumKey = albumKey,
-                albumName = safeSong.album,
-                artistName = safeSong.artist
-            )
+            val albumKey = buildAlbumKey(safeSong.album, artistName)
+            val albumPending = pendingAlbum.getOrPut(albumKey) {
+                PendingAlbum(
+                    albumKey = albumKey,
+                    albumName = safeSong.album,
+                    artistName = artistName
+                )
+            }
+            albumPending.totalDurationMs += deltaMs
+            albumPending.lastPlayedAt = maxOf(albumPending.lastPlayedAt, tickEndWallClockMs)
+            albumPending.updatedAt = tickEndWallClockMs
+            albumPending.albumName = safeSong.album
+            albumPending.artistName = artistName
         }
-        albumPending.totalDurationMs += deltaMs
-        albumPending.lastPlayedAt = maxOf(albumPending.lastPlayedAt, tickEndWallClockMs)
-        albumPending.updatedAt = tickEndWallClockMs
-        albumPending.albumName = safeSong.album
-        albumPending.artistName = safeSong.artist
     }
 
     private fun addPlayCountLocked(song: PlaybackStatsSong, playedAtMs: Long) {
         val safeSong = song.normalized()
+        val artistsForStats = if (currentSongArtists.isNotEmpty()) {
+            currentSongArtists
+        } else {
+            listOf(safeSong.artist)
+        }
 
         pendingSong.getOrPut(safeSong.songKey) {
             PendingSong(
@@ -401,28 +417,49 @@ class PlaybackStatsManager(context: Context) {
             album = safeSong.album
         }
 
-        pendingArtist.getOrPut(safeSong.artist) {
-            PendingArtist(artistName = safeSong.artist)
-        }.apply {
-            playCount += 1
-            lastPlayedAt = maxOf(lastPlayedAt, playedAtMs)
-            updatedAt = playedAtMs
-        }
+        artistsForStats.forEach { artistName ->
+            pendingArtist.getOrPut(artistName) {
+                PendingArtist(artistName = artistName)
+            }.apply {
+                playCount += 1
+                lastPlayedAt = maxOf(lastPlayedAt, playedAtMs)
+                updatedAt = playedAtMs
+            }
 
-        val albumKey = buildAlbumKey(safeSong.album, safeSong.artist)
-        pendingAlbum.getOrPut(albumKey) {
-            PendingAlbum(
-                albumKey = albumKey,
-                albumName = safeSong.album,
-                artistName = safeSong.artist
-            )
-        }.apply {
-            playCount += 1
-            lastPlayedAt = maxOf(lastPlayedAt, playedAtMs)
-            updatedAt = playedAtMs
-            albumName = safeSong.album
-            artistName = safeSong.artist
+            val albumKey = buildAlbumKey(safeSong.album, artistName)
+            pendingAlbum.getOrPut(albumKey) {
+                PendingAlbum(
+                    albumKey = albumKey,
+                    albumName = safeSong.album,
+                    artistName = artistName
+                )
+            }.apply {
+                playCount += 1
+                lastPlayedAt = maxOf(lastPlayedAt, playedAtMs)
+                updatedAt = playedAtMs
+                albumName = safeSong.album
+                this.artistName = artistName
+            }
         }
+    }
+
+    private fun resolveArtistsForStats(song: PlaybackStatsSong): List<String> {
+        val whitelist = ArtistSplitWhitelistStore.load(appContext)
+        val featuringKeywords = FeaturingArtistKeywordStore.load(appContext)
+
+        val base = ArtistNameSplitter.split(song.artist, whitelist)
+        val titleArtists = FeaturingArtistExtractor.extractArtistsFromTitle(
+            title = song.title,
+            artistSplitWhitelist = whitelist,
+            featuringKeywords = featuringKeywords
+        )
+
+        val merged = (base + titleArtists)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
+
+        return if (merged.isNotEmpty()) merged else listOf(song.artist)
     }
 
     private fun isPlayCountQualified(song: PlaybackStatsSong, playedMs: Long): Boolean {
