@@ -57,6 +57,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -461,6 +462,21 @@ class LyricTimingActivity : ComponentActivity() {
         }
     }
 
+    private fun reloadCurrentTimingAudio() {
+        val currentAudioPath = when {
+            sourceAudioPath.isNotBlank() -> sourceAudioPath
+            convertedAudioPath.isNotBlank() -> convertedAudioPath
+            else -> return
+        }
+        val resumePosition = getTimingAudioPosition().coerceAtLeast(0L)
+        playPauseTimingAudio(false)
+        pendingRestoreSeekMs = resumePosition
+        loadAudioFromPath(
+            path = currentAudioPath,
+            updateSourcePath = sourceAudioPath.isBlank()
+        )
+    }
+
     private fun seekTimingAudioTo(timeMs: Long) {
         if (isDsdTimingAudio) {
             if (dsdTimingPlayer.isActive) {
@@ -796,6 +812,9 @@ class LyricTimingActivity : ComponentActivity() {
                         onImportAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
                         onPlayPause = { play ->
                             playPauseTimingAudio(play)
+                        },
+                        onReloadCurrentAudio = {
+                            reloadCurrentTimingAudio()
                         },
                         onSeekTo = { timeMs ->
                             seekTimingAudioTo(timeMs)
@@ -3217,9 +3236,10 @@ private fun ImportLyricsBottomSheets(
                     placeholder = "一行一句歌词\n每行格式：歌词=翻译（翻译可选）",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp),
+                        .heightIn(min = 200.dp, max = 360.dp),
                     singleLine = false,
-                    maxLines = 5
+                    maxLines = Int.MAX_VALUE,
+                    minLines = 8
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 CustomCheckbox(
@@ -7891,6 +7911,7 @@ fun LyricTimingScreen(
     onBack: (List<LyricLine>) -> Unit,
     onImportAudio: () -> Unit,
     onPlayPause: (Boolean) -> Unit,
+    onReloadCurrentAudio: () -> Unit,
     onSeekTo: (Long) -> Unit,
     onSetPlaybackSpeed: (Float) -> Unit,
     getCurrentPosition: () -> Long,
@@ -10452,25 +10473,43 @@ fun LyricTimingScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 播放暂停按钮
-                    Button(
-                        onClick = {
-                            if (isPlaying) {
-                                onPlayPause(false)
-                                updateJob?.cancel()
-                            } else {
-                                onPlayPause(true)
-                                audioDuration = getAudioDuration()
-                                updateJob = coroutineScope.launch {
-                                    while (true) {
-                                        delay(100)
-                                        currentTime = getCurrentPosition()
-                                    }
+                    fun togglePlayback() {
+                        if (isPlaying) {
+                            onPlayPause(false)
+                            updateJob?.cancel()
+                        } else {
+                            onPlayPause(true)
+                            audioDuration = getAudioDuration()
+                            updateJob = coroutineScope.launch {
+                                while (true) {
+                                    delay(100)
+                                    currentTime = getCurrentPosition()
                                 }
                             }
-                            isPlaying = !isPlaying
-                        },
-                        contentPadding = PaddingValues(8.dp)
+                        }
+                        isPlaying = !isPlaying
+                    }
+
+                    // 播放暂停按钮
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                            .combinedClickable(
+                                onClick = { togglePlayback() },
+                                onLongClickLabel = "重新载入当前音频",
+                                onLongClick = {
+                                    onPlayPause(false)
+                                    updateJob?.cancel()
+                                    updateJob = null
+                                    isPlaying = false
+                                    onReloadCurrentAudio()
+                                    currentTime = getCurrentPosition()
+                                    audioDuration = getAudioDuration()
+                                }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(
