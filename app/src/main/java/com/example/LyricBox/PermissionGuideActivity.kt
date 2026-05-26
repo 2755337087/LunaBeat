@@ -1,6 +1,7 @@
 package com.example.LyricBox
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -59,6 +60,10 @@ import androidx.core.content.ContextCompat
 import com.example.LyricBox.ui.theme.歌词转换Theme
 
 class PermissionGuideActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     
     private var hasStoragePermission by mutableStateOf(false)
     private var hasAudioPermission by mutableStateOf(false)

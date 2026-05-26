@@ -11,10 +11,10 @@ import android.provider.DocumentsContract
 import android.util.Log
 import android.widget.Toast
 import java.io.File
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,6 +67,10 @@ import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
 
 class MusicLibrarySettingsActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     private var isFirstSetup = false
     
     private val permissionLauncher = registerForActivityResult(
@@ -393,7 +398,7 @@ fun MusicLibrarySettingsScreen(
                 selectedSortOrder = sortOrder.value,
                 onSortOrderSelected = { sortOrder.value = it }
             )
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             
             Text(
@@ -617,7 +622,7 @@ fun SortTypeGrid(
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = type.displayName,
+                            text = stringResource(type.displayNameRes),
                             fontSize = 14.sp,
                             color = if (isSelected) 
                                 MaterialTheme.colorScheme.onPrimaryContainer 
@@ -659,7 +664,7 @@ fun SortOrderGrid(
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
-                    text = order.displayName,
+                    text = stringResource(order.displayNameRes),
                     fontSize = 14.sp,
                     color = if (isSelected) 
                         MaterialTheme.colorScheme.onPrimaryContainer 

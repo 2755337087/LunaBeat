@@ -43,7 +43,10 @@ private const val KEY_LAST_TITLE = "last_title"
 private const val KEY_LAST_ARTIST = "last_artist"
 private const val KEY_LAST_ALBUM = "last_album"
 private const val KEY_LAST_COVER_CACHE_PATH = "last_cover_cache_path"
+private const val KEY_LAST_POSITION_MS = "last_position_ms"
+private const val KEY_LAST_DURATION_MS = "last_duration_ms"
 private const val KEY_PLAYBACK_MODE = "playback_mode"
+private const val PLAYBACK_PROGRESS_PERSIST_INTERVAL_MS = 2_000L
 @Volatile
 private var cachedDirectAlacDecodeSupport: Boolean? = null
 
@@ -128,6 +131,9 @@ class MusicPlaybackController(private val context: Context) {
     private var temporaryCompanionMediaIndex: Int = -1
     private var temporaryCompanionSourcePath: String? = null
     private var lastKnownDurationMs: Long = 0L
+    private var lastProgressPersistRealtimeMs: Long = 0L
+    private var lastPersistedProgressPath: String? = null
+    private var lastPersistedProgressMs: Long = -1L
     private var dsdModeActive: Boolean = false
     private var dsdQueueSnapshot: List<AudioFile> = emptyList()
     private var dsdCurrentIndex: Int = -1
@@ -161,7 +167,9 @@ class MusicPlaybackController(private val context: Context) {
                 controller = readyController
                 readyController.addListener(listener)
                 applyPlaybackModeToPlayer(readyController, playbackMode)
-                syncFromPlayer(readyController)
+                if (readyController.mediaItemCount > 0) {
+                    syncFromPlayer(readyController)
+                }
                 isReady = true
                 restoreQueueIfNeededAsync(readyController)
                 refreshSleepTimerState()
@@ -170,6 +178,7 @@ class MusicPlaybackController(private val context: Context) {
     }
 
     fun release() {
+        persistCurrentPlaybackState()
         dsdPlayer.stop()
         dsdModeActive = false
         controller?.removeListener(listener)
@@ -438,9 +447,12 @@ class MusicPlaybackController(private val context: Context) {
     fun seekTo(position: Long) {
         if (dsdModeActive) {
             dsdPlayer.seekTo(position.coerceAtLeast(0L))
+            persistProgressState(force = true)
             return
         }
         controller?.seekTo(position.coerceAtLeast(0L))
+        positionMs = position.coerceAtLeast(0L)
+        persistProgressState(force = true)
     }
 
     suspend fun switchCurrentAudioKeepingMetadata(
@@ -819,6 +831,7 @@ class MusicPlaybackController(private val context: Context) {
             if (lastKnownDurationMs > 0L) {
                 durationMs = lastKnownDurationMs
             }
+            persistProgressState(force = false)
             refreshSleepTimerState()
             return
         }
@@ -831,7 +844,23 @@ class MusicPlaybackController(private val context: Context) {
         } else if (durationMs <= 0L && lastKnownDurationMs > 0L) {
             durationMs = lastKnownDurationMs
         }
+        persistProgressState(force = false)
         refreshSleepTimerState()
+    }
+
+    fun persistCurrentPlaybackState() {
+        if (dsdModeActive) {
+            positionMs = dsdPlayer.currentPositionMs().coerceAtLeast(0L)
+        } else {
+            controller?.let { player ->
+                positionMs = player.currentPosition.coerceAtLeast(0L)
+                player.duration.takeIf { it > 0L }?.let { duration ->
+                    durationMs = duration
+                    lastKnownDurationMs = duration
+                }
+            }
+        }
+        persistSnapshotState()
     }
 
     fun realtimePositionMs(): Long {
@@ -871,6 +900,13 @@ class MusicPlaybackController(private val context: Context) {
         }
         currentIndex = player.currentMediaItemIndex
         mediaCount = player.mediaItemCount
+        if (player.mediaItemCount == 0) {
+            hasNextTrack = false
+            nextTrackAudioPath = null
+            nextTrackTitle = ""
+            refreshSleepTimerState()
+            return
+        }
         hasNextTrack = currentIndex >= 0 && player.mediaItemCount > 0
         queueAudioPaths = (0 until player.mediaItemCount).mapNotNull { idx ->
             val mediaItem = player.getMediaItemAt(idx)
@@ -1089,6 +1125,7 @@ class MusicPlaybackController(private val context: Context) {
             lastKnownDurationMs = state.durationMs
         }
         updateDsdNextTrack()
+        persistProgressState(force = false)
         refreshSleepTimerState()
     }
 
@@ -1194,7 +1231,7 @@ class MusicPlaybackController(private val context: Context) {
             val uniqueSavedPaths = savedPaths.distinct()
             if (uniqueSavedPaths.isEmpty()) return@execute
             val targetIndex = uniqueSavedPaths.indexOfFirst { it == targetPath }.let { if (it >= 0) it else 0 }
-            val restoredItems = uniqueSavedPaths.mapNotNull { path ->
+            val restoredPairs = uniqueSavedPaths.mapNotNull { path ->
                 val file = File(path)
                 if (!file.exists()) return@mapNotNull null
                 val metadata = runCatching { AudioMetadataReader.readMetadata(context, path) }.getOrNull()
@@ -1214,18 +1251,27 @@ class MusicPlaybackController(private val context: Context) {
                     mediaStoreId = resolvedMediaStoreId
                 )
                 val shouldPreferOriginalCover = path == uniqueSavedPaths.getOrNull(targetIndex)
-                audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
+                path to audio.toPlayableMediaItem(context, preferOriginalCover = shouldPreferOriginalCover)
             }
-            if (restoredItems.isEmpty()) return@execute
-            val safeTargetIndex = targetIndex.coerceIn(0, restoredItems.lastIndex)
+            if (restoredPairs.isEmpty()) return@execute
+            val restoredItems = restoredPairs.map { it.second }
+            val safeTargetIndex = restoredPairs.indexOfFirst { it.first == targetPath }
+                .let { if (it >= 0) it else 0 }
+                .coerceIn(0, restoredItems.lastIndex)
+            val restoredPositionMs = playbackStatePrefs
+                .getLong(KEY_LAST_POSITION_MS, 0L)
+                .takeIf { restoredPairs.getOrNull(safeTargetIndex)?.first == targetPath }
+                ?.coerceAtLeast(0L)
+                ?: 0L
 
             ContextCompat.getMainExecutor(context).execute {
                 val latestPlayer = controller ?: return@execute
                 if (latestPlayer != player) return@execute
                 if (latestPlayer.mediaItemCount > 0) return@execute
                 try {
-                    latestPlayer.setMediaItems(restoredItems, safeTargetIndex, 0L)
+                    latestPlayer.setMediaItems(restoredItems, safeTargetIndex, restoredPositionMs)
                     latestPlayer.prepare()
+                    syncFromPlayer(latestPlayer)
                 } catch (e: Exception) {
                     Log.e("MusicPlaybackController", "Failed to restore queue", e)
                 }
@@ -1242,7 +1288,12 @@ class MusicPlaybackController(private val context: Context) {
             .putString(KEY_LAST_ARTIST, currentArtist)
             .putString(KEY_LAST_ALBUM, currentAlbum)
             .putString(KEY_LAST_COVER_CACHE_PATH, currentCoverCachePath)
+            .putLong(KEY_LAST_POSITION_MS, positionMs.coerceAtLeast(0L))
+            .putLong(KEY_LAST_DURATION_MS, durationMs.coerceAtLeast(0L))
             .apply()
+        lastProgressPersistRealtimeMs = SystemClock.elapsedRealtime()
+        lastPersistedProgressPath = path
+        lastPersistedProgressMs = positionMs.coerceAtLeast(0L)
     }
 
     private fun restoreSnapshotState() {
@@ -1261,6 +1312,32 @@ class MusicPlaybackController(private val context: Context) {
         currentCoverCachePath = playbackStatePrefs.getString(KEY_LAST_COVER_CACHE_PATH, null)
             ?.takeIf { !it.isNullOrBlank() && File(it).exists() }
             ?: resolveExistingCoverCachePath(savedPath)
+        positionMs = playbackStatePrefs.getLong(KEY_LAST_POSITION_MS, 0L).coerceAtLeast(0L)
+        durationMs = playbackStatePrefs.getLong(KEY_LAST_DURATION_MS, 0L).coerceAtLeast(0L)
+        lastKnownDurationMs = durationMs
+    }
+
+    private fun persistProgressState(force: Boolean) {
+        val path = currentAudioPath?.takeIf { it.isNotBlank() } ?: return
+        val safePosition = positionMs.coerceAtLeast(0L)
+        val now = SystemClock.elapsedRealtime()
+        val samePath = lastPersistedProgressPath == path
+        val positionChangedEnough = kotlin.math.abs(safePosition - lastPersistedProgressMs) >= 1_000L
+        if (!force &&
+            samePath &&
+            !positionChangedEnough &&
+            now - lastProgressPersistRealtimeMs < PLAYBACK_PROGRESS_PERSIST_INTERVAL_MS
+        ) {
+            return
+        }
+        playbackStatePrefs.edit()
+            .putString(KEY_LAST_AUDIO_PATH, path)
+            .putLong(KEY_LAST_POSITION_MS, safePosition)
+            .putLong(KEY_LAST_DURATION_MS, durationMs.coerceAtLeast(0L))
+            .apply()
+        lastProgressPersistRealtimeMs = now
+        lastPersistedProgressPath = path
+        lastPersistedProgressMs = safePosition
     }
 
     private fun resolveExistingCoverCachePath(audioPath: String): String? {
@@ -1369,6 +1446,8 @@ class MusicPlaybackController(private val context: Context) {
             .remove(KEY_LAST_ARTIST)
             .remove(KEY_LAST_ALBUM)
             .remove(KEY_LAST_COVER_CACHE_PATH)
+            .remove(KEY_LAST_POSITION_MS)
+            .remove(KEY_LAST_DURATION_MS)
             .apply()
     }
 

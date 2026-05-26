@@ -90,6 +90,7 @@ fun GlobalMiniPlayerBar(
     onExpandDragDelta: ((Float) -> Unit)? = null,
     onExpandDragEnd: (() -> Unit)? = null,
     onExpandDragCancel: (() -> Unit)? = null,
+    onHideRequest: (() -> Unit)? = null,
     sharedCoverId: String = "music_cover",
     coverAlpha: Float = 1f,
     onBarBoundsChanged: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
@@ -359,8 +360,14 @@ fun GlobalMiniPlayerBar(
             .pointerInput(controller.currentMediaId) {
                 detectDragGestures(
                     onDragEnd = {
+                        val shouldHide = dragOffsetY > 56f &&
+                            normalizedExpandProgress <= 0.01f &&
+                            onHideRequest != null
                         val handledByParent = onExpandDragEnd != null
-                        if (handledByParent) {
+                        if (shouldHide) {
+                            onHideRequest?.invoke()
+                            onExpandDragCancel?.invoke()
+                        } else if (handledByParent) {
                             onExpandDragEnd?.invoke()
                         } else if (dragOffsetY < -56f) {
                             onExpand()

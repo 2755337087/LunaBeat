@@ -5,6 +5,7 @@ import android.os.Build
 
 const val MUSIC_LIBRARY_SETTINGS_PREFS_NAME = "MusicLibrarySettings"
 
+const val KEY_MINI_PLAYER_MANUALLY_HIDDEN = "mini_player_manually_hidden"
 const val KEY_MINI_PLAYER_BACKGROUND_MODE = "mini_player_background_mode"
 const val MINI_PLAYER_BACKGROUND_MODE_DEFAULT = 0
 const val MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR = 1

@@ -18,11 +18,12 @@ import android.util.Log
 import android.widget.Toast
 import android.content.SharedPreferences
 import androidx.collection.LruCache
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.ComponentActivity
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -163,6 +164,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -235,10 +237,10 @@ data class AudioFile(
         get() = if (title.isNotEmpty()) title else File(path).nameWithoutExtension
     
     val displayArtist: String
-        get() = if (artist.isNotEmpty()) artist else "未知艺术家"
+        get() = if (artist.isNotEmpty()) artist else "Unknown Artist"
     
     val displayAlbum: String
-        get() = if (album.isNotEmpty()) album else "未知专辑"
+        get() = if (album.isNotEmpty()) album else "Unknown Album"
     
     val displayInfo: String
         get() {
@@ -721,16 +723,16 @@ private fun buildPreviewLyricPayload(
     return PreviewLyricPayload(lines = previewLines, creators = creators)
 }
 
-enum class SortType(val displayName: String) {
-    FILE_NAME("文件名称"),
-    MODIFY_TIME("修改时间"),
-    ADD_TIME("新增时间"),
-    YEAR("年份")
+enum class SortType(@StringRes val displayNameRes: Int) {
+    FILE_NAME(R.string.sort_file_name),
+    MODIFY_TIME(R.string.sort_modify_time),
+    ADD_TIME(R.string.sort_add_time),
+    YEAR(R.string.sort_year)
 }
 
-enum class SortOrder(val displayName: String) {
-    ASC("正序"),
-    DESC("反序")
+enum class SortOrder(@StringRes val displayNameRes: Int) {
+    ASC(R.string.sort_order_asc),
+    DESC(R.string.sort_order_desc)
 }
 
 private enum class MusicLibraryInternalPage {
@@ -844,14 +846,14 @@ data class BatchLyricMatchResult(
 )
 
 private enum class BatchLyricsTargetFormat(
-    val label: String,
+    @StringRes val labelRes: Int,
     val extension: String,
     val exportFormat: LyricExportFormat
 ) {
-    LRC_WORD("LRC逐字", ".lrc", LyricExportFormat.LRC_WORD),
-    LRC_LINE("LRC逐行", ".lrc", LyricExportFormat.LRC_LINE),
-    ELRC("ELRC", ".elrc", LyricExportFormat.ENHANCED_LRC),
-    TTML("TTML", ".ttml", LyricExportFormat.TTML);
+    LRC_WORD(R.string.ml_music_library_lrc_word, ".lrc", LyricExportFormat.LRC_WORD),
+    LRC_LINE(R.string.ml_music_library_lrc_line, ".lrc", LyricExportFormat.LRC_LINE),
+    ELRC(R.string.ml_music_library_elrc, ".elrc", LyricExportFormat.ENHANCED_LRC),
+    TTML(R.string.ml_music_library_ttml, ".ttml", LyricExportFormat.TTML);
 
     val mimeType: String
         get() = if (this == TTML) "application/ttml+xml" else "text/plain"
@@ -908,6 +910,10 @@ private data class StartupUpdateNoticeState(
 )
 
 class MusicLibraryActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     
     private var piracyCheckResult by mutableStateOf<PiracyCheckResult?>(null)
     private var showPiracyWarning by mutableStateOf(false)
@@ -1122,7 +1128,7 @@ class MusicLibraryActivity : ComponentActivity() {
                     AlertDialog(
                         onDismissRequest = { showStartupNoticeDialog = false },
                         title = {
-                            Text(text = "公告")
+                            Text(text = stringResource(R.string.ml_music_library_notice_title))
                         },
                         text = {
                             Text(text = startupNoticeText!!)
@@ -1134,7 +1140,7 @@ class MusicLibraryActivity : ComponentActivity() {
                                     showStartupNoticeDialog = false
                                 }
                             ) {
-                                Text("今日不再提示")
+                                Text(stringResource(R.string.ml_music_library_notice_snooze_today))
                             }
                         },
                         confirmButton = {
@@ -1143,7 +1149,7 @@ class MusicLibraryActivity : ComponentActivity() {
                                     showStartupNoticeDialog = false
                                 }
                             ) {
-                                Text("收到")
+                                Text(stringResource(R.string.ml_music_library_received))
                             }
                         }
                     )
@@ -1786,7 +1792,10 @@ fun MusicLibraryScreen(
     }
     val scope = rememberCoroutineScope()
     val playbackController = rememberMusicPlaybackController()
-    val miniPlayerVisible = playbackController.hasCurrentItem
+    var miniPlayerManuallyHidden by rememberSaveable {
+        mutableStateOf(prefs.getBoolean(KEY_MINI_PLAYER_MANUALLY_HIDDEN, false))
+    }
+    val miniPlayerVisible = playbackController.hasCurrentItem && !miniPlayerManuallyHidden
     val currentPlayingAudioPath = playbackController.currentAudioPath?.takeIf { it.isNotBlank() }
     val canLocatePlayingSong = currentPlayingAudioPath != null
     val miniPlayerHeight = 72.dp
@@ -1830,6 +1839,23 @@ fun MusicLibraryScreen(
         miniPlayerBackgroundMode = getSavedMiniPlayerBackgroundMode(context)
         lyricPageBackgroundModeForMiniPlayer = getSavedLyricPageBackgroundModeForMiniPlayer(context)
         miniPlayerLandscapeAlignment = getSavedMiniPlayerLandscapeAlignment(context)
+    }
+
+    fun setMiniPlayerHidden(hidden: Boolean) {
+        miniPlayerManuallyHidden = hidden
+        prefs.edit()
+            .putBoolean(KEY_MINI_PLAYER_MANUALLY_HIDDEN, hidden)
+            .apply()
+        if (hidden) {
+            miniPlayerExpandProgress = 0f
+            showInlineLyricPreview = false
+        }
+    }
+
+    fun revealMiniPlayerForUserPlayback() {
+        if (miniPlayerManuallyHidden) {
+            setMiniPlayerHidden(false)
+        }
     }
 
     suspend fun reloadInlineLyricPreviewFromFile(reason: String, force: Boolean = false) {
@@ -2667,20 +2693,27 @@ fun MusicLibraryScreen(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                songClickAction = prefs.getString("songClickAction", "") ?: ""
-                hasConfirmedSongClickAction = prefs.getBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, false)
-                autoDetectEmbeddedLyricsType = prefs.getBoolean("autoDetectEmbeddedLyricsType", false)
-                refreshMiniPlayerAppearancePrefs()
-                val pathToRefresh = activity.getRefreshMetadataPath()
-                if (pathToRefresh != null) {
-                    scope.launch {
-                        if (refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles) != null) {
-                            saveCachedAudioFiles(context, allAudioFiles)
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    songClickAction = prefs.getString("songClickAction", "") ?: ""
+                    hasConfirmedSongClickAction = prefs.getBoolean(PREF_SONG_CLICK_ACTION_CONFIRMED, false)
+                    autoDetectEmbeddedLyricsType = prefs.getBoolean("autoDetectEmbeddedLyricsType", false)
+                    refreshMiniPlayerAppearancePrefs()
+                    val pathToRefresh = activity.getRefreshMetadataPath()
+                    if (pathToRefresh != null) {
+                        scope.launch {
+                            if (refreshAudioFileMetadata(context, pathToRefresh, allAudioFiles) != null) {
+                                saveCachedAudioFiles(context, allAudioFiles)
+                            }
+                            updateDisplayFiles()
                         }
-                        updateDisplayFiles()
                     }
                 }
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> {
+                    playbackController.persistCurrentPlaybackState()
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -2751,6 +2784,7 @@ fun MusicLibraryScreen(
     fun executePrimarySongAction(audio: AudioFile) {
         when (songClickAction) {
             "playMusic" -> {
+                revealMiniPlayerForUserPlayback()
                 playbackController.playQueue(displayAudioFiles.toList(), audio.path)
             }
             "editMetadata" -> {
@@ -2933,7 +2967,7 @@ fun MusicLibraryScreen(
 
                     val existsInLibrary = allAudioFiles.any { it.path == path }
                     if (!existsInLibrary) {
-                        Toast.makeText(context, "当前播放歌曲不在音乐库列表中", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.ml_music_library_current_song_not_in_list), Toast.LENGTH_SHORT).show()
                         return
                     }
 
@@ -2994,8 +3028,8 @@ fun MusicLibraryScreen(
                 }
                 
                 val headbarTitle = when {
-                    isMultiSelectMode -> "已选 ${selectedPaths.size}"
-                    showDoubleTapHint -> "双击返回顶部"
+                    isMultiSelectMode -> stringResource(R.string.ml_music_library_selected_count_short, selectedPaths.size)
+                    showDoubleTapHint -> stringResource(R.string.ml_music_library_double_tap_back_to_top)
                     else -> "LunaBeat"
                 }
                 
@@ -3011,7 +3045,7 @@ fun MusicLibraryScreen(
                             onDismissRequest = { pageMenuExpanded = false },
                             items = buildList {
                                 val artistMenuItem = MenuItem(
-                                    title = "艺术家",
+                                    title = stringResource(R.string.ml_music_library_artist_menu_title),
                                     onClick = {
                                         pageMenuExpanded = false
                                         exitMultiSelectMode()
@@ -3073,7 +3107,7 @@ fun MusicLibraryScreen(
                         val menuItems = if (isMultiSelectMode) {
                             listOf(
                                 MenuItem(
-                                    title = "添加到收藏",
+                                    title = stringResource(R.string.ml_music_library_add_to_favorites),
                                     onClick = {
                                         menuExpanded = false
                                         val selectedSnapshot = selectedPaths.toList()
@@ -3093,7 +3127,7 @@ fun MusicLibraryScreen(
                                 if (canLocatePlayingSong) {
                                     add(
                                         MenuItem(
-                                            title = "定位正在播放歌曲",
+                                            title = stringResource(R.string.ml_music_library_locate_current_song),
                                             onClick = {
                                                 menuExpanded = false
                                                 currentPlayingAudioPath?.let { requestLocatePlayingSong(it) }
@@ -3102,15 +3136,15 @@ fun MusicLibraryScreen(
                                     )
                                 }
                                 add(
-                                    MenuItem(title = "多选模式", onClick = {
+                                    MenuItem(title = stringResource(R.string.ml_music_library_multi_select_mode), onClick = {
                                         menuExpanded = false
                                         isMultiSelectMode = true
                                     })
                                 )
-                                add(MenuItem(title = "目录设置", onClick = { onOpenSettings() }))
+                                add(MenuItem(title = stringResource(R.string.ml_music_library_directory_settings), onClick = { onOpenSettings() }))
                                 add(
                                     MenuItem(
-                                        title = "刷新",
+                                        title = stringResource(R.string.ml_music_library_refresh),
                                         onClick = {
                                             isScanning = true
                                             showScanComplete = false
@@ -3238,7 +3272,7 @@ fun MusicLibraryScreen(
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.search),
-                                            contentDescription = "搜索",
+                                            contentDescription = stringResource(R.string.ml_music_library_search),
                                             modifier = Modifier.size(20.dp),
                                             tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                         )
@@ -3246,7 +3280,7 @@ fun MusicLibraryScreen(
                                         Box(modifier = Modifier.weight(1f)) {
                                             if (searchQuery.isEmpty()) {
                                                 Text(
-                                                    text = "搜索歌曲、艺术家、专辑",
+                                                    text = stringResource(R.string.ml_music_library_search_hint),
                                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                                     fontSize = 16.sp
                                                 )
@@ -3267,7 +3301,7 @@ fun MusicLibraryScreen(
                                             ) {
                                                 Icon(
                                                     painter = painterResource(id = R.drawable.down),
-                                                    contentDescription = "最近搜索",
+                                                    contentDescription = stringResource(R.string.ml_music_library_recent_search),
                                                     tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f),
                                                     modifier = Modifier
                                                         .size(16.dp)
@@ -3286,7 +3320,7 @@ fun MusicLibraryScreen(
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Close,
-                                                        contentDescription = "清除",
+                                                        contentDescription = stringResource(R.string.ml_music_library_clear),
                                                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f),
                                                         modifier = Modifier.size(16.dp)
                                                     )
@@ -3368,7 +3402,7 @@ fun MusicLibraryScreen(
                                                             )
                                                             Icon(
                                                                 imageVector = Icons.Rounded.Close,
-                                                                contentDescription = "删除历史",
+                                                                contentDescription = stringResource(R.string.ml_music_library_delete_history),
                                                                 tint = MaterialTheme.colorScheme.error,
                                                                 modifier = Modifier
                                                                     .size(14.dp)
@@ -3437,14 +3471,14 @@ fun MusicLibraryScreen(
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = if (searchQuery.isNotEmpty()) "未找到匹配的歌曲" else "未找到音频文件",
+                                text = if (searchQuery.isNotEmpty()) stringResource(R.string.ml_music_library_no_matched_songs) else stringResource(R.string.ml_music_library_no_audio_files),
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             if (searchQuery.isEmpty()) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "请检查设置中的目录配置",
+                                    text = stringResource(R.string.ml_music_library_check_directory_settings),
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
@@ -3580,6 +3614,7 @@ fun MusicLibraryScreen(
                                                 null
                                             } else {
                                                 {
+                                                    revealMiniPlayerForUserPlayback()
                                                     playbackController.playQueue(displayAudioFiles.toList(), audio.path)
                                                 }
                                             },
@@ -3767,6 +3802,7 @@ fun MusicLibraryScreen(
                             internalAlbumReturnPage = MusicLibraryInternalPage.SONGS
                         },
                         onSongClick = { queue, audio ->
+                            revealMiniPlayerForUserPlayback()
                             playbackController.playQueue(queue, audio.path)
                         },
                         onSongMoreClick = { audio ->
@@ -3792,6 +3828,7 @@ fun MusicLibraryScreen(
                             closeInternalAlbumDetail()
                         },
                         onSongClick = { queue, audio ->
+                            revealMiniPlayerForUserPlayback()
                             playbackController.playQueue(queue, audio.path)
                         },
                         onSongMoreClick = { audio ->
@@ -3915,7 +3952,7 @@ fun MusicLibraryScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "正在扫描音频文件...",
+                                        text = stringResource(R.string.ml_music_library_scanning_audio),
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                                         modifier = Modifier.weight(1f)
@@ -3950,7 +3987,13 @@ fun MusicLibraryScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "扫描完成，共发现 ${scanSummary.totalCount} 首歌曲\n新增 ${scanSummary.addedCount} 首，删除 ${scanSummary.removedCount} 首，元数据更新 ${scanSummary.updatedCount} 首",
+                                text = stringResource(
+                                    R.string.ml_music_library_scan_summary,
+                                    scanSummary.totalCount,
+                                    scanSummary.addedCount,
+                                    scanSummary.removedCount,
+                                    scanSummary.updatedCount
+                                ),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -4041,6 +4084,10 @@ fun MusicLibraryScreen(
                         settleMiniPlayerExpandState()
                     }
                 },
+                onHideRequest = {
+                    playbackController.persistCurrentPlaybackState()
+                    setMiniPlayerHidden(true)
+                },
                 onExpand = {
                     val currentPath = playbackController.currentAudioPath
                     if (currentPath.isNullOrBlank()) {
@@ -4069,7 +4116,7 @@ fun MusicLibraryScreen(
             )
             val currentTitle = playbackController.currentTitle
                 .ifBlank { File(currentPath).nameWithoutExtension }
-                .ifBlank { "歌词预览" }
+                .ifBlank { context.getString(R.string.ml_music_library_lyrics_preview_title) }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -4156,7 +4203,7 @@ fun MusicLibraryScreen(
                         sourceAudioPath = currentPath,
                         sourceMediaStoreId = playbackController.currentMediaStoreId,
                         initialCoverBitmap = miniPlayerCoverBitmap,
-                        initialArtistText = playbackController.currentArtist.ifBlank { "未知艺术家" },
+                        initialArtistText = playbackController.currentArtist.ifBlank { context.getString(R.string.ml_music_library_unknown_artist) },
                         lyricLines = lyricPreviewLines,
                         isLyricLoading = lyricPreviewLoading,
                         metadataRefreshToken = inlineMetadataRefreshToken,
@@ -4270,7 +4317,7 @@ fun MusicLibraryScreen(
             },
             onConfirm = {
                 if (tempSongClickAction.isBlank()) {
-                    Toast.makeText(context, "请选择默认操作", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.ml_music_library_select_default_action), Toast.LENGTH_SHORT).show()
                 } else {
                     songClickAction = tempSongClickAction
                     hasConfirmedSongClickAction = true
@@ -4313,7 +4360,7 @@ fun MusicLibraryScreen(
                     showSongInfoSheet = false
                     showArtistSelectionSheet = true
                 } else {
-                    Toast.makeText(context, "未读取到艺术家信息", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.ml_music_library_artist_not_read), Toast.LENGTH_SHORT).show()
                 }
             },
             onToggleFavorite = {
@@ -4383,11 +4430,11 @@ fun MusicLibraryScreen(
     if (showBulkFavoriteResultDialog) {
         AlertDialog(
             onDismissRequest = { showBulkFavoriteResultDialog = false },
-            title = { Text("提示") },
-            text = { Text("已添加${bulkFavoriteAddedCount}首歌曲到收藏列表中") },
+            title = { Text(stringResource(R.string.ml_music_library_tip_title)) },
+            text = { Text(stringResource(R.string.ml_music_library_added_to_favorites_result, bulkFavoriteAddedCount)) },
             confirmButton = {
                 TextButton(onClick = { showBulkFavoriteResultDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.ml_music_library_confirm))
                 }
             }
         )
@@ -4396,7 +4443,7 @@ fun MusicLibraryScreen(
     if (showRenameDialog && selectedSongInfoAudio != null) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("重命名文件") },
+            title = { Text(stringResource(R.string.ml_music_library_rename_file_title)) },
             text = {
                 Box(
                     modifier = Modifier
@@ -4421,7 +4468,7 @@ fun MusicLibraryScreen(
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 if (renameInputValue.isEmpty()) {
                                     Text(
-                                        text = "输入文件名",
+                                        text = stringResource(R.string.ml_music_library_input_file_name),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -4439,23 +4486,23 @@ fun MusicLibraryScreen(
                         val oldFile = File(sourceAudio.path)
                         val newBaseName = renameInputValue.trim()
                         if (newBaseName.isBlank()) {
-                            Toast.makeText(context, "文件名不能为空", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.ml_music_library_file_name_empty), Toast.LENGTH_SHORT).show()
                             return@TextButton
                         }
                         val newName = newBaseName + renameFileExtension
                         val parent = oldFile.parentFile
                         if (parent == null) {
-                            Toast.makeText(context, "无效目录", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.ml_music_library_invalid_directory), Toast.LENGTH_SHORT).show()
                             return@TextButton
                         }
                         val newFile = File(parent, newName)
                         if (newFile.exists()) {
-                            Toast.makeText(context, "目标文件已存在", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.ml_music_library_target_file_exists), Toast.LENGTH_SHORT).show()
                             return@TextButton
                         }
                         val renamed = runCatching { oldFile.renameTo(newFile) }.getOrDefault(false)
                         if (!renamed) {
-                            Toast.makeText(context, "重命名失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.ml_music_library_rename_failed), Toast.LENGTH_SHORT).show()
                             return@TextButton
                         }
 
@@ -4503,12 +4550,12 @@ fun MusicLibraryScreen(
                         renameSuccessSignal = System.currentTimeMillis()
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.ml_music_library_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
             }
         )
@@ -4517,8 +4564,8 @@ fun MusicLibraryScreen(
     if (showDeleteConfirmDialog && selectedSongInfoAudio != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("删除文件") },
-            text = { Text("确认删除该音频文件吗？此操作不可撤销。") },
+            title = { Text(stringResource(R.string.ml_music_library_delete_file_title)) },
+            text = { Text(stringResource(R.string.ml_music_library_delete_file_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -4526,7 +4573,7 @@ fun MusicLibraryScreen(
                         val file = File(target.path)
                         val deleted = runCatching { file.delete() }.getOrDefault(false)
                         if (!deleted) {
-                            Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.ml_music_library_delete_failed), Toast.LENGTH_SHORT).show()
                             return@TextButton
                         }
                         runCatching {
@@ -4546,15 +4593,15 @@ fun MusicLibraryScreen(
                         showDeleteConfirmDialog = false
                         showSongInfoSheet = false
                         selectedSongInfoAudio = null
-                        Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.ml_music_library_deleted), Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.ml_music_library_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
             }
         )
@@ -4741,7 +4788,7 @@ fun MusicLibraryScreen(
                     isBatchLyricsConverting = false
                     Toast.makeText(
                         context,
-                        "批量转换完成：成功 ${result.successCount} 首，失败 ${result.failedCount} 首",
+                        context.getString(R.string.ml_music_library_batch_convert_completed, result.successCount, result.failedCount),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -4777,7 +4824,7 @@ fun MusicLibraryScreen(
                     isBatchLyricsExporting = false
                     Toast.makeText(
                         context,
-                        "保存外挂歌词完成：成功 ${result.successCount} 首，失败 ${result.failedCount} 首",
+                        context.getString(R.string.ml_music_library_batch_export_completed, result.successCount, result.failedCount),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -5110,7 +5157,7 @@ fun AudioFileItem(
         if (coverBitmap != null) {
             Image(
                 bitmap = coverBitmap!!.asImageBitmap(),
-                contentDescription = "专辑封面",
+                contentDescription = stringResource(R.string.ml_music_library_album_cover),
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -5118,7 +5165,7 @@ fun AudioFileItem(
         } else {
             Icon(
                 painter = painterResource(id = android.R.drawable.ic_media_play),
-                contentDescription = "音频",
+                contentDescription = stringResource(R.string.ml_music_library_audio),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(56.dp)
             )
@@ -5179,7 +5226,7 @@ fun AudioFileItem(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.play_style2),
-                            contentDescription = "播放",
+                            contentDescription = stringResource(R.string.ml_music_library_play),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp)
                         )
@@ -5192,7 +5239,7 @@ fun AudioFileItem(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                            contentDescription = "更多",
+                            contentDescription = stringResource(R.string.ml_music_library_more),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -5298,7 +5345,7 @@ private fun MusicLibraryMiniPlayerBar(
         if (coverBitmap != null) {
             Image(
                 bitmap = coverBitmap!!.asImageBitmap(),
-                contentDescription = "当前歌曲封面",
+                contentDescription = stringResource(R.string.ml_music_library_current_song_cover),
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
@@ -5318,7 +5365,7 @@ private fun MusicLibraryMiniPlayerBar(
             modifier = Modifier.weight(1f)
         ) {
             AutoMarqueeText(
-                text = controller.currentTitle.ifBlank { "未选择歌曲" },
+                text = controller.currentTitle.ifBlank { stringResource(R.string.ml_music_library_no_song_selected) },
                 style = TextStyle(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -5328,7 +5375,7 @@ private fun MusicLibraryMiniPlayerBar(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = controller.currentArtist.ifBlank { "未知艺术家" },
+                text = controller.currentArtist.ifBlank { stringResource(R.string.ml_music_library_unknown_artist) },
                 fontSize = 12.sp,
                 color = onBaseColor.copy(alpha = 0.75f),
                 maxLines = 1,
@@ -5342,7 +5389,7 @@ private fun MusicLibraryMiniPlayerBar(
         ) {
             Icon(
                 imageVector = Icons.Rounded.SkipPrevious,
-                contentDescription = "上一首",
+                contentDescription = stringResource(R.string.ml_music_library_previous_track),
                 tint = onBaseColor,
                 modifier = Modifier.size(20.dp)
             )
@@ -5353,7 +5400,7 @@ private fun MusicLibraryMiniPlayerBar(
         ) {
             Icon(
                 painter = painterResource(id = if (controller.isPlaying) R.drawable.pause else R.drawable.play),
-                contentDescription = if (controller.isPlaying) "暂停" else "播放",
+                contentDescription = if (controller.isPlaying) stringResource(R.string.ml_music_library_pause) else stringResource(R.string.ml_music_library_play),
                 tint = onBaseColor,
                 modifier = Modifier.size(18.dp)
             )
@@ -5364,7 +5411,7 @@ private fun MusicLibraryMiniPlayerBar(
         ) {
             Icon(
                 imageVector = Icons.Rounded.SkipNext,
-                contentDescription = "下一首",
+                contentDescription = stringResource(R.string.ml_music_library_next_track),
                 tint = onBaseColor,
                 modifier = Modifier.size(20.dp)
             )
@@ -5478,7 +5525,7 @@ fun AudioOptionsDialog(
                 if (coverBitmap != null) {
                     Image(
                         bitmap = coverBitmap!!.asImageBitmap(),
-                        contentDescription = "专辑封面",
+                        contentDescription = stringResource(R.string.ml_music_library_album_cover),
                         modifier = Modifier
                             .size(80.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -5486,7 +5533,7 @@ fun AudioOptionsDialog(
                 } else {
                     Icon(
                         painter = painterResource(id = android.R.drawable.ic_media_play),
-                        contentDescription = "音频",
+                        contentDescription = stringResource(R.string.ml_music_library_audio),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(80.dp)
                     )
@@ -5508,14 +5555,14 @@ fun AudioOptionsDialog(
                     Spacer(modifier = Modifier.height(4.dp))
                     
                     Text(
-                        text = "艺术家: ${audio.displayArtist}",
+                        text = stringResource(R.string.ml_music_library_artist_with_value, audio.displayArtist),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     
                     if (audio.album.isNotEmpty()) {
                         Text(
-                            text = "专辑: ${audio.displayAlbum}",
+                            text = stringResource(R.string.ml_music_library_album_with_value, audio.displayAlbum),
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -5526,12 +5573,12 @@ fun AudioOptionsDialog(
             Spacer(modifier = Modifier.height(12.dp))
             
             Text(
-                text = "时长: ${formatAudioDuration(audio.duration)}  |  大小: ${formatFileSize(audio.fileSize)}",
+                text = stringResource(R.string.ml_music_library_duration_size, formatAudioDuration(audio.duration), formatFileSize(audio.fileSize)),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "目录: ${File(audio.path).parent?.substringAfterLast("/") ?: "未知"}",
+                text = stringResource(R.string.ml_music_library_directory_with_value, File(audio.path).parent?.substringAfterLast("/") ?: stringResource(R.string.ml_music_library_unknown)),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -5553,7 +5600,7 @@ fun AudioOptionsDialog(
                         LoadingIndicator(modifier = Modifier.size(48.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "正在读取歌词...",
+                            text = stringResource(R.string.ml_music_library_reading_lyrics),
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -5562,7 +5609,7 @@ fun AudioOptionsDialog(
             } else {
                 if (hasLyrics) {
                     Text(
-                        text = "检测到歌词，请选择来源：",
+                        text = stringResource(R.string.ml_music_library_detected_lyrics_select_source),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -5571,8 +5618,8 @@ fun AudioOptionsDialog(
                     
                     if (hasEmbedded) {
                         LyricsSourceCard(
-                            title = "嵌入歌词",
-                            subtitle = "点击查看歌词内容",
+                            title = stringResource(R.string.ml_music_library_embedded_lyrics),
+                            subtitle = stringResource(R.string.ml_music_library_tap_to_preview_lyrics),
                             selected = selectedSource == "embedded",
                             onClick = { 
                                 selectedSource = "embedded"
@@ -5580,7 +5627,7 @@ fun AudioOptionsDialog(
                             },
                             onPreview = {
                                 previewLyricsContent = embeddedLyrics ?: ""
-                                previewLyricsTitle = "嵌入歌词预览"
+                                previewLyricsTitle = context.getString(R.string.ml_music_library_embedded_lyrics_preview)
                                 showLyricsPreview = true
                             }
                         )
@@ -5589,13 +5636,13 @@ fun AudioOptionsDialog(
                     if (hasExternal) {
                         if (hasEmbedded) Spacer(modifier = Modifier.height(8.dp))
                         LyricsSourceCard(
-                            title = "外部TTML文件",
+                            title = stringResource(R.string.ml_music_library_external_ttml_file),
                             subtitle = externalLyricsPath ?: "",
                             selected = selectedSource == "external",
                             onClick = { selectedSource = "external" },
                             onPreview = {
                                 previewLyricsContent = externalLyrics ?: ""
-                                previewLyricsTitle = "外部TTML预览"
+                                previewLyricsTitle = context.getString(R.string.ml_music_library_external_ttml_preview)
                                 showLyricsPreview = true
                             }
                         )
@@ -5609,7 +5656,7 @@ fun AudioOptionsDialog(
                         Column {
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "已自动判断歌词格式：${detectedEmbeddedFormat.toLyricFormatLabel()}",
+                                text = stringResource(R.string.ml_music_library_auto_detected_lyrics_format, detectedEmbeddedFormat.toLyricFormatLabel()),
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -5630,7 +5677,7 @@ fun AudioOptionsDialog(
                         Column {
                             Spacer(modifier = Modifier.height(20.dp))
                             Text(
-                                text = "请选择歌词格式：",
+                                text = stringResource(R.string.ml_music_library_select_lyrics_format),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -5639,7 +5686,7 @@ fun AudioOptionsDialog(
                             
                             LYRIC_FORMAT_OPTIONS.forEachIndexed { index, format ->
                                 val isRecommended = index == detectedEmbeddedFormat
-                                val displayText = if (isRecommended) "$format（推荐）" else format
+                                val displayText = if (isRecommended) stringResource(R.string.ml_music_library_format_recommended, format) else format
                                 
                                 if (index > 0) Spacer(modifier = Modifier.height(8.dp))
                                 
@@ -5697,12 +5744,12 @@ fun AudioOptionsDialog(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "未检测到歌词",
+                                text = stringResource(R.string.ml_music_library_no_lyrics_detected),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "点击下方按钮开始创建歌词",
+                                text = stringResource(R.string.ml_music_library_click_below_to_create_lyrics),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -5717,13 +5764,13 @@ fun AudioOptionsDialog(
                 onClick = {
                     when {
                         selectedSource == "external" && externalLyrics != null -> {
-                            onEditLyrics(externalLyrics, "TTML歌词")
+                            onEditLyrics(externalLyrics, context.getString(R.string.ml_music_library_ttml_lyrics))
                         }
                         selectedSource == "embedded" && embeddedLyrics != null -> {
                             onEditLyrics(embeddedLyrics, resolvedEmbeddedFormatIndex.toLyricFormatLabel())
                         }
                         hasExternal && !hasEmbedded -> {
-                            onEditLyrics(externalLyrics, "TTML歌词")
+                            onEditLyrics(externalLyrics, context.getString(R.string.ml_music_library_ttml_lyrics))
                         }
                         !hasLyrics -> {
                             onEditLyrics(null, "")
@@ -5738,9 +5785,9 @@ fun AudioOptionsDialog(
             ) {
                 Text(
                     text = when {
-                        isLoadingLyrics -> "正在读取歌词..."
-                        hasLyrics && selectedSource == null -> "请先选择歌词来源"
-                        else -> "开始编辑歌词"
+                        isLoadingLyrics -> stringResource(R.string.ml_music_library_reading_lyrics)
+                        hasLyrics && selectedSource == null -> stringResource(R.string.ml_music_library_select_lyrics_source_first)
+                        else -> stringResource(R.string.ml_music_library_start_edit_lyrics)
                     },
                     fontSize = 16.sp
                 )
@@ -5760,7 +5807,7 @@ fun AudioOptionsDialog(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "编辑歌曲元数据",
+                        text = stringResource(R.string.ml_music_library_edit_song_metadata),
                         fontSize = 16.sp
                     )
                 }
@@ -5827,7 +5874,7 @@ private fun LyricsSourceCard(
                 }
             }
             TextButton(onClick = onPreview) {
-                Text("查看")
+                Text(stringResource(R.string.ml_music_library_view))
             }
         }
     }
@@ -5862,7 +5909,7 @@ private fun LyricsPreviewDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭")
+                Text(stringResource(R.string.ml_music_library_close))
             }
         }
     )
@@ -6985,7 +7032,7 @@ fun ExternalAudioScreen(
         modifier = modifier.fillMaxSize()
     ) {
         CommonHeadBar(
-            title = "音频文件",
+            title = stringResource(R.string.ml_music_library_audio_files),
             showBack = true,
             showMenu = false,
             onBackClick = onBack
@@ -7023,7 +7070,7 @@ fun ExternalAudioScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "点击屏幕继续操作",
+                    text = stringResource(R.string.ml_music_library_tap_to_continue),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
@@ -7080,7 +7127,7 @@ private fun MultiSelectActionBar(
                 .clickable(onClick = onSelectAll)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text("全选", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.ml_music_library_select_all), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
         Box(
             modifier = Modifier
@@ -7089,7 +7136,7 @@ private fun MultiSelectActionBar(
                 .clickable(onClick = onInvertSelection)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text("反选", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.ml_music_library_invert_selection), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
         Box(
             modifier = Modifier
@@ -7098,7 +7145,7 @@ private fun MultiSelectActionBar(
                 .clickable(onClick = onClearSelection)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text("清空", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.ml_music_library_clear_selection), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
         Box(
             modifier = Modifier
@@ -7114,7 +7161,7 @@ private fun MultiSelectActionBar(
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             Text(
-                "区间",
+                stringResource(R.string.ml_music_library_range),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = if (rangeSelectEnabled) {
@@ -7131,7 +7178,7 @@ private fun MultiSelectActionBar(
                 .clickable(onClick = onExit)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text("关闭", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.ml_music_library_close), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
         }
     }
 }
@@ -7208,14 +7255,14 @@ private fun RangeSelectDialog(
                 .padding(horizontal = 16.dp, vertical = 24.dp)
         ) {
             Text(
-                text = "按序号区间选择",
+                text = stringResource(R.string.ml_music_library_range_select_by_index),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "当前列表共 $maxIndex 项",
+                text = stringResource(R.string.ml_music_library_current_list_count, maxIndex),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -7228,7 +7275,7 @@ private fun RangeSelectDialog(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "起始",
+                        text = stringResource(R.string.ml_music_library_start),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
@@ -7257,7 +7304,7 @@ private fun RangeSelectDialog(
                             decorationBox = { innerTextField ->
                                 if (startText.isEmpty()) {
                                     Text(
-                                        text = "请输入起始序号",
+                                        text = stringResource(R.string.ml_music_library_input_start_index),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -7269,14 +7316,14 @@ private fun RangeSelectDialog(
                 }
                 
                 Text(
-                    text = "至",
+                    text = stringResource(R.string.ml_music_library_to),
                     fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "结束",
+                        text = stringResource(R.string.ml_music_library_end),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
@@ -7305,7 +7352,7 @@ private fun RangeSelectDialog(
                             decorationBox = { innerTextField ->
                                 if (endText.isEmpty()) {
                                     Text(
-                                        text = "请输入结束序号",
+                                        text = stringResource(R.string.ml_music_library_input_end_index),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -7327,7 +7374,7 @@ private fun RangeSelectDialog(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -7337,7 +7384,7 @@ private fun RangeSelectDialog(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.ml_music_library_confirm))
                 }
             }
             Spacer(modifier = Modifier.navigationBarsPadding())
@@ -7381,7 +7428,7 @@ private fun BatchOperationFAB(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.pencil),
-                    contentDescription = "批量操作",
+                    contentDescription = stringResource(R.string.ml_music_library_batch_actions),
                     tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(22.dp)
                 )
@@ -7401,14 +7448,14 @@ private fun BatchOperationFAB(
                         .padding(horizontal = 24.dp, vertical = 16.dp)
                 ) {
                     Text(
-                        text = "批量操作",
+                        text = stringResource(R.string.ml_music_library_batch_actions),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     BatchOperationMenuItem(
-                        title = "批量匹配标签",
+                        title = stringResource(R.string.ml_music_library_batch_match_tags),
                         onClick = {
                             onShowSheetChange(false)
                             onBatchMatch()
@@ -7416,7 +7463,7 @@ private fun BatchOperationFAB(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     BatchOperationMenuItem(
-                        title = "批量匹配歌词",
+                        title = stringResource(R.string.ml_music_library_batch_match_lyrics),
                         onClick = {
                             onShowSheetChange(false)
                             onBatchLyricMatch()
@@ -7424,7 +7471,7 @@ private fun BatchOperationFAB(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     BatchOperationMenuItem(
-                        title = "批量重命名",
+                        title = stringResource(R.string.ml_music_library_batch_rename),
                         onClick = {
                             onShowSheetChange(false)
                             onBatchRename()
@@ -7432,7 +7479,7 @@ private fun BatchOperationFAB(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     BatchOperationMenuItem(
-                        title = "批量编辑歌词",
+                        title = stringResource(R.string.ml_music_library_batch_edit_lyrics),
                         onClick = {
                             onShowSheetChange(false)
                             onBatchLyricsEdit()
@@ -7440,7 +7487,7 @@ private fun BatchOperationFAB(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     BatchOperationMenuItem(
-                        title = "批量编辑元数据",
+                        title = stringResource(R.string.ml_music_library_batch_edit_metadata),
                         onClick = {
                             onShowSheetChange(false)
                             val intent = Intent(context, com.example.LyricBox.SongMetadataEditActivity::class.java).apply {
@@ -7503,25 +7550,25 @@ private fun BatchLyricsEditSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "批量编辑歌词",
+                text = stringResource(R.string.ml_music_library_batch_edit_lyrics),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "已选择 $selectedCount 个音频文件",
+                text = stringResource(R.string.ml_music_library_selected_audio_count, selectedCount),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(20.dp))
 
             BatchOperationMenuItem(
-                title = "批量转换歌词格式",
+                title = stringResource(R.string.ml_music_library_batch_convert_lyrics_format),
                 onClick = onOpenBatchConvert
             )
             Spacer(modifier = Modifier.height(8.dp))
             BatchOperationMenuItem(
-                title = "批量保存为外挂歌词",
+                title = stringResource(R.string.ml_music_library_batch_export_external_lyrics),
                 onClick = onOpenBatchExport
             )
         }
@@ -7568,13 +7615,13 @@ private fun BatchLyricsConvertSheet(
                 .navigationBarsPadding()
         ) {
             Text(
-                text = "批量转换歌词格式",
+                text = stringResource(R.string.ml_music_library_batch_convert_lyrics_format),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "已选择 $selectedCount 个音频文件",
+                text = stringResource(R.string.ml_music_library_selected_audio_count, selectedCount),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -7584,7 +7631,7 @@ private fun BatchLyricsConvertSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "目标歌词格式",
+                text = stringResource(R.string.ml_music_library_target_lyrics_format),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -7611,7 +7658,7 @@ private fun BatchLyricsConvertSheet(
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = format.label,
+                            text = stringResource(format.labelRes),
                             fontSize = 15.sp,
                             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
@@ -7630,7 +7677,7 @@ private fun BatchLyricsConvertSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -7641,7 +7688,7 @@ private fun BatchLyricsConvertSheet(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("确认转换")
+                    Text(stringResource(R.string.ml_music_library_confirm_convert))
                 }
             }
         }
@@ -7682,7 +7729,7 @@ private fun BatchLyricsExternalExportSheet(
     val customDirectoryName = remember(customDirectoryUri) {
         customDirectoryUri?.let { uri ->
             DocumentFile.fromTreeUri(context, uri)?.name?.takeIf { it.isNotBlank() } ?: uri.toString()
-        } ?: "未选择目录"
+        } ?: context.getString(R.string.ml_music_library_directory_not_selected)
     }
 
     val directoryPickerLauncher = rememberLauncherForActivityResult(
@@ -7720,13 +7767,13 @@ private fun BatchLyricsExternalExportSheet(
                 .navigationBarsPadding()
         ) {
             Text(
-                text = "批量保存为外挂歌词",
+                text = stringResource(R.string.ml_music_library_batch_export_external_lyrics),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "已选择 $selectedCount 个音频文件",
+                text = stringResource(R.string.ml_music_library_selected_audio_count, selectedCount),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -7750,7 +7797,7 @@ private fun BatchLyricsExternalExportSheet(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "优先读取同名TTML文件",
+                    text = stringResource(R.string.ml_music_library_prefer_same_name_ttml),
                     fontSize = 15.sp
                 )
             }
@@ -7758,7 +7805,7 @@ private fun BatchLyricsExternalExportSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "外挂歌词格式",
+                text = stringResource(R.string.ml_music_library_external_lyrics_format),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -7785,7 +7832,7 @@ private fun BatchLyricsExternalExportSheet(
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = "${format.label}（${format.extension}）",
+                            text = "${stringResource(format.labelRes)}（${format.extension}）",
                             fontSize = 15.sp,
                             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
@@ -7799,7 +7846,7 @@ private fun BatchLyricsExternalExportSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "保存目录",
+                text = stringResource(R.string.ml_music_library_save_directory),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -7825,7 +7872,7 @@ private fun BatchLyricsExternalExportSheet(
                     onClick = { useCustomDirectory = false }
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("保存到音频同目录", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_save_to_audio_directory), fontSize = 15.sp)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -7850,7 +7897,7 @@ private fun BatchLyricsExternalExportSheet(
                         onClick = { useCustomDirectory = true }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("选择自定义目录", fontSize = 15.sp)
+                    Text(stringResource(R.string.ml_music_library_select_custom_directory), fontSize = 15.sp)
                 }
                 if (useCustomDirectory) {
                     Spacer(modifier = Modifier.height(6.dp))
@@ -7864,7 +7911,7 @@ private fun BatchLyricsExternalExportSheet(
                         onClick = { directoryPickerLauncher.launch(customDirectoryUri) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("使用系统文件选择器")
+                        Text(stringResource(R.string.ml_music_library_use_system_file_picker))
                     }
                 }
             }
@@ -7879,7 +7926,7 @@ private fun BatchLyricsExternalExportSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -7901,7 +7948,7 @@ private fun BatchLyricsExternalExportSheet(
                     modifier = Modifier.weight(1f),
                     enabled = canStartExport
                 ) {
-                    Text("确认保存")
+                    Text(stringResource(R.string.ml_music_library_confirm_save))
                 }
             }
         }
@@ -8031,7 +8078,7 @@ private fun BatchMatchConfigSheet(
                     .padding(bottom = 20.dp)
             ) {
             Text(
-                text = "批量匹配标签配置",
+                text = stringResource(R.string.ml_music_library_batch_match_tags_config),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -8039,7 +8086,7 @@ private fun BatchMatchConfigSheet(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "已选择 $selectedCount 个音频文件",
+                text = stringResource(R.string.ml_music_library_selected_audio_count, selectedCount),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -8049,13 +8096,13 @@ private fun BatchMatchConfigSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "匹配字段",
+                text = stringResource(R.string.ml_music_library_match_fields),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "补充：仅填充空字段 | 覆盖：替换所有字段",
+                text = stringResource(R.string.ml_music_library_tag_match_mode_desc),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -8073,7 +8120,7 @@ private fun BatchMatchConfigSheet(
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     ) {
-                        Text("全选", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(stringResource(R.string.ml_music_library_select_all), fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
                     TextButton(
                         onClick = { fields = fields.map { it.copy(enabled = !it.enabled) } },
@@ -8082,7 +8129,7 @@ private fun BatchMatchConfigSheet(
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
                     ) {
-                        Text("反选", fontSize = 13.sp, color = MaterialTheme.colorScheme.secondary)
+                        Text(stringResource(R.string.ml_music_library_invert_selection), fontSize = 13.sp, color = MaterialTheme.colorScheme.secondary)
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -8093,7 +8140,7 @@ private fun BatchMatchConfigSheet(
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     ) {
-                        Text("全补充", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(stringResource(R.string.ml_music_library_all_supplement), fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
                     TextButton(
                         onClick = { fields = fields.map { it.copy(mode = FieldMatchMode.OVERWRITE) } },
@@ -8102,7 +8149,7 @@ private fun BatchMatchConfigSheet(
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
                     ) {
-                        Text("全覆盖", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.ml_music_library_all_overwrite), fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -8143,7 +8190,7 @@ private fun BatchMatchConfigSheet(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = field.label,
+                                        text = batchMatchFieldLabel(field.key),
                                         fontSize = 14.sp,
                                         color = if (isSelected) 
                                             MaterialTheme.colorScheme.primary 
@@ -8151,7 +8198,7 @@ private fun BatchMatchConfigSheet(
                                             MaterialTheme.colorScheme.onSurface,
                                         fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
                                     )
-                                    val modeLabel = if (field.mode == FieldMatchMode.SUPPLEMENT) "补充" else "覆盖"
+                                    val modeLabel = if (field.mode == FieldMatchMode.SUPPLEMENT) stringResource(R.string.ml_music_library_mode_supplement) else stringResource(R.string.ml_music_library_mode_overwrite)
                                     val modeColor = if (field.mode == FieldMatchMode.SUPPLEMENT) 
                                         MaterialTheme.colorScheme.primary 
                                     else 
@@ -8195,7 +8242,7 @@ private fun BatchMatchConfigSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "匹配音源",
+                text = stringResource(R.string.ml_music_library_match_sources),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -8265,7 +8312,7 @@ private fun BatchMatchConfigSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "并发线程数：$threadCount",
+                text = stringResource(R.string.ml_music_library_thread_count, threadCount),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -8290,7 +8337,7 @@ private fun BatchMatchConfigSheet(
                     onClick = closeSheet,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -8304,11 +8351,29 @@ private fun BatchMatchConfigSheet(
                     modifier = Modifier.weight(1f),
                     enabled = selectedSources.isNotEmpty()
                 ) {
-                    Text("开始匹配")
+                    Text(stringResource(R.string.ml_music_library_start_match))
                 }
             }
         }
     }
+}
+
+@Composable
+private fun batchMatchFieldLabel(key: String): String = when (key) {
+    "cover" -> stringResource(R.string.ml_music_library_field_cover)
+    "title" -> stringResource(R.string.ml_music_library_field_title)
+    "artist" -> stringResource(R.string.ml_music_library_field_artist)
+    "album" -> stringResource(R.string.ml_music_library_field_album)
+    "year" -> stringResource(R.string.ml_music_library_field_year)
+    "trackNumber" -> stringResource(R.string.ml_music_library_field_track_number)
+    "discNumber" -> stringResource(R.string.ml_music_library_field_disc_number)
+    "genre" -> stringResource(R.string.ml_music_library_field_genre)
+    "albumArtist" -> stringResource(R.string.ml_music_library_field_album_artist)
+    "composer" -> stringResource(R.string.ml_music_library_field_composer)
+    "lyricist" -> stringResource(R.string.ml_music_library_field_lyricist)
+    "comment" -> stringResource(R.string.ml_music_library_field_comment)
+    "copyrightInfo" -> stringResource(R.string.ml_music_library_field_copyright_info)
+    else -> key
 }
 
 @Composable
@@ -8321,7 +8386,7 @@ private fun BatchMatchProgressDialog(
     AlertDialog(
         onDismissRequest = {},
         title = {
-            Text("匹配中...")
+            Text(stringResource(R.string.ml_music_library_matching))
         },
         text = {
             Column(
@@ -8344,7 +8409,7 @@ private fun BatchMatchProgressDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onCancel) {
-                Text("取消匹配", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.ml_music_library_cancel_match), color = MaterialTheme.colorScheme.error)
             }
         }
     )
@@ -8360,7 +8425,7 @@ private fun BatchLyricMatchProgressDialog(
     AlertDialog(
         onDismissRequest = {},
         title = {
-            Text("匹配歌词中...")
+            Text(stringResource(R.string.ml_music_library_matching_lyrics))
         },
         text = {
             Column(
@@ -8383,7 +8448,7 @@ private fun BatchLyricMatchProgressDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onCancel) {
-                Text("取消匹配", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.ml_music_library_cancel_match), color = MaterialTheme.colorScheme.error)
             }
         }
     )
@@ -8398,7 +8463,7 @@ private fun BatchLyricsConvertProgressDialog(
     AlertDialog(
         onDismissRequest = {},
         title = {
-            Text("转换歌词中...")
+            Text(stringResource(R.string.ml_music_library_converting_lyrics))
         },
         text = {
             Column(
@@ -8432,7 +8497,7 @@ private fun BatchLyricsExportProgressDialog(
     AlertDialog(
         onDismissRequest = {},
         title = {
-            Text("保存外挂歌词中...")
+            Text(stringResource(R.string.ml_music_library_saving_external_lyrics))
         },
         text = {
             Column(
@@ -8498,12 +8563,12 @@ private fun BatchLyricMatchResultSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "匹配歌词结果",
+                    text = stringResource(R.string.ml_music_library_match_lyrics_result),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "成功 ${result.totalSuccess} / 失败 ${result.totalFailed}",
+                    text = stringResource(R.string.ml_music_library_success_failed, result.totalSuccess, result.totalFailed),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
@@ -8532,7 +8597,7 @@ private fun BatchLyricMatchResultSheet(
                     .height(44.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("关闭", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_close), fontSize = 15.sp)
             }
         }
     }
@@ -8552,10 +8617,10 @@ private fun BatchLyricMatchResultItemRow(
     }
     
     val statusText = when (item.matchStatus) {
-        MatchStatus.SUCCESS -> "成功"
-        MatchStatus.FAILED -> "失败"
-        MatchStatus.SKIPPED -> "跳过"
-        else -> "处理中"
+        MatchStatus.SUCCESS -> stringResource(R.string.ml_music_library_status_success)
+        MatchStatus.FAILED -> stringResource(R.string.ml_music_library_status_failed)
+        MatchStatus.SKIPPED -> stringResource(R.string.ml_music_library_status_skipped)
+        else -> stringResource(R.string.ml_music_library_status_processing)
     }
     
     Row(
@@ -8656,10 +8721,10 @@ private fun LyricViewerSheet(
             }
             
             val statusText = when (item.matchStatus) {
-                MatchStatus.SUCCESS -> "成功"
-                MatchStatus.FAILED -> "失败"
-                MatchStatus.SKIPPED -> "跳过"
-                else -> "处理中"
+                MatchStatus.SUCCESS -> stringResource(R.string.ml_music_library_status_success)
+                MatchStatus.FAILED -> stringResource(R.string.ml_music_library_status_failed)
+                MatchStatus.SKIPPED -> stringResource(R.string.ml_music_library_status_skipped)
+                else -> stringResource(R.string.ml_music_library_status_processing)
             }
             
             Row(
@@ -8674,14 +8739,14 @@ private fun LyricViewerSheet(
                 )
                 if (item.matchSource != null && item.matchStatus == MatchStatus.SUCCESS) {
                     Text(
-                        text = "来自 ${batchMatchSourceShortName(item.matchSource!!)}",
+                        text = stringResource(R.string.ml_music_library_from_source, batchMatchSourceShortName(item.matchSource!!)),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (item.matchStatus == MatchStatus.SUCCESS && item.similarityScore > 0) {
                     Text(
-                        text = String.format("匹配度 %.0f%%", item.similarityScore * 100),
+                        text = stringResource(R.string.ml_music_library_similarity_percent, item.similarityScore * 100),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -8703,7 +8768,7 @@ private fun LyricViewerSheet(
             
             if (item.matchedLyrics != null) {
                 Text(
-                    text = "新歌词：",
+                    text = stringResource(R.string.ml_music_library_new_lyrics_prefix),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -8715,7 +8780,7 @@ private fun LyricViewerSheet(
                 )
             } else if (!item.originalLyrics.isNullOrEmpty()) {
                 Text(
-                    text = "原有歌词：",
+                    text = stringResource(R.string.ml_music_library_original_lyrics_prefix),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -8727,7 +8792,7 @@ private fun LyricViewerSheet(
                 )
             } else {
                 Text(
-                    text = "无歌词",
+                    text = stringResource(R.string.ml_music_library_no_lyrics),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -8742,7 +8807,7 @@ private fun LyricViewerSheet(
                     .height(44.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("关闭", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_close), fontSize = 15.sp)
             }
         }
     }
@@ -8847,7 +8912,7 @@ private fun BatchMatchLyricsSheet(
                     .padding(bottom = 20.dp)
             ) {
             Text(
-                text = "批量匹配歌词",
+                text = stringResource(R.string.ml_music_library_batch_match_lyrics),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -8855,7 +8920,7 @@ private fun BatchMatchLyricsSheet(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "已选择 $selectedCount 个音频文件",
+                text = stringResource(R.string.ml_music_library_selected_audio_count, selectedCount),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -8865,7 +8930,7 @@ private fun BatchMatchLyricsSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "歌词匹配音源",
+                text = stringResource(R.string.ml_music_library_lyrics_match_sources),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -8935,7 +9000,7 @@ private fun BatchMatchLyricsSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "歌词类型",
+                text = stringResource(R.string.ml_music_library_lyrics_type),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -8960,7 +9025,7 @@ private fun BatchMatchLyricsSheet(
                         .padding(vertical = 8.dp)
                 ) {
                     Text(
-                        text = "逐字歌词",
+                        text = stringResource(R.string.ml_music_library_verbatim_lyrics),
                         fontSize = 15.sp,
                         color = if (isVerbatim)
                             MaterialTheme.colorScheme.primary
@@ -8985,7 +9050,7 @@ private fun BatchMatchLyricsSheet(
                         .padding(vertical = 8.dp)
                 ) {
                     Text(
-                        text = "逐行歌词",
+                        text = stringResource(R.string.ml_music_library_line_lyrics),
                         fontSize = 15.sp,
                         color = if (!isVerbatim)
                             MaterialTheme.colorScheme.secondary
@@ -9003,13 +9068,13 @@ private fun BatchMatchLyricsSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "匹配模式",
+                text = stringResource(R.string.ml_music_library_match_mode),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "补充：仅填充空歌词 | 覆盖：替换所有歌词",
+                text = stringResource(R.string.ml_music_library_lyric_match_mode_desc),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -9034,7 +9099,7 @@ private fun BatchMatchLyricsSheet(
                         .padding(vertical = 8.dp)
                 ) {
                     Text(
-                        text = "补充",
+                        text = stringResource(R.string.ml_music_library_mode_supplement),
                         fontSize = 15.sp,
                         color = if (isSupplement)
                             MaterialTheme.colorScheme.primary
@@ -9059,7 +9124,7 @@ private fun BatchMatchLyricsSheet(
                         .padding(vertical = 8.dp)
                 ) {
                     Text(
-                        text = "覆盖",
+                        text = stringResource(R.string.ml_music_library_mode_overwrite),
                         fontSize = 15.sp,
                         color = if (!isSupplement)
                             MaterialTheme.colorScheme.error
@@ -9077,7 +9142,7 @@ private fun BatchMatchLyricsSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "其他设置",
+                text = stringResource(R.string.ml_music_library_other_settings),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -9101,7 +9166,7 @@ private fun BatchMatchLyricsSheet(
                         .padding(vertical = 8.dp)
                 ) {
                     Text(
-                        text = "仅保留歌词",
+                        text = stringResource(R.string.ml_music_library_keep_lyrics_only),
                         fontSize = 15.sp,
                         color = if (filterMetadata)
                             MaterialTheme.colorScheme.primary
@@ -9126,7 +9191,7 @@ private fun BatchMatchLyricsSheet(
                         .padding(vertical = 8.dp)
                 ) {
                     Text(
-                        text = "包含翻译",
+                        text = stringResource(R.string.ml_music_library_include_translation),
                         fontSize = 15.sp,
                         color = if (includeTranslation)
                             MaterialTheme.colorScheme.primary
@@ -9144,7 +9209,7 @@ private fun BatchMatchLyricsSheet(
             Spacer(modifier = Modifier.height(20.dp))
             
             Text(
-                text = "并发线程数：$threadCount",
+                text = stringResource(R.string.ml_music_library_thread_count, threadCount),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -9169,7 +9234,7 @@ private fun BatchMatchLyricsSheet(
                     onClick = closeSheet,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -9198,7 +9263,7 @@ private fun BatchMatchLyricsSheet(
                     modifier = Modifier.weight(1f),
                     enabled = selectedSources.isNotEmpty()
                 ) {
-                    Text("开始匹配")
+                    Text(stringResource(R.string.ml_music_library_start_match))
                 }
             }
         }
@@ -9250,12 +9315,12 @@ private fun BatchMatchResultSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "匹配结果",
+                    text = stringResource(R.string.ml_music_library_match_result),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "成功 ${result.totalSuccess} / 失败 ${result.totalFailed}",
+                    text = stringResource(R.string.ml_music_library_success_failed, result.totalSuccess, result.totalFailed),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
@@ -9284,7 +9349,7 @@ private fun BatchMatchResultSheet(
                     .height(44.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("关闭", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_close), fontSize = 15.sp)
             }
         }
     }
@@ -9304,10 +9369,10 @@ private fun BatchMatchResultItemRow(
     }
     
     val statusText = when (item.matchStatus) {
-        MatchStatus.SUCCESS -> "成功"
-        MatchStatus.FAILED -> "失败"
-        MatchStatus.SKIPPED -> "跳过"
-        else -> "处理中"
+        MatchStatus.SUCCESS -> stringResource(R.string.ml_music_library_status_success)
+        MatchStatus.FAILED -> stringResource(R.string.ml_music_library_status_failed)
+        MatchStatus.SKIPPED -> stringResource(R.string.ml_music_library_status_skipped)
+        else -> stringResource(R.string.ml_music_library_status_processing)
     }
     
     Row(
@@ -9390,7 +9455,7 @@ private fun CoverViewerSheet(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "尺寸: ${bitmap.width} × ${bitmap.height}",
+                text = stringResource(R.string.ml_music_library_image_size, bitmap.width, bitmap.height),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -9402,7 +9467,7 @@ private fun CoverViewerSheet(
                     .height(44.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("关闭", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_close), fontSize = 15.sp)
             }
         }
     }
@@ -9464,10 +9529,10 @@ private fun BatchMatchItemDetailSheet(
             Spacer(modifier = Modifier.height(8.dp))
             
             val statusText = when (item.matchStatus) {
-                MatchStatus.SUCCESS -> "匹配成功"
-                MatchStatus.FAILED -> "匹配失败"
-                MatchStatus.SKIPPED -> "已跳过"
-                else -> "未知"
+                MatchStatus.SUCCESS -> stringResource(R.string.ml_music_library_match_success)
+                MatchStatus.FAILED -> stringResource(R.string.ml_music_library_match_failed)
+                MatchStatus.SKIPPED -> stringResource(R.string.ml_music_library_status_skipped)
+                else -> stringResource(R.string.ml_music_library_unknown)
             }
             val statusColor = when (item.matchStatus) {
                 MatchStatus.SUCCESS -> MaterialTheme.colorScheme.primary
@@ -9475,15 +9540,16 @@ private fun BatchMatchItemDetailSheet(
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
             Text(
-                text = "状态: $statusText",
+                text = stringResource(R.string.ml_music_library_status_with_value, statusText),
                 fontSize = 13.sp,
                 color = statusColor
             )
             
-            if (item.error != null) {
+            val errorText = item.error
+            if (errorText != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "错误: ${item.error}",
+                    text = stringResource(R.string.ml_music_library_error_with_value, errorText),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -9494,7 +9560,7 @@ private fun BatchMatchItemDetailSheet(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "字段变更详情",
+                text = stringResource(R.string.ml_music_library_field_changes_detail),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -9502,7 +9568,7 @@ private fun BatchMatchItemDetailSheet(
             
             if (displayData.isEmpty() && !hasCover) {
                 Text(
-                    text = "无变更字段",
+                    text = stringResource(R.string.ml_music_library_no_changed_fields),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -9527,7 +9593,7 @@ private fun BatchMatchItemDetailSheet(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text(
-                                    text = "封面",
+                                    text = stringResource(R.string.ml_music_library_album_cover),
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Medium
@@ -9535,12 +9601,14 @@ private fun BatchMatchItemDetailSheet(
                                 
                                 Spacer(modifier = Modifier.height(4.dp))
                                 
+                                val originalCoverTitleText = stringResource(R.string.ml_music_library_original_cover)
+                                val newCoverTitleText = stringResource(R.string.ml_music_library_new_cover)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "原",
+                                        text = stringResource(R.string.ml_music_library_original_short),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.error,
                                         fontWeight = FontWeight.Medium,
@@ -9549,18 +9617,18 @@ private fun BatchMatchItemDetailSheet(
                                     if (hasOriginalCover) {
                                         androidx.compose.foundation.Image(
                                             bitmap = item.originalCoverBitmap!!.asImageBitmap(),
-                                            contentDescription = "原封面",
+                                            contentDescription = originalCoverTitleText,
                                             modifier = Modifier
                                                 .size(48.dp)
                                                 .clip(RoundedCornerShape(4.dp))
                                                 .clickable {
                                                     showCoverFull = item.originalCoverBitmap
-                                                    coverTitle = "原封面"
+                                                    coverTitle = originalCoverTitleText
                                                 }
                                         )
                                     } else {
                                         Text(
-                                            text = "(无)",
+                                            text = stringResource(R.string.ml_music_library_none_bracket),
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
@@ -9576,7 +9644,7 @@ private fun BatchMatchItemDetailSheet(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "新",
+                                        text = stringResource(R.string.ml_music_library_new_short),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium,
@@ -9584,13 +9652,13 @@ private fun BatchMatchItemDetailSheet(
                                     )
                                     androidx.compose.foundation.Image(
                                         bitmap = item.coverBitmap!!.asImageBitmap(),
-                                        contentDescription = "封面",
+                                        contentDescription = stringResource(R.string.ml_music_library_album_cover),
                                         modifier = Modifier
                                             .size(48.dp)
                                             .clip(RoundedCornerShape(4.dp))
                                             .clickable {
                                                 showCoverFull = item.coverBitmap
-                                                coverTitle = "新封面"
+                                                coverTitle = newCoverTitleText
                                             }
                                     )
                                 }
@@ -9607,7 +9675,7 @@ private fun BatchMatchItemDetailSheet(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.undo),
-                                    contentDescription = "撤销",
+                                    contentDescription = stringResource(R.string.ml_music_library_revert),
                                     tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -9619,18 +9687,18 @@ private fun BatchMatchItemDetailSheet(
                     displayData.forEach { (key, newValue) ->
                         val oldValue = item.originalData[key] ?: ""
                         val fieldLabel = when (key) {
-                            "title" -> "标题"
-                            "artist" -> "艺术家"
-                            "album" -> "专辑"
-                            "year" -> "年份"
-                            "trackNumber" -> "音轨号"
-                            "discNumber" -> "碟号"
-                            "genre" -> "风格"
-                            "albumArtist" -> "专辑艺术家"
-                            "composer" -> "作曲"
-                            "lyricist" -> "作词"
-                            "comment" -> "注释"
-                            "copyrightInfo" -> "版权信息"
+                            "title" -> stringResource(R.string.ml_music_library_field_title)
+                            "artist" -> stringResource(R.string.ml_music_library_field_artist)
+                            "album" -> stringResource(R.string.ml_music_library_field_album)
+                            "year" -> stringResource(R.string.ml_music_library_field_year)
+                            "trackNumber" -> stringResource(R.string.ml_music_library_field_track_number)
+                            "discNumber" -> stringResource(R.string.ml_music_library_field_disc_number)
+                            "genre" -> stringResource(R.string.ml_music_library_field_genre)
+                            "albumArtist" -> stringResource(R.string.ml_music_library_field_album_artist)
+                            "composer" -> stringResource(R.string.ml_music_library_field_composer)
+                            "lyricist" -> stringResource(R.string.ml_music_library_field_lyricist)
+                            "comment" -> stringResource(R.string.ml_music_library_field_comment)
+                            "copyrightInfo" -> stringResource(R.string.ml_music_library_field_copyright_info)
                             else -> key
                         }
                         
@@ -9659,14 +9727,14 @@ private fun BatchMatchItemDetailSheet(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "原",
+                                        text = stringResource(R.string.ml_music_library_original_short),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.error,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.width(24.dp)
                                     )
                                     Text(
-                                        text = oldValue.ifEmpty { "(空)" },
+                                        text = oldValue.ifEmpty { stringResource(R.string.ml_music_library_empty_bracket) },
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
@@ -9683,7 +9751,7 @@ private fun BatchMatchItemDetailSheet(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "新",
+                                        text = stringResource(R.string.ml_music_library_new_short),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium,
@@ -9712,7 +9780,7 @@ private fun BatchMatchItemDetailSheet(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.undo),
-                                    contentDescription = "撤销",
+                                    contentDescription = stringResource(R.string.ml_music_library_revert),
                                     tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -9733,7 +9801,7 @@ private fun BatchMatchItemDetailSheet(
                     .height(44.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("关闭", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_close), fontSize = 15.sp)
             }
         }
     }
@@ -10037,7 +10105,7 @@ private suspend fun performBatchMatch(
                     
                     if (keyword.isBlank()) {
                         item.matchStatus = MatchStatus.SKIPPED
-                        item.error = "无有效搜索关键词"
+                        item.error = context.getString(R.string.ml_music_library_no_valid_search_keyword)
                         semaphore.release()
                         if (!isCancelled()) {
                             progressMutex.withLock {
@@ -10208,15 +10276,15 @@ private suspend fun performBatchMatch(
                             successCount++
                         } else {
                             item.matchStatus = MatchStatus.FAILED
-                            item.error = "相似度不足 (${String.format("%.0f%%", bestCombinedSim * 100)} < 80%)"
+                            item.error = context.getString(R.string.ml_music_library_similarity_too_low_with_threshold, bestCombinedSim * 100, 80)
                         }
                     } else {
                         item.matchStatus = MatchStatus.FAILED
-                        item.error = "未找到匹配结果"
+                        item.error = context.getString(R.string.ml_music_library_no_match_result)
                     }
                 } catch (e: Exception) {
                     item.matchStatus = MatchStatus.FAILED
-                    item.error = e.message ?: "未知错误"
+                    item.error = e.message ?: context.getString(R.string.ml_music_library_unknown_error)
                     Log.e("BatchMatch", "Error matching ${item.audioFile.displayTitle}", e)
                 } finally {
                     item.originalCoverBitmap = null
@@ -10511,18 +10579,24 @@ private fun BatchRenameConfigSheet(
     LaunchedEffect(Unit) { sheetState.show() }
     
     val tags = listOf(
-        "歌曲标题" to "歌曲标题",
-        "艺术家" to "艺术家",
-        "专辑" to "专辑",
-        "碟号" to "碟号",
-        "音轨号" to "音轨号",
-        "年份" to "年份",
-        "专辑艺术家" to "专辑艺术家"
+        stringResource(R.string.ml_music_library_field_title) to "歌曲标题",
+        stringResource(R.string.ml_music_library_field_artist) to "艺术家",
+        stringResource(R.string.ml_music_library_field_album) to "专辑",
+        stringResource(R.string.ml_music_library_field_disc_number) to "碟号",
+        stringResource(R.string.ml_music_library_field_track_number) to "音轨号",
+        stringResource(R.string.ml_music_library_field_year) to "年份",
+        stringResource(R.string.ml_music_library_field_album_artist) to "专辑艺术家"
     )
-    
+
     val presetTemplates = listOf(
-        "[歌曲标题] - [艺术家]",
-        "[艺术家] - [歌曲标题]"
+        Pair(
+            "[${stringResource(R.string.ml_music_library_field_title)}] - [${stringResource(R.string.ml_music_library_field_artist)}]",
+            "[歌曲标题] - [艺术家]"
+        ),
+        Pair(
+            "[${stringResource(R.string.ml_music_library_field_artist)}] - [${stringResource(R.string.ml_music_library_field_title)}]",
+            "[艺术家] - [歌曲标题]"
+        )
     )
     
     val separatorOptions = listOf(
@@ -10549,7 +10623,7 @@ private fun BatchRenameConfigSheet(
                 .navigationBarsPadding()
         ) {
             Text(
-                text = "批量重命名配置",
+                text = stringResource(R.string.ml_music_library_batch_rename_config),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -10557,7 +10631,7 @@ private fun BatchRenameConfigSheet(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "已选择 $selectedCount 个音频文件",
+                text = stringResource(R.string.ml_music_library_selected_audio_count, selectedCount),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -10572,7 +10646,7 @@ private fun BatchRenameConfigSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "文件名模板",
+                    text = stringResource(R.string.ml_music_library_filename_template),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -10583,7 +10657,7 @@ private fun BatchRenameConfigSheet(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "清空",
+                        text = stringResource(R.string.ml_music_library_clear),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -10614,7 +10688,7 @@ private fun BatchRenameConfigSheet(
                     decorationBox = { innerTextField ->
                         if (templateValue.text.isEmpty()) {
                             Text(
-                                text = "请输入文件名，例如‘[歌曲标题] - [艺术家]’",
+                                text = stringResource(R.string.ml_music_library_rename_template_hint),
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                 fontSize = 16.sp
                             )
@@ -10627,7 +10701,7 @@ private fun BatchRenameConfigSheet(
             Spacer(modifier = Modifier.height(12.dp))
             
             Text(
-                text = "快捷模板",
+                text = stringResource(R.string.ml_music_library_quick_templates),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -10642,20 +10716,20 @@ private fun BatchRenameConfigSheet(
                     .horizontalScroll(presetScrollState),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                presetTemplates.forEach { preset ->
+                presetTemplates.forEach { (displayText, templateValueToken) ->
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
                             .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
                             .clickable {
                                 templateValue = androidx.compose.ui.text.input.TextFieldValue(
-                                    text = preset,
-                                    selection = androidx.compose.ui.text.TextRange(preset.length)
+                                    text = templateValueToken,
+                                    selection = androidx.compose.ui.text.TextRange(templateValueToken.length)
                                 )
                             }
                             .padding(horizontal = 14.dp, vertical = 8.dp)
                     ) {
-                        Text(preset, fontSize = 13.sp, color = MaterialTheme.colorScheme.secondary)
+                        Text(displayText, fontSize = 13.sp, color = MaterialTheme.colorScheme.secondary)
                     }
                 }
             }
@@ -10663,7 +10737,7 @@ private fun BatchRenameConfigSheet(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "快捷标签",
+                text = stringResource(R.string.ml_music_library_quick_tags),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -10700,7 +10774,7 @@ private fun BatchRenameConfigSheet(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "艺术家分隔符",
+                text = stringResource(R.string.ml_music_library_artist_separator),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -10762,7 +10836,7 @@ private fun BatchRenameConfigSheet(
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        text = if (isCustomSelected) "自定义: $artistSeparator" else "自定义",
+                        text = if (isCustomSelected) stringResource(R.string.ml_music_library_custom_with_value, artistSeparator) else stringResource(R.string.ml_music_library_custom),
                         fontSize = 14.sp,
                         fontWeight = if (isCustomSelected) FontWeight.Bold else FontWeight.Medium,
                         color = if (isCustomSelected)
@@ -10789,7 +10863,7 @@ private fun BatchRenameConfigSheet(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "同时重命名TTML文件",
+                    text = stringResource(R.string.ml_music_library_rename_ttml_together),
                     fontSize = 14.sp,
                     fontWeight = if (renameTtml) FontWeight.Bold else FontWeight.Medium,
                     color = if (renameTtml)
@@ -10811,7 +10885,7 @@ private fun BatchRenameConfigSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -10826,7 +10900,7 @@ private fun BatchRenameConfigSheet(
                     modifier = Modifier.weight(1f),
                     enabled = isPreviewEnabled
                 ) {
-                    Text("预览")
+                    Text(stringResource(R.string.ml_music_library_preview))
                 }
             }
         }
@@ -10880,7 +10954,7 @@ private fun CustomArtistSeparatorSheet(
                 .navigationBarsPadding()
         ) {
             Text(
-                text = "自定义艺术家分隔符",
+                text = stringResource(R.string.ml_music_library_custom_artist_separator),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -10888,7 +10962,7 @@ private fun CustomArtistSeparatorSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "不能包含文件名非法字符：\\ / : * ? \" < > |",
+                text = stringResource(R.string.ml_music_library_invalid_filename_chars_tip),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -10920,7 +10994,7 @@ private fun CustomArtistSeparatorSheet(
                     decorationBox = { innerTextField ->
                         if (inputValue.text.isEmpty()) {
                             Text(
-                                text = "请输入分隔符，例如“／”",
+                                text = stringResource(R.string.ml_music_library_separator_hint),
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                 fontSize = 16.sp
                             )
@@ -10949,7 +11023,7 @@ private fun CustomArtistSeparatorSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = {
@@ -10962,7 +11036,7 @@ private fun CustomArtistSeparatorSheet(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.ml_music_library_confirm))
                 }
             }
         }
@@ -10997,7 +11071,7 @@ private fun BatchRenamePreviewSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "重命名预览",
+                text = stringResource(R.string.ml_music_library_rename_preview),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -11005,7 +11079,7 @@ private fun BatchRenamePreviewSheet(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "共 ${previewItems.size} 个文件",
+                text = stringResource(R.string.ml_music_library_total_files_count, previewItems.size),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -11036,13 +11110,13 @@ private fun BatchRenamePreviewSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.ml_music_library_cancel))
                 }
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("确认重命名")
+                    Text(stringResource(R.string.ml_music_library_confirm_rename))
                 }
             }
         }
@@ -11071,7 +11145,7 @@ private fun RenamePreviewItemCard(item: RenamePreviewItem) {
         
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "原名称: ",
+                text = stringResource(R.string.ml_music_library_old_name_prefix),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -11084,7 +11158,7 @@ private fun RenamePreviewItemCard(item: RenamePreviewItem) {
         
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "新名称: ",
+                text = stringResource(R.string.ml_music_library_new_name_prefix),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -11100,7 +11174,7 @@ private fun RenamePreviewItemCard(item: RenamePreviewItem) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "TTML原名称: ",
+                    text = stringResource(R.string.ml_music_library_ttml_old_name_prefix),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -11112,7 +11186,7 @@ private fun RenamePreviewItemCard(item: RenamePreviewItem) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "TTML新名称: ",
+                    text = stringResource(R.string.ml_music_library_ttml_new_name_prefix),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -11136,7 +11210,7 @@ private fun BatchRenameProgressDialog(
     AlertDialog(
         onDismissRequest = {},
         title = {
-            Text("重命名中...")
+            Text(stringResource(R.string.ml_music_library_renaming))
         },
         text = {
             Column(
@@ -11192,12 +11266,12 @@ private fun BatchRenameResultSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "重命名完成",
+                    text = stringResource(R.string.ml_music_library_rename_completed),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "成功 ${result.successCount} / 失败 ${result.failedCount}",
+                    text = stringResource(R.string.ml_music_library_success_failed, result.successCount, result.failedCount),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
@@ -11225,7 +11299,7 @@ private fun BatchRenameResultSheet(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "失败项目",
+                    text = stringResource(R.string.ml_music_library_failed_items),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.error
@@ -11273,7 +11347,7 @@ private fun BatchRenameResultSheet(
                     .height(44.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("关闭", fontSize = 15.sp)
+                Text(stringResource(R.string.ml_music_library_close), fontSize = 15.sp)
             }
         }
     }
@@ -11302,14 +11376,14 @@ private fun BatchRenameResultItemRow(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "原: ${item.oldName}",
+                text = stringResource(R.string.ml_music_library_old_with_value, item.oldName),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "新: ${item.newName}",
+                text = stringResource(R.string.ml_music_library_new_with_value, item.newName),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
@@ -11317,7 +11391,7 @@ private fun BatchRenameResultItemRow(
             )
         }
         Text(
-            text = "成功",
+            text = stringResource(R.string.ml_music_library_status_success),
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Medium
@@ -11762,7 +11836,7 @@ private suspend fun performBatchLyricsMatch(
                     
                     if (keyword.isBlank()) {
                         item.matchStatus = MatchStatus.SKIPPED
-                        item.error = "无有效搜索关键词"
+                        item.error = context.getString(R.string.ml_music_library_no_valid_search_keyword)
                         semaphore.release()
                         if (!isCancelled()) {
                             progressMutex.withLock {
@@ -11890,18 +11964,18 @@ private suspend fun performBatchLyricsMatch(
                             successCount++
                         } else {
                             item.matchStatus = MatchStatus.SKIPPED
-                            item.error = "已有歌词，补充模式下跳过"
+                            item.error = context.getString(R.string.ml_music_library_existing_lyrics_skipped_in_supplement_mode)
                         }
                     } else {
                         item.matchStatus = MatchStatus.FAILED
                         item.error = if (bestCombinedSim < 0.9f) 
-                            "匹配度不足 (${String.format("%.0f%%", bestCombinedSim * 100)} < 90%)" 
+                            context.getString(R.string.ml_music_library_similarity_too_low_with_threshold, bestCombinedSim * 100, 90)
                         else 
-                            "未找到有效歌词"
+                            context.getString(R.string.ml_music_library_no_valid_lyrics_found)
                     }
                 } catch (e: Exception) {
                     item.matchStatus = MatchStatus.FAILED
-                    item.error = e.message ?: "未知错误"
+                    item.error = e.message ?: context.getString(R.string.ml_music_library_unknown_error)
                     Log.e("BatchLyricsMatch", "Error matching ${item.audioFile.displayTitle}", e)
                 } finally {
                     item.originalLyrics = null
@@ -12041,7 +12115,7 @@ private suspend fun performBatchLyricsFormatConversion(
         try {
             val embeddedLyrics = extractEmbeddedLyrics(context, audio.path, audio.mediaStoreId)?.takeIf { it.isNotBlank() }
             if (embeddedLyrics.isNullOrBlank()) {
-                failedMessages.add("${audio.displayTitle}: 未读取到嵌入歌词")
+                failedMessages.add("${audio.displayTitle}: ${context.getString(R.string.ml_music_library_embedded_lyrics_not_read)}")
             } else {
                 val convertedLyrics = convertLyricsContentToBatchTargetFormat(embeddedLyrics, targetFormat)
                 val result = com.example.LyricBox.utils.AudioMetadataReader.writeLyrics(
@@ -12052,12 +12126,12 @@ private suspend fun performBatchLyricsFormatConversion(
                 if (result.success) {
                     successCount++
                 } else {
-                    failedMessages.add("${audio.displayTitle}: ${result.errorMessage.ifBlank { "写入失败" }}")
+                    failedMessages.add("${audio.displayTitle}: ${result.errorMessage.ifBlank { context.getString(R.string.ml_music_library_write_failed) }}")
                 }
             }
         } catch (e: Exception) {
             Log.e("BatchLyricsConvert", "Error converting lyrics: ${audio.path}", e)
-            failedMessages.add("${audio.displayTitle}: ${e.message ?: "未知错误"}")
+            failedMessages.add("${audio.displayTitle}: ${e.message ?: context.getString(R.string.ml_music_library_unknown_error)}")
         } finally {
             withContext(Dispatchers.Main) {
                 onProgress(index + 1, total)
@@ -12096,7 +12170,7 @@ private suspend fun performBatchLyricsExternalExport(
                 preferSameNameTtml = config.preferSameNameTtml
             )
             if (sourceLyrics.isNullOrBlank()) {
-                failedMessages.add("${audio.displayTitle}: 未读取到可导出的歌词")
+                failedMessages.add("${audio.displayTitle}: ${context.getString(R.string.ml_music_library_exportable_lyrics_not_read)}")
                 return@forEachIndexed
             }
 
@@ -12131,11 +12205,11 @@ private suspend fun performBatchLyricsExternalExport(
             if (writeSuccess) {
                 successCount++
             } else {
-                failedMessages.add("${audio.displayTitle}: 外挂歌词保存失败")
+                failedMessages.add("${audio.displayTitle}: ${context.getString(R.string.ml_music_library_external_lyrics_save_failed)}")
             }
         } catch (e: Exception) {
             Log.e("BatchLyricsExport", "Error exporting lyrics: ${audio.path}", e)
-            failedMessages.add("${audio.displayTitle}: ${e.message ?: "未知错误"}")
+            failedMessages.add("${audio.displayTitle}: ${e.message ?: context.getString(R.string.ml_music_library_unknown_error)}")
         } finally {
             withContext(Dispatchers.Main) {
                 onProgress(index + 1, total)

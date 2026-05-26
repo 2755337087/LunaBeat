@@ -74,7 +74,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val APP_SETTINGS_PREFS_NAME = "AppSettings"
 private const val PREF_KEY_AM_REGION = "amRegion"
 private const val DEFAULT_AM_REGION = "HK_SC"
 private const val PREF_KEY_AM_TOKEN_SOURCE = "amTokenSource"
@@ -167,6 +166,10 @@ fun getAMRegionDisplayName(region: String): String {
 }
 
 class SettingsActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -228,6 +231,9 @@ fun SettingsScreen(
             DarkModeType.valueOf(prefs.getString("darkModeType", DarkModeType.FOLLOW_SYSTEM.name) ?: DarkModeType.FOLLOW_SYSTEM.name)
         } catch (e: Exception) { DarkModeType.FOLLOW_SYSTEM }
     }
+    val savedLanguageTag = remember {
+        prefs.getString(APP_LANGUAGE_TAG_KEY, APP_LANGUAGE_SYSTEM) ?: APP_LANGUAGE_SYSTEM
+    }
     
     val savedSeekTimeSeconds = remember { prefs.getFloat("seekTimeSeconds", 2f) }
     val savedVibrationIntensity = remember { prefs.getString("vibrationIntensity", "weak") }
@@ -238,6 +244,7 @@ fun SettingsScreen(
     var showSeekTimeDialog by remember { mutableStateOf(false) }
     var showVibrationIntensityDialog by remember { mutableStateOf(false) }
     var showLayoutModeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     
     val savedCoverSize = remember { prefs.getInt("amCoverSize", 3000) }
     val savedQmCoverSize = remember { prefs.getInt("qmCoverSize", 1200) }
@@ -266,6 +273,7 @@ fun SettingsScreen(
     var tempDarkModeType by remember { mutableStateOf(savedDarkModeType) }
     var tempSeekTimeSeconds by remember { mutableFloatStateOf(savedSeekTimeSeconds) }
     var tempLayoutModePreference by remember { mutableStateOf(savedLayoutModePreference) }
+    var tempLanguageTag by remember { mutableStateOf(savedLanguageTag) }
     var tempCoverSize by remember { mutableStateOf(savedCoverSize) }
     var tempQmCoverSize by remember { mutableStateOf(savedQmCoverSize) }
     var tempNeCoverSize by remember { mutableStateOf(savedNeCoverSize) }
@@ -283,6 +291,7 @@ fun SettingsScreen(
     val currentDarkModeType = remember { mutableStateOf(savedDarkModeType) }
     val currentSeekTimeSeconds = remember { mutableFloatStateOf(savedSeekTimeSeconds) }
     val currentLayoutModePreference = remember { mutableStateOf(savedLayoutModePreference) }
+    val currentLanguageTag = remember { mutableStateOf(savedLanguageTag) }
     val effectiveLayoutProfile = remember(
         currentLayoutModePreference.value,
         configuration.screenWidthDp,
@@ -296,6 +305,13 @@ fun SettingsScreen(
         AppLayoutProfile.WATCH -> 12.dp
         AppLayoutProfile.PHONE -> 16.dp
         AppLayoutProfile.TABLET -> 24.dp
+    }
+    fun languageTagDisplayName(tag: String): String = when (tag) {
+        APP_LANGUAGE_SYSTEM -> "跟随系统"
+        "zh-CN" -> "简体中文"
+        "en" -> "英语"
+        "ja" -> "日语"
+        else -> "跟随系统"
     }
     val currentCoverSize = remember { mutableStateOf(savedCoverSize) }
     val currentQmCoverSize = remember { mutableStateOf(savedQmCoverSize) }
@@ -612,6 +628,21 @@ fun SettingsScreen(
                     onClick = {
                         tempLayoutModePreference = currentLayoutModePreference.value
                         showLayoutModeDialog = true
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                SettingsItem(
+                    title = "语言设置",
+                    summary = languageTagDisplayName(currentLanguageTag.value),
+                    onClick = {
+                        tempLanguageTag = currentLanguageTag.value
+                        showLanguageDialog = true
                     }
                 )
             }
@@ -986,6 +1017,20 @@ fun SettingsScreen(
                 currentLayoutModePreference.value = tempLayoutModePreference
                 saveAppLayoutModePreference(context, tempLayoutModePreference)
                 showLayoutModeDialog = false
+            }
+        )
+    }
+
+    if (showLanguageDialog) {
+        LanguageDialog(
+            currentValue = tempLanguageTag,
+            onValueChange = { tempLanguageTag = it },
+            onDismiss = { showLanguageDialog = false },
+            onConfirm = {
+                currentLanguageTag.value = tempLanguageTag
+                AppLanguage.saveLanguageTag(context, tempLanguageTag)
+                showLanguageDialog = false
+                restartAppKeepingPlayback(context)
             }
         )
     }
@@ -2517,6 +2562,58 @@ fun SongClickActionDialog(
 }
 
 @Composable
+fun LanguageDialog(
+    currentValue: String,
+    onValueChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val languageOptions = listOf(
+        APP_LANGUAGE_SYSTEM to "跟随系统",
+        "zh-CN" to "简体中文",
+        "en" to "英语",
+        "ja" to "日语"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("语言设置") },
+        text = {
+            Column {
+                languageOptions.forEach { (tag, displayName) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onValueChange(tag) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentValue == tag,
+                            onClick = { onValueChange(tag) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = displayName,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
 fun ArtistSeparatorDialog(
     currentValue: String,
     onValueChange: (String) -> Unit,
@@ -2892,4 +2989,10 @@ private fun restartApp(context: Context) {
     intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
     context.startActivity(intent)
     Process.killProcess(Process.myPid())
+}
+
+private fun restartAppKeepingPlayback(context: Context) {
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+    context.startActivity(intent)
 }

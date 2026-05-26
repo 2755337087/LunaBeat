@@ -73,6 +73,9 @@ class MusicPlaybackService : MediaSessionService() {
     private var notificationDsdPlaying = false
     private var notificationDsdDurationMs = 0L
     private var suppressNotificationDsdTransition = false
+    private var lastRestoreStatePersistRealtimeMs = 0L
+    private var lastRestoreStatePersistPath: String? = null
+    private var lastRestoreStatePersistPositionMs: Long = -1L
     @Volatile
     private var cachedDirectAlacDecodeSupport: Boolean? = null
     private var lastArtworkUpdatedSourcePath: String? = null
@@ -151,6 +154,10 @@ class MusicPlaybackService : MediaSessionService() {
             setAudioAttributes(audioAttributes, true)
             setHandleAudioBecomingNoisy(true)
             addListener(object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    persistPlaybackStateForRestore(player, force = false)
+                }
+
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     enforceManualNextPriorityOnAutoTransition(this@apply, reason)
                     lastTransitionSourcePath = mediaItem?.resolveOriginalAudioPath()
@@ -228,6 +235,7 @@ class MusicPlaybackService : MediaSessionService() {
                     if (hasStatusBarLyricEnabled()) {
                         pushStatusBarLyricPlayback(isSeek = true)
                     }
+                    persistPlaybackStateForRestore(this@apply, force = true)
                 }
             })
         }
@@ -297,12 +305,14 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player ?: return
+        persistPlaybackStateForRestore(player, force = true)
         if (!player.playWhenReady || player.mediaItemCount == 0) {
             stopSelf()
         }
     }
 
     override fun onDestroy() {
+        mediaSession?.player?.let { persistPlaybackStateForRestore(it, force = true) }
         mainHandler.removeCallbacks(lyriconProgressRunnable)
         mainHandler.removeCallbacks(sleepTimerRunnable)
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
@@ -323,6 +333,45 @@ class MusicPlaybackService : MediaSessionService() {
         artworkExecutor.shutdownNow()
         PlaybackAlacTranscodeManager.releaseStreamingResources()
         super.onDestroy()
+    }
+
+    private fun persistPlaybackStateForRestore(player: Player, force: Boolean) {
+        val currentItem = player.currentMediaItem ?: return
+        val sourcePath = currentItem.resolveOriginalAudioPath()?.takeIf { it.isNotBlank() } ?: return
+        val position = if (notificationDsdActive && notificationDsdPath == sourcePath) {
+            notificationDsdPlayer.currentPositionMs()
+        } else {
+            player.currentPosition
+        }.coerceAtLeast(0L)
+        val duration = when {
+            notificationDsdActive && notificationDsdPath == sourcePath -> notificationDsdDurationMs
+            player.duration > 0L && player.duration != C.TIME_UNSET -> player.duration
+            else -> 0L
+        }.coerceAtLeast(0L)
+        val now = SystemClock.elapsedRealtime()
+        val samePath = lastRestoreStatePersistPath == sourcePath
+        val positionChangedEnough = kotlin.math.abs(position - lastRestoreStatePersistPositionMs) >= 1_000L
+        if (!force &&
+            samePath &&
+            !positionChangedEnough &&
+            now - lastRestoreStatePersistRealtimeMs < PLAYBACK_STATE_PERSIST_INTERVAL_MS
+        ) {
+            return
+        }
+
+        val metadata = currentItem.mediaMetadata
+        getSharedPreferences(PLAYBACK_STATE_PREFS_NAME, MODE_PRIVATE).edit()
+            .putString(KEY_LAST_AUDIO_PATH, sourcePath)
+            .putString(KEY_LAST_TITLE, metadata.title?.toString().orEmpty())
+            .putString(KEY_LAST_ARTIST, metadata.artist?.toString().orEmpty())
+            .putString(KEY_LAST_ALBUM, metadata.albumTitle?.toString().orEmpty())
+            .putString(KEY_LAST_COVER_CACHE_PATH, metadata.extras?.getString(EXTRA_COVER_CACHE_PATH))
+            .putLong(KEY_LAST_POSITION_MS, position)
+            .putLong(KEY_LAST_DURATION_MS, duration)
+            .apply()
+        lastRestoreStatePersistRealtimeMs = now
+        lastRestoreStatePersistPath = sourcePath
+        lastRestoreStatePersistPositionMs = position
     }
 
     private fun syncLyriconEnabledFromPrefs() {
@@ -1203,6 +1252,15 @@ private fun MediaItem.ensurePlayable(): MediaItem {
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
+private const val PLAYBACK_STATE_PREFS_NAME = "music_playback_state"
+private const val KEY_LAST_AUDIO_PATH = "last_audio_path"
+private const val KEY_LAST_TITLE = "last_title"
+private const val KEY_LAST_ARTIST = "last_artist"
+private const val KEY_LAST_ALBUM = "last_album"
+private const val KEY_LAST_COVER_CACHE_PATH = "last_cover_cache_path"
+private const val KEY_LAST_POSITION_MS = "last_position_ms"
+private const val KEY_LAST_DURATION_MS = "last_duration_ms"
+private const val PLAYBACK_STATE_PERSIST_INTERVAL_MS = 2_000L
 private const val DSD_SILENCE_SCHEME = "dsd-silence"
 private const val DSD_SILENCE_SAMPLE_RATE = 44_100
 private const val DSD_SILENCE_CHANNEL_COUNT = 2
