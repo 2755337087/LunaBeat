@@ -5370,6 +5370,815 @@ private fun DeleteAllTransliterationConfirmDialog(
     )
 }
 
+@Composable
+private fun RecognizeRomajiRubyDialog(
+    showDialog: Boolean,
+    translationLineOptionCount: Int,
+    selectedTranslationLineIndex: Int,
+    onSelectedTranslationLineIndexChange: (Int) -> Unit,
+    onRomajiToKanaClick: () -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    if (!showDialog) return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("识别注音") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "此功能仅用于识别日语歌词翻译中的罗马音注音，并转换为 TTML 歌词标准的逐字注音。识别完成后，需要将歌词保存为 TTML 格式才可保留逐字注音。",
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                if (translationLineOptionCount > 1) {
+                    Text(
+                        text = "请选择“罗马音注音行”在翻译中的位置（对所有歌词行生效）：",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    for (index in 0 until translationLineOptionCount) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onSelectedTranslationLineIndexChange(index) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = index == selectedTranslationLineIndex,
+                                onClick = { onSelectedTranslationLineIndexChange(index) }
+                            )
+                            Text(
+                                text = "第 ${index + 1} 行翻译",
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "当前仅检测到 1 行翻译，将默认使用第 1 行翻译进行注音识别。",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("开始识别")
+            }
+        },
+        dismissButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(onClick = onRomajiToKanaClick) {
+                    Text("罗马音注音转假名")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        }
+    )
+}
+
+private data class RomajiRubyRecognitionResult(
+    val updatedLines: List<LyricLine>,
+    val successCount: Int,
+    val failureCount: Int,
+    val errorMessage: String? = null
+)
+
+private data class KanaRomanMapping(
+    val romanByKana: Map<String, String>,
+    val maxKanaLength: Int
+)
+
+private data class LyricCharRef(
+    val unitIndex: Int,
+    val charIndex: Int,
+    val char: Char
+)
+
+private data class RomajiToken(
+    val raw: String,
+    val normalized: String
+)
+
+private data class RomanTokenRange(
+    val start: Int,
+    val endInclusive: Int
+)
+
+private data class KanaAnchor(
+    val chars: List<LyricCharRef>,
+    val kanaText: String,
+    val romajiCandidates: Set<String>
+)
+
+private data class NonKanaSegment(
+    val chars: List<LyricCharRef>
+)
+
+private enum class RecognitionItemType {
+    NON_KANA,
+    KANA_ANCHOR
+}
+
+private data class RecognitionLineItem(
+    val type: RecognitionItemType,
+    val nonKanaSegment: NonKanaSegment? = null,
+    val kanaAnchor: KanaAnchor? = null
+)
+
+private enum class LineRomajiRubyStatus {
+    SUCCESS,
+    FAILED,
+    SKIPPED
+}
+
+private data class LineRomajiRubyRecognitionResult(
+    val status: LineRomajiRubyStatus,
+    val updatedLine: LyricLine
+)
+
+private data class RomajiToKanaConvertResult(
+    val updatedLines: List<LyricLine>,
+    val successCount: Int,
+    val failureCount: Int,
+    val errorMessage: String? = null
+)
+
+private fun normalizeKanaChar(char: Char): Char {
+    return if (char in '\u30A1'..'\u30F6') {
+        (char.code - 0x60).toChar()
+    } else {
+        char
+    }
+}
+
+private fun normalizeKanaText(text: String): String {
+    return text.map { normalizeKanaChar(it) }.joinToString("")
+}
+
+private fun isKanaChar(char: Char): Boolean {
+    val normalized = normalizeKanaChar(char)
+    return normalized in '\u3040'..'\u309F' || char == 'ー'
+}
+
+private fun isRubyAssignableCharacter(char: Char): Boolean {
+    val codePoint = char.code
+    return (codePoint in 0x3400..0x4DBF) ||
+            (codePoint in 0x4E00..0x9FFF) ||
+            (codePoint in 0xF900..0xFAFF) ||
+            char == '々' ||
+            char == '〆'
+}
+
+private fun normalizeRomanToken(token: String): String {
+    return token
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[^a-z]"), "")
+}
+
+private fun tokenizeRomajiLine(text: String): List<RomajiToken> {
+    return text
+        .replace('\u3000', ' ')
+        .trim()
+        .split(Regex("\\s+"))
+        .mapNotNull { part ->
+            val raw = part.trim()
+            if (raw.isEmpty()) return@mapNotNull null
+            val normalized = normalizeRomanToken(raw)
+            if (normalized.isEmpty() && raw != "っ") return@mapNotNull null
+            RomajiToken(raw = raw, normalized = normalized)
+        }
+}
+
+private fun loadKanaRomanMapping(context: Context): KanaRomanMapping? {
+    return try {
+        val romanByKana = linkedMapOf<String, String>()
+        var maxKanaLength = 1
+        context.assets.open("JapRoman.txt")
+            .bufferedReader(Charsets.UTF_8)
+            .useLines { sequence ->
+                sequence.forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isEmpty()) return@forEach
+                    val parts = trimmed.split("：", ":", limit = 2)
+                    if (parts.size != 2) return@forEach
+                    val kana = normalizeKanaText(parts[0].trim())
+                    val romaji = normalizeRomanToken(parts[1].trim())
+                    if (kana.isEmpty() || romaji.isEmpty()) return@forEach
+                    romanByKana[kana] = romaji
+                    if (kana.length > maxKanaLength) {
+                        maxKanaLength = kana.length
+                    }
+                }
+            }
+        if (romanByKana.isEmpty()) {
+            null
+        } else {
+            KanaRomanMapping(romanByKana = romanByKana, maxKanaLength = maxKanaLength)
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun kanaRomanOptions(
+    kana: String,
+    mapping: KanaRomanMapping
+): Set<String> {
+    val normalized = normalizeKanaText(kana)
+    val direct = mapping.romanByKana[normalized]
+    if (normalized == "っ") {
+        return linkedSetOf("t", "xtu", "ltu", "xtsu", "ltsu")
+    }
+    if (normalized == "ー") {
+        return emptySet()
+    }
+    if (direct.isNullOrEmpty()) return emptySet()
+    return when (normalized) {
+        "は" -> linkedSetOf(direct, "wa")
+        "へ" -> linkedSetOf(direct, "e")
+        "を" -> linkedSetOf(direct, "o")
+        else -> linkedSetOf(direct)
+    }
+}
+
+private fun hasKanaMappingCandidate(
+    kana: String,
+    mapping: KanaRomanMapping
+): Boolean {
+    val normalized = normalizeKanaText(kana)
+    if (normalized == "っ") return true
+    return mapping.romanByKana.containsKey(normalized)
+}
+
+private fun buildRecognitionLineItems(
+    lyricLine: LyricLine,
+    mapping: KanaRomanMapping
+): List<RecognitionLineItem> {
+    val items = mutableListOf<RecognitionLineItem>()
+    val pendingNonKana = mutableListOf<LyricCharRef>()
+    data class LineCharToken(
+        val ref: LyricCharRef,
+        val char: Char
+    )
+
+    val lineTokens = mutableListOf<LineCharToken>()
+    lyricLine.timeUnits.forEachIndexed { unitIndex, unit ->
+        unit.text.forEachIndexed { charIndex, char ->
+            lineTokens.add(
+                LineCharToken(
+                    ref = LyricCharRef(
+                        unitIndex = unitIndex,
+                        charIndex = charIndex,
+                        char = char
+                    ),
+                    char = char
+                )
+            )
+        }
+    }
+
+    fun flushNonKana() {
+        if (pendingNonKana.isNotEmpty()) {
+            items.add(
+                RecognitionLineItem(
+                    type = RecognitionItemType.NON_KANA,
+                    nonKanaSegment = NonKanaSegment(pendingNonKana.toList())
+                )
+            )
+            pendingNonKana.clear()
+        }
+    }
+
+    var tokenIndex = 0
+    while (tokenIndex < lineTokens.size) {
+        val currentToken = lineTokens[tokenIndex]
+        val currentChar = currentToken.char
+
+        if (currentChar.isWhitespace()) {
+            flushNonKana()
+            tokenIndex++
+            continue
+        }
+        if (!isKanaChar(currentChar)) {
+            pendingNonKana.add(currentToken.ref)
+            tokenIndex++
+            continue
+        }
+
+        flushNonKana()
+
+        var matchedLength = 0
+        var matchedKana = ""
+        val longest = minOf(3, lineTokens.size - tokenIndex)
+        for (len in longest downTo 1) {
+            val candidateTokens = lineTokens.subList(tokenIndex, tokenIndex + len)
+            if (candidateTokens.any { it.char.isWhitespace() || !isKanaChar(it.char) }) continue
+            val candidateKana = candidateTokens.joinToString("") { it.char.toString() }
+            if (hasKanaMappingCandidate(candidateKana, mapping)) {
+                matchedLength = len
+                matchedKana = candidateKana
+                break
+            }
+        }
+        if (matchedLength <= 0) {
+            matchedLength = 1
+            matchedKana = currentChar.toString()
+        }
+
+        val refs = lineTokens
+            .subList(tokenIndex, tokenIndex + matchedLength)
+            .map { it.ref }
+        items.add(
+            RecognitionLineItem(
+                type = RecognitionItemType.KANA_ANCHOR,
+                kanaAnchor = KanaAnchor(
+                    chars = refs,
+                    kanaText = matchedKana,
+                    romajiCandidates = kanaRomanOptions(matchedKana, mapping)
+                )
+            )
+        )
+        tokenIndex += matchedLength
+    }
+    flushNonKana()
+    return items
+}
+
+private fun joinNormalizedTokens(
+    tokens: List<RomajiToken>,
+    start: Int,
+    endInclusive: Int
+): String {
+    val builder = StringBuilder()
+    for (i in start..endInclusive) {
+        builder.append(tokens[i].normalized)
+    }
+    return builder.toString()
+}
+
+private fun findAnchorTokenRanges(
+    anchors: List<KanaAnchor>,
+    tokens: List<RomajiToken>
+): List<RomanTokenRange>? {
+    val failedState = mutableSetOf<Pair<Int, Int>>()
+
+    fun search(anchorIndex: Int, tokenCursor: Int): List<RomanTokenRange>? {
+        if (anchorIndex >= anchors.size) {
+            return emptyList()
+        }
+        val state = anchorIndex to tokenCursor
+        if (state in failedState) return null
+
+        val candidates = anchors[anchorIndex].romajiCandidates
+        if (candidates.isEmpty()) {
+            failedState.add(state)
+            return null
+        }
+        if (tokenCursor >= tokens.size) {
+            failedState.add(state)
+            return null
+        }
+
+        for (start in tokenCursor until tokens.size) {
+            val builder = StringBuilder()
+            for (end in start until tokens.size) {
+                builder.append(tokens[end].normalized)
+                val joined = builder.toString()
+                val exact = joined in candidates
+                val hasPrefix = candidates.any { it.startsWith(joined) }
+                if (exact) {
+                    val rest = search(anchorIndex + 1, end + 1)
+                    if (rest != null) {
+                        return listOf(RomanTokenRange(start = start, endInclusive = end)) + rest
+                    }
+                }
+                if (!hasPrefix) {
+                    break
+                }
+            }
+        }
+
+        failedState.add(state)
+        return null
+    }
+
+    return search(anchorIndex = 0, tokenCursor = 0)
+}
+
+private fun mergeStandaloneNTokens(
+    romajiTokens: List<RomajiToken>
+): List<String> {
+    if (romajiTokens.isEmpty()) return emptyList()
+    val merged = mutableListOf<String>()
+    romajiTokens.forEach { token ->
+        if (token.normalized == "n" && merged.isNotEmpty()) {
+            val lastIndex = merged.lastIndex
+            merged[lastIndex] = merged[lastIndex] + " " + token.raw
+        } else {
+            merged.add(token.raw)
+        }
+    }
+    return merged
+}
+
+private fun assignRubyUnitsEvenly(
+    charTargets: List<LyricCharRef>,
+    rubyUnits: List<String>,
+    assignments: MutableMap<Pair<Int, Int>, String>
+) {
+    if (charTargets.isEmpty() || rubyUnits.isEmpty()) return
+    val totalChars = charTargets.size
+    val totalUnits = rubyUnits.size
+    val base = totalUnits / totalChars
+    val remainder = totalUnits % totalChars
+    var unitCursor = 0
+
+    charTargets.forEachIndexed { index, target ->
+        val unitCount = base + if (index < remainder) 1 else 0
+        if (unitCount <= 0) return@forEachIndexed
+        val end = (unitCursor + unitCount).coerceAtMost(totalUnits)
+        if (end <= unitCursor) return@forEachIndexed
+        val ruby = rubyUnits.subList(unitCursor, end).joinToString(" ").trim()
+        unitCursor = end
+        if (ruby.isNotEmpty()) {
+            assignments[target.unitIndex to target.charIndex] = ruby
+        }
+    }
+}
+
+private fun distributeRomajiToNonKanaSegments(
+    segments: List<NonKanaSegment>,
+    romajiTokens: List<RomajiToken>,
+    assignments: MutableMap<Pair<Int, Int>, String>
+) {
+    if (segments.isEmpty() || romajiTokens.isEmpty()) return
+    val targets = segments
+        .flatMap { it.chars }
+        .filter { isRubyAssignableCharacter(it.char) }
+    if (targets.isEmpty()) return
+    val rubyUnits = mergeStandaloneNTokens(romajiTokens)
+    assignRubyUnitsEvenly(
+        charTargets = targets,
+        rubyUnits = rubyUnits,
+        assignments = assignments
+    )
+}
+
+private fun rubyForKanaAnchor(
+    anchor: KanaAnchor,
+    matchedTokens: List<RomajiToken>
+): String {
+    val normalizedKana = normalizeKanaText(anchor.kanaText)
+    val raw = matchedTokens.joinToString(" ") { it.raw }.trim()
+    val normalized = matchedTokens.joinToString("") { it.normalized }
+    if (normalizedKana == "っ") {
+        return when (normalized) {
+            "t" -> "t"
+            "xtu", "ltu", "xtsu", "ltsu" -> normalized
+            else -> if (normalized.isNotEmpty()) normalized else raw
+        }
+    }
+    return raw
+}
+
+private fun applyRomajiAssignmentsToLine(
+    lyricLine: LyricLine,
+    assignments: Map<Pair<Int, Int>, String>,
+    clearPositions: Set<Pair<Int, Int>>
+): LyricLine {
+    val updatedUnits = lyricLine.timeUnits.mapIndexed { unitIndex, unit ->
+        val newCharMap = unit.charTransliterations.toMutableMap()
+        clearPositions.forEach { position ->
+            if (position.first == unitIndex) {
+                newCharMap.remove(position.second)
+            }
+        }
+        assignments.forEach { (position, ruby) ->
+            if (position.first == unitIndex && ruby.isNotBlank()) {
+                newCharMap[position.second] = ruby
+            }
+        }
+        unit.copy(charTransliterations = newCharMap)
+    }
+    return lyricLine.copy(timeUnits = updatedUnits)
+}
+
+private fun recognizeRomajiRubyForLine(
+    lyricLine: LyricLine,
+    selectedTranslationLineIndex: Int,
+    mapping: KanaRomanMapping
+): LineRomajiRubyRecognitionResult {
+    if (isBlankLyricLine(lyricLine)) {
+        return LineRomajiRubyRecognitionResult(
+            status = LineRomajiRubyStatus.SKIPPED,
+            updatedLine = lyricLine
+        )
+    }
+
+    val translationLines = splitTranslationLines(lyricLine.translation)
+    if (selectedTranslationLineIndex !in translationLines.indices) {
+        return LineRomajiRubyRecognitionResult(
+            status = LineRomajiRubyStatus.FAILED,
+            updatedLine = lyricLine
+        )
+    }
+
+    val romajiTokens = tokenizeRomajiLine(translationLines[selectedTranslationLineIndex])
+    if (romajiTokens.isEmpty()) {
+        return LineRomajiRubyRecognitionResult(
+            status = LineRomajiRubyStatus.FAILED,
+            updatedLine = lyricLine
+        )
+    }
+
+    val lineItems = buildRecognitionLineItems(lyricLine, mapping)
+    val anchors = lineItems.mapNotNull { it.kanaAnchor }
+    if (anchors.isEmpty()) {
+        val assignments = linkedMapOf<Pair<Int, Int>, String>()
+        val nonKanaSegments = lineItems.mapNotNull { it.nonKanaSegment }
+        distributeRomajiToNonKanaSegments(
+            segments = nonKanaSegments,
+            romajiTokens = romajiTokens,
+            assignments = assignments
+        )
+        if (assignments.isEmpty()) {
+            return LineRomajiRubyRecognitionResult(
+                status = LineRomajiRubyStatus.SKIPPED,
+                updatedLine = lyricLine
+            )
+        }
+        val updatedLine = applyRomajiAssignmentsToLine(
+            lyricLine = lyricLine,
+            assignments = assignments,
+            clearPositions = emptySet()
+        )
+        val remainingTranslations = translationLines.toMutableList().apply {
+            removeAt(selectedTranslationLineIndex)
+        }
+        return LineRomajiRubyRecognitionResult(
+            status = LineRomajiRubyStatus.SUCCESS,
+            updatedLine = updatedLine.copy(
+                translation = joinTranslationLines(remainingTranslations)
+            )
+        )
+    }
+    if (anchors.any { it.romajiCandidates.isEmpty() }) {
+        return LineRomajiRubyRecognitionResult(
+            status = LineRomajiRubyStatus.FAILED,
+            updatedLine = lyricLine
+        )
+    }
+
+    val ranges = findAnchorTokenRanges(anchors, romajiTokens)
+        ?: return LineRomajiRubyRecognitionResult(
+            status = LineRomajiRubyStatus.FAILED,
+            updatedLine = lyricLine
+        )
+
+    val assignments = linkedMapOf<Pair<Int, Int>, String>()
+    val clearPositions = mutableSetOf<Pair<Int, Int>>()
+    var tokenCursor = 0
+    var anchorIndex = 0
+    val pendingNonKana = mutableListOf<NonKanaSegment>()
+
+    lineItems.forEach { item ->
+        when (item.type) {
+            RecognitionItemType.NON_KANA -> {
+                item.nonKanaSegment?.let { pendingNonKana.add(it) }
+            }
+            RecognitionItemType.KANA_ANCHOR -> {
+                val anchor = item.kanaAnchor ?: return@forEach
+                val range = ranges.getOrNull(anchorIndex) ?: return@forEach
+
+                if (range.start > tokenCursor) {
+                    val betweenTokens = romajiTokens.subList(tokenCursor, range.start)
+                    distributeRomajiToNonKanaSegments(
+                        segments = pendingNonKana,
+                        romajiTokens = betweenTokens,
+                        assignments = assignments
+                    )
+                }
+                pendingNonKana.clear()
+
+                anchor.chars.forEach { charRef ->
+                    clearPositions.add(charRef.unitIndex to charRef.charIndex)
+                }
+                val matchedTokens = romajiTokens.subList(range.start, range.endInclusive + 1)
+                val ruby = rubyForKanaAnchor(anchor, matchedTokens)
+                val primaryChar = anchor.chars.firstOrNull()
+                if (primaryChar != null && ruby.isNotBlank()) {
+                    assignments[primaryChar.unitIndex to primaryChar.charIndex] = ruby
+                }
+
+                tokenCursor = range.endInclusive + 1
+                anchorIndex++
+            }
+        }
+    }
+
+    if (tokenCursor < romajiTokens.size) {
+        val tailTokens = romajiTokens.subList(tokenCursor, romajiTokens.size)
+        distributeRomajiToNonKanaSegments(
+            segments = pendingNonKana,
+            romajiTokens = tailTokens,
+            assignments = assignments
+        )
+    }
+
+    val updatedLine = applyRomajiAssignmentsToLine(
+        lyricLine = lyricLine,
+        assignments = assignments,
+        clearPositions = clearPositions
+    )
+    val remainingTranslations = translationLines.toMutableList().apply {
+        removeAt(selectedTranslationLineIndex)
+    }
+    return LineRomajiRubyRecognitionResult(
+        status = LineRomajiRubyStatus.SUCCESS,
+        updatedLine = updatedLine.copy(
+            translation = joinTranslationLines(remainingTranslations)
+        )
+    )
+}
+
+private fun recognizeRomajiRubyForLyrics(
+    context: Context,
+    lyricLines: List<LyricLine>,
+    selectedTranslationLineIndex: Int
+): RomajiRubyRecognitionResult {
+    val hasAnyTranslation = lyricLines.any { splitTranslationLines(it.translation).isNotEmpty() }
+    if (!hasAnyTranslation) {
+        return RomajiRubyRecognitionResult(
+            updatedLines = lyricLines,
+            successCount = 0,
+            failureCount = 0,
+            errorMessage = "当前歌词没有翻译行，无法识别。"
+        )
+    }
+
+    val mapping = loadKanaRomanMapping(context)
+        ?: return RomajiRubyRecognitionResult(
+            updatedLines = lyricLines,
+            successCount = 0,
+            failureCount = 0,
+            errorMessage = "注音映射文件加载失败。"
+        )
+
+    var successCount = 0
+    var failureCount = 0
+    val updatedLines = lyricLines.map { line ->
+        val lineResult = recognizeRomajiRubyForLine(
+            lyricLine = line,
+            selectedTranslationLineIndex = selectedTranslationLineIndex,
+            mapping = mapping
+        )
+        when (lineResult.status) {
+            LineRomajiRubyStatus.SUCCESS -> {
+                successCount++
+                lineResult.updatedLine
+            }
+            LineRomajiRubyStatus.FAILED -> {
+                failureCount++
+                line
+            }
+            LineRomajiRubyStatus.SKIPPED -> line
+        }
+    }
+
+    return RomajiRubyRecognitionResult(
+        updatedLines = updatedLines,
+        successCount = successCount,
+        failureCount = failureCount,
+        errorMessage = null
+    )
+}
+
+private fun buildRomanToKanaMap(mapping: KanaRomanMapping): Map<String, String> {
+    val romanToKana = linkedMapOf<String, String>()
+    mapping.romanByKana.forEach { (kana, romaji) ->
+        val normalizedRomaji = normalizeRomanToken(romaji)
+        if (normalizedRomaji.isEmpty()) return@forEach
+        val hiraganaKana = normalizeKanaText(kana)
+        if (hiraganaKana.isEmpty()) return@forEach
+        val existing = romanToKana[normalizedRomaji]
+        if (existing == null || existing.length > hiraganaKana.length) {
+            romanToKana[normalizedRomaji] = hiraganaKana
+        }
+    }
+    romanToKana["n"] = "ん"
+    return romanToKana
+}
+
+private fun convertRomajiRubyTextToKana(
+    rubyText: String,
+    romanToKana: Map<String, String>
+): String? {
+    val tokens = rubyText
+        .replace('\u3000', ' ')
+        .trim()
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return null
+
+    val kanaBuilder = StringBuilder()
+    for (token in tokens) {
+        val normalized = normalizeRomanToken(token)
+        if (token == "っ" || token == "ッ") {
+            kanaBuilder.append('っ')
+            continue
+        }
+        if (token.startsWith("'") && normalized.length == 1) {
+            kanaBuilder.append('っ')
+            continue
+        }
+        if (normalized in setOf("xtu", "ltu", "xtsu", "ltsu")) {
+            kanaBuilder.append('っ')
+            continue
+        }
+        if (normalized.isEmpty()) {
+            return null
+        }
+        val kana = romanToKana[normalized] ?: return null
+        kanaBuilder.append(kana)
+    }
+    return kanaBuilder.toString().ifBlank { null }
+}
+
+private fun convertRomajiRubyToKanaForLyrics(
+    context: Context,
+    lyricLines: List<LyricLine>
+): RomajiToKanaConvertResult {
+    val mapping = loadKanaRomanMapping(context)
+        ?: return RomajiToKanaConvertResult(
+            updatedLines = lyricLines,
+            successCount = 0,
+            failureCount = 0,
+            errorMessage = "注音映射文件加载失败。"
+        )
+    val romanToKana = buildRomanToKanaMap(mapping)
+
+    var successCount = 0
+    var failureCount = 0
+    val updatedLines = lyricLines.map { line ->
+        val updatedUnits = line.timeUnits.map { unit ->
+            val charMap = unit.charTransliterations.toMutableMap()
+            charMap.keys.toList().forEach { charIndex ->
+                val currentRuby = charMap[charIndex].orEmpty().trim()
+                if (currentRuby.isBlank()) {
+                    charMap.remove(charIndex)
+                    return@forEach
+                }
+                val char = unit.text.getOrNull(charIndex) ?: run {
+                    charMap.remove(charIndex)
+                    return@forEach
+                }
+                if (isKanaChar(char)) {
+                    charMap.remove(charIndex)
+                    return@forEach
+                }
+                val converted = convertRomajiRubyTextToKana(
+                    rubyText = currentRuby,
+                    romanToKana = romanToKana
+                )
+                if (converted != null) {
+                    charMap[charIndex] = converted
+                    successCount++
+                } else {
+                    failureCount++
+                }
+            }
+            unit.copy(charTransliterations = charMap)
+        }
+        line.copy(timeUnits = updatedUnits)
+    }
+
+    return RomajiToKanaConvertResult(
+        updatedLines = updatedLines,
+        successCount = successCount,
+        failureCount = failureCount,
+        errorMessage = null
+    )
+}
+
 private fun isJapaneseSmallKana(char: Char): Boolean {
     return JapaneseSmallKanaChars.contains(char)
 }
@@ -8329,6 +9138,9 @@ fun LyricTimingScreen(
     var transliterationResultSuccess by remember { mutableStateOf(false) }
     var transliterationResultMessage by remember { mutableStateOf("") }
     var showDeleteAllTransliterationConfirmDialog by remember { mutableStateOf(false) }
+    var showRecognizeRomajiRubyDialog by remember { mutableStateOf(false) }
+    var romajiTranslationLineIndex by remember { mutableIntStateOf(0) }
+    var romajiTranslationLineOptionCount by remember { mutableIntStateOf(1) }
     
     // 编辑输入状态
     var editUnitText by remember { mutableStateOf("") }
@@ -9181,6 +9993,28 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
+                                    title = "识别注音",
+                                    onClick = {
+                                        if (lyricLines.isEmpty()) {
+                                            showNoLyricsDialog = true
+                                        } else {
+                                            val maxTranslationLines = lyricLines.maxOfOrNull {
+                                                splitTranslationLines(it.translation).size
+                                            } ?: 0
+                                            if (maxTranslationLines <= 0) {
+                                                transliterationResultSuccess = false
+                                                transliterationResultMessage = "当前歌词没有翻译行，无法识别。"
+                                                showTransliterationResultDialog = true
+                                            } else {
+                                                romajiTranslationLineOptionCount = maxTranslationLines
+                                                romajiTranslationLineIndex = romajiTranslationLineIndex
+                                                    .coerceIn(0, maxTranslationLines - 1)
+                                                showRecognizeRomajiRubyDialog = true
+                                            }
+                                        }
+                                    }
+                                ),
+                                MenuItem(
                                     title = "删除空行",
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
@@ -9374,6 +10208,28 @@ fun LyricTimingScreen(
                                         } else {
                                             convertToSimplifiedSelectedLines = emptySet()
                                             showConvertToSimplifiedDialog = true
+                                        }
+                                    }
+                                ),
+                                MenuItem(
+                                    title = "识别注音",
+                                    onClick = {
+                                        if (lyricLines.isEmpty()) {
+                                            showNoLyricsDialog = true
+                                        } else {
+                                            val maxTranslationLines = lyricLines.maxOfOrNull {
+                                                splitTranslationLines(it.translation).size
+                                            } ?: 0
+                                            if (maxTranslationLines <= 0) {
+                                                transliterationResultSuccess = false
+                                                transliterationResultMessage = "当前歌词没有翻译行，无法识别。"
+                                                showTransliterationResultDialog = true
+                                            } else {
+                                                romajiTranslationLineOptionCount = maxTranslationLines
+                                                romajiTranslationLineIndex = romajiTranslationLineIndex
+                                                    .coerceIn(0, maxTranslationLines - 1)
+                                                showRecognizeRomajiRubyDialog = true
+                                            }
                                         }
                                     }
                                 ),
@@ -9691,6 +10547,75 @@ fun LyricTimingScreen(
                     )
                     updateUndoRedoState()
                 }
+            }
+        )
+
+        RecognizeRomajiRubyDialog(
+            showDialog = showRecognizeRomajiRubyDialog,
+            translationLineOptionCount = romajiTranslationLineOptionCount,
+            selectedTranslationLineIndex = romajiTranslationLineIndex,
+            onSelectedTranslationLineIndexChange = { romajiTranslationLineIndex = it },
+            onRomajiToKanaClick = {
+                showRecognizeRomajiRubyDialog = false
+                val oldLines = lyricLines.toList()
+                val result = convertRomajiRubyToKanaForLyrics(
+                    context = context,
+                    lyricLines = lyricLines
+                )
+                if (result.errorMessage != null) {
+                    transliterationResultSuccess = false
+                    transliterationResultMessage = result.errorMessage
+                    showTransliterationResultDialog = true
+                    return@RecognizeRomajiRubyDialog
+                }
+                if (oldLines != result.updatedLines) {
+                    lyricLines = result.updatedLines
+                    undoRedoManager.pushAction(
+                        UndoAction(
+                            actionType = UndoActionType.MULTI_CHANGE,
+                            lineIndex = 0,
+                            oldValue = oldLines,
+                            newValue = result.updatedLines
+                        )
+                    )
+                    updateUndoRedoState()
+                }
+                transliterationResultSuccess = result.failureCount == 0
+                transliterationResultMessage =
+                    "罗马音注音转假名完成：成功 ${result.successCount} 个，失败 ${result.failureCount} 个。"
+                showTransliterationResultDialog = true
+            },
+            onDismiss = { showRecognizeRomajiRubyDialog = false },
+            onConfirm = {
+                showRecognizeRomajiRubyDialog = false
+                val oldLines = lyricLines.toList()
+                val result = recognizeRomajiRubyForLyrics(
+                    context = context,
+                    lyricLines = lyricLines,
+                    selectedTranslationLineIndex = romajiTranslationLineIndex
+                )
+                if (result.errorMessage != null) {
+                    transliterationResultSuccess = false
+                    transliterationResultMessage = result.errorMessage
+                    showTransliterationResultDialog = true
+                    return@RecognizeRomajiRubyDialog
+                }
+                if (oldLines != result.updatedLines) {
+                    lyricLines = result.updatedLines
+                    undoRedoManager.pushAction(
+                        UndoAction(
+                            actionType = UndoActionType.MULTI_CHANGE,
+                            lineIndex = 0,
+                            oldValue = oldLines,
+                            newValue = result.updatedLines
+                        )
+                    )
+                    updateUndoRedoState()
+                }
+                transliterationResultSuccess = result.successCount > 0
+                transliterationResultMessage =
+                    "注音识别完成：成功 ${result.successCount} 行，失败 ${result.failureCount} 行。请保存为 TTML 格式以保留逐字注音。"
+                showTransliterationResultDialog = true
             }
         )
         

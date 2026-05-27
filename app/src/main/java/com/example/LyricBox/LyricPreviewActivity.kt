@@ -7823,6 +7823,49 @@ fun LyricWordsCanvasWithWrap(
             breakableSpaceIndices: Set<Int>,
             showTransliteration: Boolean
         ): List<List<NewPreviewWordLayout>> {
+            fun resolveWordActualWidthPx(
+                word: NewPreviewLyricWord,
+                composeFontWeight: FontWeight
+            ): Float {
+                val lyricResult = textMeasurer.measure(
+                    text = word.text,
+                    style = TextStyle(
+                        fontSize = fontSize,
+                        fontWeight = composeFontWeight,
+                        fontFamily = fontFamily
+                    )
+                )
+                val lyricWidth = lyricResult.size.width.toFloat()
+
+                if (!showTransliteration || word.text == " ") return lyricWidth
+
+                val transliterationText = when {
+                    word.charTransliterations.isNotEmpty() && word.text.length == 1 ->
+                        word.charTransliterations[0].orEmpty()
+                    else -> word.transliteration
+                }.trim()
+
+                if (transliterationText.isEmpty()) return lyricWidth
+
+                val needsSpace = isTransliterationNeedsSpace(transliterationText)
+                val measuredTransText = if (needsSpace) {
+                    "$transliterationText "
+                } else {
+                    transliterationText
+                }
+                val transFontSize = (fontSize.value / 2).sp
+                val transResult = textMeasurer.measure(
+                    text = measuredTransText,
+                    style = TextStyle(
+                        fontSize = transFontSize,
+                        fontWeight = composeFontWeight,
+                        fontFamily = fontFamily
+                    )
+                )
+                val transliterationWidth = transResult.size.width.toFloat()
+                return maxOf(lyricWidth, transliterationWidth)
+            }
+
             val layouts = mutableListOf<List<NewPreviewWordLayout>>()
             var currentLine = mutableListOf<NewPreviewWordLayout>()
             var currentX = 0f
@@ -7916,16 +7959,12 @@ fun LyricWordsCanvasWithWrap(
                     groupIndex++
                     continue
                 }
-                
-                val result = textMeasurer.measure(
-                    text = processedText,
-                    style = TextStyle(
-                        fontSize = fontSize,
-                        fontWeight = composeFontWeight,
-                        fontFamily = fontFamily
-                    )
-                )
-                val groupWidth = result.size.width.toFloat()
+
+                // 换行判定必须使用“歌词字符宽度 vs 注音宽度”的最大占用宽度。
+                // 否则会出现字符本体放得下但注音被裁剪的情况。
+                val groupWidth = group.sumOf { (_, groupedWord) ->
+                    resolveWordActualWidthPx(groupedWord, composeFontWeight).toDouble()
+                }.toFloat()
                 val spaceWidth = if (processedText.endsWith(" ")) with(density) { 1.dp.toPx() } else 0f
                 
                 // 检查是否需要换行
@@ -7939,16 +7978,29 @@ fun LyricWordsCanvasWithWrap(
                     '?', '？', '》', '」' -> true
                     else -> false
                 }
+                val isLeadingSmallKanaGroup =
+                    !isBreakableSpace && leadingChar?.let(::isJapaneseSmallKanaChar) == true
 
-                // 标点保护：这些标点不能单独落到新行句首，和前一个字符/单词一起换行。
-                if (shouldWrapByWidth && isLeadingProtectedPunctuationGroup && currentLine.isNotEmpty()) {
-                    var moveStartIndex = currentLine.lastIndex
-                    while (moveStartIndex > 0 && currentLine[moveStartIndex - 1].word.text != " ") {
-                        moveStartIndex--
+                // 句首保护：
+                // 1) 标点（如 ?？》」）不能单独落到新行句首
+                // 2) 日语小假名（ゃゅょァィゥェォャュョ等）不能单独落到新行句首
+                //    需要把它前一个假名/字符一起移动到下一行（例如 し + ょ => しょ）。
+                if (shouldWrapByWidth && (isLeadingProtectedPunctuationGroup || isLeadingSmallKanaGroup) && currentLine.isNotEmpty()) {
+                    var moveStartIndex = if (isLeadingSmallKanaGroup) {
+                        currentLine.lastIndex
+                    } else {
+                        currentLine.lastIndex
+                    }
+                    if (!isLeadingSmallKanaGroup) {
+                        while (moveStartIndex > 0 && currentLine[moveStartIndex - 1].word.text != " ") {
+                            moveStartIndex--
+                        }
+                    } else if (currentLine[moveStartIndex].word.text == " " && moveStartIndex > 0) {
+                        moveStartIndex -= 1
                     }
                     // 当当前行内没有空格可作为单词边界时，不回卷整行：
                     // 仅把「标点前一个字符/字母」移动到下一行开头，避免标点句首。
-                    if (moveStartIndex == 0 && currentLine.lastIndex > 0) {
+                    if (!isLeadingSmallKanaGroup && moveStartIndex == 0 && currentLine.lastIndex > 0) {
                         moveStartIndex = currentLine.lastIndex
                     }
                     val movedLayoutsRaw = currentLine.subList(moveStartIndex, currentLine.size).toList()
@@ -8028,42 +8080,10 @@ fun LyricWordsCanvasWithWrap(
                 
                 // 为组内的每个字符创建布局
                 var charX = currentX
-                group.forEach { (originalIndex, word) ->
+                group.forEach { (_, word) ->
                     val charText = word.text
-                    val charResult = textMeasurer.measure(
-                        text = charText,
-                        style = TextStyle(
-                            fontSize = fontSize,
-                            fontWeight = composeFontWeight,
-                            fontFamily = fontFamily
-                        )
-                    )
-                    val charWidth = charResult.size.width.toFloat()
-                    
-                    // 计算注音宽度（如果注音是拉丁拼音就计算注音+空格的宽度，否则只计算注音宽度）
-                    var finalCharWidth = charWidth
-                    if (showTransliteration && word.transliteration.isNotEmpty()) {
-                        val needsSpace = isTransliterationNeedsSpace(word.transliteration)
-                        val transFontSize = (fontSize.value / 2).sp
-                        val textToMeasure = if (needsSpace) {
-                            word.transliteration + " "
-                        } else {
-                            word.transliteration
-                        }
-                        val transResult = textMeasurer.measure(
-                            text = textToMeasure,
-                            style = TextStyle(
-                                fontSize = transFontSize,
-                                fontWeight = composeFontWeight,
-                                fontFamily = fontFamily
-                            )
-                        )
-                        val transWidth = transResult.size.width.toFloat()
-                        if (transWidth > charWidth) {
-                            finalCharWidth = transWidth
-                        }
-                    }
-                    
+                    val finalCharWidth = resolveWordActualWidthPx(word, composeFontWeight)
+
                     val layout = NewPreviewWordLayout(
                         word = word,
                         textWidth = finalCharWidth,
@@ -9356,6 +9376,16 @@ fun formatPreviewTime(ms: Long): String {
 
 private fun isEnglishLikeCharForSpaceWrap(c: Char): Boolean {
     return (c in 'a'..'z') || (c in 'A'..'Z') || c == '\'' || c == '"'
+}
+
+private fun isJapaneseSmallKanaChar(c: Char): Boolean {
+    return when (c) {
+        'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ',
+        'ゃ', 'ゅ', 'ょ', 'ゎ', 'ゕ', 'ゖ', 'っ',
+        'ァ', 'ィ', 'ゥ', 'ェ', 'ォ',
+        'ャ', 'ュ', 'ョ', 'ヮ', 'ヵ', 'ヶ', 'ッ' -> true
+        else -> false
+    }
 }
 
 private fun formatLineByLineTextWithSpaceWrapRules(
