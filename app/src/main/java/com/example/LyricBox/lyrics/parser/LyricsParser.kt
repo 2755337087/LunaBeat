@@ -319,7 +319,11 @@ object LrcParser {
 }
 
 object VerbatimLrcConverter {
-    fun toVerbatimLrc(lyricsData: LyricsData, translation: LyricsData? = null): String {
+    fun toVerbatimLrc(
+        lyricsData: LyricsData,
+        translation: LyricsData? = null,
+        roma: LyricsData? = null
+    ): String {
         val sb = StringBuilder()
         
         for (line in lyricsData) {
@@ -340,6 +344,18 @@ object VerbatimLrcConverter {
             }
             
             sb.append("\n")
+
+            roma?.let { romaData ->
+                val romaLine = findMatchingTranslationLine(line.start, romaData)
+                if (romaLine != null && romaLine.words.isNotEmpty()) {
+                    val romaText = romaLine.words.joinToString("") { it.text }.trim()
+                    if (romaText.isNotEmpty() && romaText != "//" && romaText != "/" && !romaText.matches(Regex("^/+$"))) {
+                        sb.append("[$lineStartTime]")
+                        sb.append(romaText)
+                        sb.append("\n")
+                    }
+                }
+            }
             
             translation?.let { ts ->
                 val tsLine = findMatchingTranslationLine(line.start, ts)

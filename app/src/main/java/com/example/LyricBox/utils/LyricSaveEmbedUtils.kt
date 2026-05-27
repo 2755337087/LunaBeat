@@ -1,7 +1,9 @@
 package com.example.LyricBox.utils
 
 import android.content.Context
+import com.example.LyricBox.LyricAgentType
 import com.example.LyricBox.LyricLine
+import com.example.LyricBox.LyricParsingUtils
 import com.example.LyricBox.buildSavedLyricFromLines as buildWordLrcFromTimingPage
 import com.example.LyricBox.buildTtmlContent as buildTtmlFromTimingPage
 import com.example.LyricBox.saveTtmlToFile as saveTtmlToFileFromTimingPage
@@ -42,6 +44,29 @@ object LyricSaveEmbedUtils {
         lyricLines: List<LyricLine>,
         showLineEndTime: Boolean
     ): String {
+        if (lyricLines.any { it.agentType == LyricAgentType.BACKGROUND }) {
+            val mergedPureLines = LyricParsingUtils.buildPureTextLinesFromParsedLyrics(lyricLines)
+            if (mergedPureLines.isNotEmpty()) {
+                return buildString {
+                    mergedPureLines.forEach { line ->
+                        if (showLineEndTime) {
+                            append("[${line.beginTime}]${line.text}[${line.endTime}]")
+                        } else {
+                            append("[${line.beginTime}]${line.text}")
+                        }
+                        append("\n")
+
+                        val translationLines = splitTranslationLines(line.translation)
+                        if (translationLines.isNotEmpty()) {
+                            translationLines.forEach { translationLine ->
+                                append("[${line.beginTime}]$translationLine\n")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         return buildString {
             var previousLineStartTime = "00:00.000"
             lyricLines.forEach { lyricLine ->

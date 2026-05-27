@@ -1,6 +1,8 @@
 package com.example.LyricBox
 
 import android.app.PendingIntent
+import android.app.Activity
+import android.app.Application
 import android.content.ContentUris
 import android.content.Context
 import android.content.SharedPreferences
@@ -8,10 +10,12 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.AudioAttributes
@@ -20,6 +24,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -91,10 +96,35 @@ class MusicPlaybackService : MediaSessionService() {
     private val lyriconBridge by lazy { LyriconStatusBarBridge(this) }
     private val flymeStatusBarLyricBridge by lazy { FlymeStatusBarLyricBridge(this) }
     private var lyriconEnabled = false
+    private var carBluetoothLyricEnabled = false
     private var flymeStatusBarLyricEnabled = false
     private var flymeStatusBarLyricHideNotificationEnabled = LyricPreviewActivity.DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION
     private var lyriconSongSourcePath: String? = null
     private var flymeSongSourcePath: String? = null
+    private var carLyricSongSourcePath: String? = null
+    private var carBluetoothFallbackTitle: String = ""
+    private var carBluetoothFallbackArtist: String = ""
+    private var carBluetoothMainLyricLines: List<TimedMainLyricLine> = emptyList()
+    private var desktopLyricSongSourcePath: String? = null
+    private var desktopLyricFallbackTitle: String = ""
+    private var desktopLyricFallbackArtist: String = ""
+    private var desktopLyricNextTitle: String = ""
+    private var desktopLyricNextArtist: String = ""
+    private var desktopLyricLines: List<TimedDesktopLyricLine> = emptyList()
+    private var desktopLyricEnabled = false
+    private var desktopLyricSheetOpen = false
+    private var desktopLyricAppForeground = false
+    private var foregroundActivityCount = 0
+    private var desktopLyricState: DesktopLyricState = DesktopLyricState.DISABLED
+    private var lastDesktopLyricMain: String = ""
+    private var lastDesktopLyricTranslation: String = ""
+    private var lastDesktopLyricState: DesktopLyricState = DesktopLyricState.DISABLED
+    private var activityLifecycleCallbacks: Application.ActivityLifecycleCallbacks? = null
+    private val desktopLyricsOverlayManager by lazy { DesktopLyricsOverlayManager(this) }
+    private var lastPushedCarTitle: String? = null
+    private var lastPushedCarArtist: String? = null
+    private var lastPushedCarState: CarBluetoothLyricState? = null
+    private var carBluetoothLyricState: CarBluetoothLyricState = CarBluetoothLyricState.DISABLED
     private var lyriconBuildSerial: Long = 0L
     private val lyriconProgressRunnable = object : Runnable {
         override fun run() {
@@ -118,6 +148,20 @@ class MusicPlaybackService : MediaSessionService() {
     private val lyricPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             LyricPreviewActivity.KEY_LYRICON_STATUS_BAR -> syncLyriconEnabledFromPrefs()
+            LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC -> syncCarBluetoothLyricEnabledFromPrefs()
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_ENABLED -> syncDesktopLyricEnabledFromPrefs()
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_TRANSLATION,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_WIDTH_PERCENT,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_FONT_SIZE_SP,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_FONT_WEIGHT,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_STROKE_ENABLED,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_USE_CUSTOM_FONT,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_ALIGN,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_X_PERCENT,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_Y_PERCENT,
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_COLOR,
+            LyricPreviewActivity.KEY_FONT_WEIGHT -> syncDesktopLyricStyleFromPrefs()
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN -> syncDesktopLyricSheetOpenFromPrefs()
             LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC -> syncFlymeStatusBarLyricEnabledFromPrefs()
             LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION -> syncFlymeHideNotificationFromPrefs()
             LyricPreviewActivity.KEY_SHOW_TRANSLATION,
@@ -285,6 +329,27 @@ class MusicPlaybackService : MediaSessionService() {
                     }
                     persistPlaybackStateForRestore(this@apply, force = true)
                 }
+
+                override fun onRepeatModeChanged(repeatMode: Int) {
+                    refreshDesktopLyricSongCache(this@apply)
+                    if (desktopLyricEnabled && desktopLyricState == DesktopLyricState.AFTER_LAST_LYRIC) {
+                        updateDesktopLyricForPosition(this@apply.currentPosition.coerceAtLeast(0L))
+                    }
+                }
+
+                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                    refreshDesktopLyricSongCache(this@apply)
+                    if (desktopLyricEnabled && desktopLyricState == DesktopLyricState.AFTER_LAST_LYRIC) {
+                        updateDesktopLyricForPosition(this@apply.currentPosition.coerceAtLeast(0L))
+                    }
+                }
+
+                override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                    refreshDesktopLyricSongCache(this@apply)
+                    if (desktopLyricEnabled && desktopLyricState == DesktopLyricState.AFTER_LAST_LYRIC) {
+                        updateDesktopLyricForPosition(this@apply.currentPosition.coerceAtLeast(0L))
+                    }
+                }
             })
         }
 
@@ -342,8 +407,39 @@ class MusicPlaybackService : MediaSessionService() {
         normalizeFlymeStatusBarLyricPrefs()
         lyricPreviewPrefs.registerOnSharedPreferenceChangeListener(lyricPrefsListener)
         syncLyriconEnabledFromPrefs()
+        syncCarBluetoothLyricEnabledFromPrefs()
+        syncDesktopLyricEnabledFromPrefs()
+        syncDesktopLyricSheetOpenFromPrefs()
+        syncDesktopLyricStyleFromPrefs()
         syncFlymeStatusBarLyricEnabledFromPrefs()
         syncFlymeHideNotificationFromPrefs()
+        foregroundActivityCount = 0
+        desktopLyricAppForeground = false
+        updateDesktopLyricVisibility(animated = false)
+        activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityStarted(activity: Activity) {
+                foregroundActivityCount += 1
+                val newForeground = foregroundActivityCount > 0
+                if (newForeground != desktopLyricAppForeground) {
+                    desktopLyricAppForeground = newForeground
+                    updateDesktopLyricVisibility(animated = true)
+                }
+            }
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) {
+                foregroundActivityCount = (foregroundActivityCount - 1).coerceAtLeast(0)
+                val newForeground = foregroundActivityCount > 0
+                if (newForeground != desktopLyricAppForeground) {
+                    desktopLyricAppForeground = newForeground
+                    updateDesktopLyricVisibility(animated = true)
+                }
+            }
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        }
+        application.registerActivityLifecycleCallbacks(checkNotNull(activityLifecycleCallbacks))
         playbackStatsLastTickRealtimeMs = SystemClock.elapsedRealtime()
         mainHandler.post(playbackStatsTickRunnable)
         mainHandler.post(sleepTimerRunnable)
@@ -363,6 +459,33 @@ class MusicPlaybackService : MediaSessionService() {
         }
     }
 
+    private data class TimedMainLyricLine(
+        val beginMs: Long,
+        val endMs: Long,
+        val text: String
+    )
+
+    private data class TimedDesktopLyricLine(
+        val beginMs: Long,
+        val endMs: Long,
+        val text: String,
+        val translation: String
+    )
+
+    private enum class CarBluetoothLyricState {
+        BEFORE_FIRST_LYRIC,
+        SHOWING_LYRIC,
+        AFTER_LAST_LYRIC,
+        DISABLED
+    }
+
+    private enum class DesktopLyricState {
+        BEFORE_FIRST_LYRIC,
+        SHOWING_LYRIC,
+        AFTER_LAST_LYRIC,
+        DISABLED
+    }
+
     override fun onDestroy() {
         drainPlaybackStatsTick()
         playbackStatsManager.onPlaybackStopped()
@@ -372,6 +495,11 @@ class MusicPlaybackService : MediaSessionService() {
         mainHandler.removeCallbacks(playbackStatsTickRunnable)
         mainHandler.removeCallbacks(sleepTimerRunnable)
         lyricPreviewPrefs.unregisterOnSharedPreferenceChangeListener(lyricPrefsListener)
+        activityLifecycleCallbacks?.let { callbacks ->
+            application.unregisterActivityLifecycleCallbacks(callbacks)
+        }
+        activityLifecycleCallbacks = null
+        desktopLyricsOverlayManager.release()
         lyriconBridge.release()
         flymeStatusBarLyricBridge.release()
         mediaSession?.run {
@@ -479,13 +607,110 @@ class MusicPlaybackService : MediaSessionService() {
             pushLyriconDisplayFlags()
             pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
             pushStatusBarLyricPlayback(isSeek = true)
-            mainHandler.removeCallbacks(lyriconProgressRunnable)
-            mainHandler.post(lyriconProgressRunnable)
         } else {
-            mainHandler.removeCallbacks(lyriconProgressRunnable)
             lyriconSongSourcePath = null
             lyriconBridge.stop(clearRemoteState = true)
         }
+        refreshLyricProgressRunnable()
+    }
+
+    private fun syncCarBluetoothLyricEnabledFromPrefs() {
+        val enabled = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC,
+            LyricPreviewActivity.DEFAULT_CAR_BLUETOOTH_LYRIC
+        )
+        if (enabled == carBluetoothLyricEnabled) return
+        carBluetoothLyricEnabled = enabled
+
+        if (enabled) {
+            carBluetoothLyricState = CarBluetoothLyricState.BEFORE_FIRST_LYRIC
+            lastPushedCarTitle = null
+            lastPushedCarArtist = null
+            lastPushedCarState = null
+            pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+            pushStatusBarLyricPlayback(isSeek = true)
+        } else {
+            carLyricSongSourcePath = null
+            carBluetoothMainLyricLines = emptyList()
+            carBluetoothLyricState = CarBluetoothLyricState.DISABLED
+            restoreCarBluetoothTitle(
+                state = CarBluetoothLyricState.DISABLED,
+                force = true
+            )
+        }
+        refreshLyricProgressRunnable()
+    }
+
+    private fun canDrawDesktopLyricOverlay(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+    }
+
+    private fun syncDesktopLyricEnabledFromPrefs() {
+        val requestedEnabled = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_ENABLED,
+            LyricPreviewActivity.DEFAULT_DESKTOP_LYRIC_ENABLED
+        )
+        val enabled = requestedEnabled && canDrawDesktopLyricOverlay()
+        if (requestedEnabled && !enabled) {
+            lyricPreviewPrefs.edit()
+                .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_ENABLED, false)
+                .apply()
+        }
+        if (enabled == desktopLyricEnabled) {
+            updateDesktopLyricVisibility(animated = false)
+            return
+        }
+        desktopLyricEnabled = enabled
+        if (enabled) {
+            desktopLyricState = DesktopLyricState.BEFORE_FIRST_LYRIC
+            lastDesktopLyricMain = ""
+            lastDesktopLyricTranslation = ""
+            lastDesktopLyricState = DesktopLyricState.DISABLED
+            syncDesktopLyricStyleFromPrefs()
+            pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
+            pushStatusBarLyricPlayback(isSeek = true)
+        } else {
+            desktopLyricSongSourcePath = null
+            desktopLyricLines = emptyList()
+            desktopLyricState = DesktopLyricState.DISABLED
+            lastDesktopLyricMain = ""
+            lastDesktopLyricTranslation = ""
+            lastDesktopLyricState = DesktopLyricState.DISABLED
+            desktopLyricsOverlayManager.setVisible(false, animated = true)
+        }
+        refreshLyricProgressRunnable()
+    }
+
+    private fun syncDesktopLyricSheetOpenFromPrefs() {
+        desktopLyricSheetOpen = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
+            LyricPreviewActivity.DEFAULT_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN
+        )
+        updateDesktopLyricVisibility(animated = true)
+    }
+
+    private fun syncDesktopLyricStyleFromPrefs() {
+        if (!desktopLyricEnabled || !canDrawDesktopLyricOverlay()) return
+        val settings = DesktopLyricsSettingsStore.load(lyricPreviewPrefs)
+        val selectedFontId = LyricCustomFontStore.getSelectedFontId(this)
+        desktopLyricsOverlayManager.applySettings(settings, selectedFontId)
+        updateDesktopLyricVisibility(animated = false)
+    }
+
+    private fun updateDesktopLyricVisibility(animated: Boolean) {
+        val playbackActive = isDesktopLyricPlaybackActive()
+        val shouldShow = desktopLyricEnabled &&
+            playbackActive &&
+            canDrawDesktopLyricOverlay() &&
+            (!desktopLyricAppForeground || desktopLyricSheetOpen)
+        desktopLyricsOverlayManager.setVisible(shouldShow, animated = animated)
+    }
+
+    private fun isDesktopLyricPlaybackActive(): Boolean {
+        if (notificationDsdActive) return notificationDsdPlaying
+        val currentPlayer = player ?: return false
+        return currentPlayer.isPlaying ||
+            (currentPlayer.playWhenReady && currentPlayer.playbackState == Player.STATE_BUFFERING)
     }
 
     private fun normalizeFlymeStatusBarLyricPrefs() {
@@ -519,15 +744,11 @@ class MusicPlaybackService : MediaSessionService() {
             flymeStatusBarLyricBridge.setHideNotification(flymeStatusBarLyricHideNotificationEnabled)
             pushStatusBarLyricSongForCurrentItem(forceReloadLyrics = true)
             pushStatusBarLyricPlayback(isSeek = true)
-            mainHandler.removeCallbacks(lyriconProgressRunnable)
-            mainHandler.post(lyriconProgressRunnable)
         } else {
             flymeSongSourcePath = null
             flymeStatusBarLyricBridge.stop(clearRemoteState = true)
-            if (!lyriconEnabled) {
-                mainHandler.removeCallbacks(lyriconProgressRunnable)
-            }
         }
+        refreshLyricProgressRunnable()
     }
 
     private fun syncFlymeHideNotificationFromPrefs() {
@@ -545,7 +766,17 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     private fun hasStatusBarLyricEnabled(): Boolean {
-        return lyriconEnabled || (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive())
+        return lyriconEnabled ||
+            (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive()) ||
+            carBluetoothLyricEnabled ||
+            desktopLyricEnabled
+    }
+
+    private fun refreshLyricProgressRunnable() {
+        mainHandler.removeCallbacks(lyriconProgressRunnable)
+        if (hasStatusBarLyricEnabled()) {
+            mainHandler.post(lyriconProgressRunnable)
+        }
     }
 
     private fun pushLyriconDisplayFlags() {
@@ -587,6 +818,12 @@ class MusicPlaybackService : MediaSessionService() {
                 isSeek = isSeek
             )
         }
+        if (carBluetoothLyricEnabled) {
+            updateCarBluetoothTitleForPosition(position)
+        }
+        if (desktopLyricEnabled) {
+            updateDesktopLyricForPosition(position)
+        }
     }
 
     private fun pushStatusBarLyricSongForCurrentItem(forceReloadLyrics: Boolean) {
@@ -596,22 +833,51 @@ class MusicPlaybackService : MediaSessionService() {
         if (currentItem == null) {
             lyriconSongSourcePath = null
             flymeSongSourcePath = null
+            carLyricSongSourcePath = null
+            desktopLyricSongSourcePath = null
+            desktopLyricFallbackTitle = ""
+            desktopLyricFallbackArtist = ""
+            desktopLyricNextTitle = ""
+            desktopLyricNextArtist = ""
+            carBluetoothMainLyricLines = emptyList()
+            desktopLyricLines = emptyList()
+            carBluetoothLyricState = if (carBluetoothLyricEnabled) {
+                CarBluetoothLyricState.BEFORE_FIRST_LYRIC
+            } else {
+                CarBluetoothLyricState.DISABLED
+            }
+            desktopLyricState = if (desktopLyricEnabled) {
+                DesktopLyricState.BEFORE_FIRST_LYRIC
+            } else {
+                DesktopLyricState.DISABLED
+            }
+            lastPushedCarTitle = null
+            lastPushedCarArtist = null
+            lastPushedCarState = null
+            lastDesktopLyricMain = ""
+            lastDesktopLyricTranslation = ""
+            lastDesktopLyricState = DesktopLyricState.DISABLED
             if (lyriconEnabled) {
                 lyriconBridge.updateSong(null)
             }
             if (flymeStatusBarLyricEnabled && flymeStatusBarLyricBridge.isActive()) {
                 flymeStatusBarLyricBridge.updateSong(songId = null, lyricLines = emptyList())
             }
+            restoreCarBluetoothTitle(state = carBluetoothLyricState, force = true)
+            updateDesktopLyricForPosition(positionMs = 0L)
             return
         }
         val sourcePath = currentItem.resolveOriginalAudioPath() ?: return
         if (
             !forceReloadLyrics &&
             lyriconSongSourcePath == sourcePath &&
-            flymeSongSourcePath == sourcePath
+            flymeSongSourcePath == sourcePath &&
+            carLyricSongSourcePath == sourcePath
         ) return
         lyriconSongSourcePath = sourcePath
         flymeSongSourcePath = sourcePath
+        carLyricSongSourcePath = sourcePath
+        desktopLyricSongSourcePath = sourcePath
         val localSerial = ++lyriconBuildSerial
         val mediaTitle = currentItem.mediaMetadata.title?.toString()
         val mediaArtist = currentItem.mediaMetadata.artist?.toString()
@@ -625,10 +891,14 @@ class MusicPlaybackService : MediaSessionService() {
                 .takeIf { it > 0L && it != C.TIME_UNSET }
                 ?: 0L
         }
+        desktopLyricFallbackTitle = title
+        desktopLyricFallbackArtist = artist
+        refreshDesktopLyricSongCache(currentPlayer)
 
         lyricExecutor.execute {
             val rawLyrics = loadLyriconRawLyrics(sourcePath)
-            val previewLines = buildLyricPreviewLinesFromRawLyrics(rawLyrics, duration)
+            val parsedLyrics = buildLyricPreviewAndMainLinesFromRawLyrics(rawLyrics, duration)
+            val previewLines = parsedLyrics.previewLines
             val song = buildLyriconSong(
                 songId = sourcePath,
                 title = title,
@@ -651,6 +921,36 @@ class MusicPlaybackService : MediaSessionService() {
                         lyricLines = previewLines
                     )
                 }
+                carBluetoothFallbackTitle = title
+                carBluetoothFallbackArtist = artist
+                carBluetoothMainLyricLines = parsedLyrics.mainLines
+                desktopLyricFallbackTitle = title
+                desktopLyricFallbackArtist = artist
+                refreshDesktopLyricSongCache(currentPlayer)
+                desktopLyricLines = parsedLyrics.desktopLines
+                lastPushedCarTitle = null
+                lastPushedCarArtist = null
+                lastPushedCarState = null
+                carBluetoothLyricState = if (carBluetoothLyricEnabled) {
+                    CarBluetoothLyricState.BEFORE_FIRST_LYRIC
+                } else {
+                    CarBluetoothLyricState.DISABLED
+                }
+                desktopLyricState = if (desktopLyricEnabled) {
+                    DesktopLyricState.BEFORE_FIRST_LYRIC
+                } else {
+                    DesktopLyricState.DISABLED
+                }
+                lastDesktopLyricMain = ""
+                lastDesktopLyricTranslation = ""
+                lastDesktopLyricState = DesktopLyricState.DISABLED
+                if (carBluetoothLyricEnabled) {
+                    restoreCarBluetoothTitle(
+                        state = CarBluetoothLyricState.BEFORE_FIRST_LYRIC,
+                        force = true
+                    )
+                }
+                syncDesktopLyricStyleFromPrefs()
                 pushStatusBarLyricPlayback(isSeek = true)
             }
         }
@@ -987,15 +1287,46 @@ class MusicPlaybackService : MediaSessionService() {
         return embedded
     }
 
-    private fun buildLyricPreviewLinesFromRawLyrics(
+    private data class ParsedLyricPayload(
+        val previewLines: List<NewPreviewLyricLine>,
+        val mainLines: List<TimedMainLyricLine>,
+        val desktopLines: List<TimedDesktopLyricLine>
+    )
+
+    private fun buildLyricPreviewAndMainLinesFromRawLyrics(
         rawLyrics: String,
         durationMs: Long
-    ): List<NewPreviewLyricLine> {
+    ): ParsedLyricPayload {
         val text = rawLyrics.trim()
-        if (text.isEmpty()) return emptyList()
+        if (text.isEmpty()) {
+            return ParsedLyricPayload(
+                previewLines = emptyList(),
+                mainLines = emptyList(),
+                desktopLines = emptyList()
+            )
+        }
         val format = detectLyricsFormat(text)
         return if (format == 0) {
-            buildFallbackPlainLyricLines(text, durationMs)
+            val previewLines = buildFallbackPlainLyricLines(text, durationMs)
+            val desktopLines = previewLines.map { line ->
+                TimedDesktopLyricLine(
+                    beginMs = line.begin,
+                    endMs = line.end.coerceAtLeast(line.begin + 1L),
+                    text = line.words.joinToString(separator = "") { it.text }.trim(),
+                    translation = ""
+                )
+            }.filter { it.text.isNotEmpty() }
+            ParsedLyricPayload(
+                previewLines = previewLines,
+                mainLines = desktopLines.map {
+                    TimedMainLyricLine(
+                        beginMs = it.beginMs,
+                        endMs = it.endMs,
+                        text = it.text
+                    )
+                },
+                desktopLines = desktopLines
+            )
         } else {
             val parseType = when (format) {
                 1 -> LyricParseType.SPL_LRC
@@ -1006,47 +1337,98 @@ class MusicPlaybackService : MediaSessionService() {
             val parsed = runCatching { LyricParsingUtils.parseByType(parseType, text) }.getOrNull()
             val parsedLines = parsed?.lyricLines.orEmpty()
             if (parsedLines.isEmpty()) {
-                buildFallbackPlainLyricLines(text, durationMs)
-            } else {
-                parsedLines.mapIndexedNotNull { index, line ->
-                    val words = line.timeUnits.mapIndexedNotNull { wordIndex, unit ->
-                        val wordText = unit.text
-                        if (wordText.isEmpty()) return@mapIndexedNotNull null
-                        val begin = parseTimestampToMs(unit.startTime).coerceAtLeast(0L)
-                        val defaultEnd = begin + 1L
-                        val nextBegin = line.timeUnits.getOrNull(wordIndex + 1)?.let {
-                            parseTimestampToMs(it.startTime).coerceAtLeast(0L)
-                        } ?: defaultEnd
-                        val parsedEnd = parseTimestampToMs(unit.endTime).coerceAtLeast(0L)
-                        val end = when {
-                            parsedEnd > begin -> parsedEnd
-                            nextBegin > begin -> nextBegin
-                            else -> defaultEnd
-                        }
-                        NewPreviewLyricWord(
-                            text = wordText,
-                            begin = begin,
-                            end = end,
-                            transliteration = unit.transliteration,
-                            charTransliterations = unit.charTransliterations
-                        )
-                    }
-                    if (words.isEmpty()) return@mapIndexedNotNull null
-                    val lineBegin = words.first().begin
-                    val lineEnd = words.last().end.coerceAtLeast(lineBegin + 1L)
-                    NewPreviewLyricLine(
-                        words = words,
-                        begin = lineBegin,
-                        end = lineEnd,
-                        translation = line.translation,
-                        isDuet = line.agentType == LyricAgentType.RIGHT,
-                        isBackground = line.agentType == LyricAgentType.BACKGROUND,
-                        isInterlude = false,
-                        backgroundPlacement = if (line.agentType == LyricAgentType.BACKGROUND) 1 else 0
+                val previewLines = buildFallbackPlainLyricLines(text, durationMs)
+                val desktopLines = previewLines.map { line ->
+                    TimedDesktopLyricLine(
+                        beginMs = line.begin,
+                        endMs = line.end.coerceAtLeast(line.begin + 1L),
+                        text = line.words.joinToString(separator = "") { it.text }.trim(),
+                        translation = ""
                     )
-                }
+                }.filter { it.text.isNotEmpty() }
+                ParsedLyricPayload(
+                    previewLines = previewLines,
+                    mainLines = desktopLines.map {
+                        TimedMainLyricLine(
+                            beginMs = it.beginMs,
+                            endMs = it.endMs,
+                            text = it.text
+                        )
+                    },
+                    desktopLines = desktopLines
+                )
+            } else {
+                val desktopLines = buildTimedDesktopLyricLinesFromParsedLyrics(parsedLines)
+                ParsedLyricPayload(
+                    previewLines = convertParsedLyricLinesToPreviewLines(parsedLines),
+                    mainLines = desktopLines.map {
+                        TimedMainLyricLine(
+                            beginMs = it.beginMs,
+                            endMs = it.endMs,
+                            text = it.text
+                        )
+                    },
+                    desktopLines = desktopLines
+                )
             }
         }
+    }
+
+    private fun convertParsedLyricLinesToPreviewLines(parsedLines: List<LyricLine>): List<NewPreviewLyricLine> {
+        return parsedLines.mapNotNull { line ->
+            val words = line.timeUnits.mapIndexedNotNull { wordIndex, unit ->
+                val wordText = unit.text
+                if (wordText.isEmpty()) return@mapIndexedNotNull null
+                val begin = parseTimestampToMs(unit.startTime).coerceAtLeast(0L)
+                val defaultEnd = begin + 1L
+                val nextBegin = line.timeUnits.getOrNull(wordIndex + 1)?.let {
+                    parseTimestampToMs(it.startTime).coerceAtLeast(0L)
+                } ?: defaultEnd
+                val parsedEnd = parseTimestampToMs(unit.endTime).coerceAtLeast(0L)
+                val end = when {
+                    parsedEnd > begin -> parsedEnd
+                    nextBegin > begin -> nextBegin
+                    else -> defaultEnd
+                }
+                NewPreviewLyricWord(
+                    text = wordText,
+                    begin = begin,
+                    end = end,
+                    transliteration = unit.transliteration,
+                    charTransliterations = unit.charTransliterations
+                )
+            }
+            if (words.isEmpty()) return@mapNotNull null
+            val lineBegin = words.first().begin
+            val lineEnd = words.last().end.coerceAtLeast(lineBegin + 1L)
+            NewPreviewLyricLine(
+                words = words,
+                begin = lineBegin,
+                end = lineEnd,
+                translation = line.translation,
+                isDuet = line.agentType == LyricAgentType.RIGHT,
+                isBackground = line.agentType == LyricAgentType.BACKGROUND,
+                isInterlude = false,
+                backgroundPlacement = if (line.agentType == LyricAgentType.BACKGROUND) 1 else 0
+            )
+        }
+    }
+
+    private fun buildTimedDesktopLyricLinesFromParsedLyrics(parsedLines: List<LyricLine>): List<TimedDesktopLyricLine> {
+        val mergedPureLines = LyricParsingUtils.buildPureTextLinesFromParsedLyrics(parsedLines)
+        return mergedPureLines.mapNotNull { line ->
+            val text = line.text.trim()
+            if (text.isEmpty()) return@mapNotNull null
+            val beginMs = parseTimestampToMs(line.beginTime).coerceAtLeast(0L)
+            val parsedEnd = parseTimestampToMs(line.endTime).coerceAtLeast(0L)
+            val endMs = if (parsedEnd > beginMs) parsedEnd else beginMs + 1L
+            TimedDesktopLyricLine(
+                beginMs = beginMs,
+                endMs = endMs,
+                text = text,
+                translation = line.translation.trim()
+            )
+        }.sortedBy { it.beginMs }
     }
 
     private fun buildFallbackPlainLyricLines(
@@ -1101,6 +1483,329 @@ class MusicPlaybackService : MediaSessionService() {
             }
             else -> 0L
         }
+    }
+
+    private fun updateCarBluetoothTitleForPosition(positionMs: Long) {
+        if (!carBluetoothLyricEnabled) {
+            carBluetoothLyricState = CarBluetoothLyricState.DISABLED
+            restoreCarBluetoothTitle(
+                state = CarBluetoothLyricState.DISABLED,
+                force = false
+            )
+            return
+        }
+        val mainLines = carBluetoothMainLyricLines
+        if (mainLines.isEmpty()) {
+            carBluetoothLyricState = CarBluetoothLyricState.BEFORE_FIRST_LYRIC
+            restoreCarBluetoothTitle(
+                state = CarBluetoothLyricState.BEFORE_FIRST_LYRIC,
+                force = false
+            )
+            return
+        }
+        val firstBeginMs = mainLines.first().beginMs
+        val lastLine = mainLines.last()
+        val lastEndMs = lastLine.endMs.coerceAtLeast(lastLine.beginMs + 1L)
+
+        val targetState = when {
+            positionMs < firstBeginMs -> CarBluetoothLyricState.BEFORE_FIRST_LYRIC
+            positionMs > lastEndMs -> CarBluetoothLyricState.AFTER_LAST_LYRIC
+            else -> CarBluetoothLyricState.SHOWING_LYRIC
+        }
+        carBluetoothLyricState = targetState
+
+        if (targetState != CarBluetoothLyricState.SHOWING_LYRIC) {
+            restoreCarBluetoothTitle(state = targetState, force = false)
+            return
+        }
+
+        val mainText = resolveCurrentMainLyricText(positionMs).trim()
+        if (mainText.isBlank()) return
+        pushCarBluetoothMediaMetadata(
+            newTitle = mainText,
+            newArtist = buildCarBluetoothLyricArtist(),
+            state = CarBluetoothLyricState.SHOWING_LYRIC,
+            force = false
+        )
+    }
+
+    private fun resolveCurrentMainLyricText(positionMs: Long): String {
+        if (carBluetoothMainLyricLines.isEmpty()) return ""
+        val targetIndex = carBluetoothMainLyricLines.indexOfLast { line ->
+            positionMs >= line.beginMs
+        }
+        if (targetIndex < 0) return ""
+        return carBluetoothMainLyricLines[targetIndex].text
+    }
+
+    private fun buildCarBluetoothLyricArtist(): String {
+        val title = carBluetoothFallbackTitle.trim()
+        val artist = carBluetoothFallbackArtist.trim()
+        return when {
+            title.isNotEmpty() && artist.isNotEmpty() -> "$title - $artist"
+            title.isNotEmpty() -> title
+            else -> artist
+        }
+    }
+
+    private fun restoreCarBluetoothTitle(
+        state: CarBluetoothLyricState,
+        force: Boolean
+    ) {
+        val fallbackTitle = resolveDefaultCarBluetoothTitle()
+        if (fallbackTitle.isBlank()) return
+        pushCarBluetoothMediaMetadata(
+            newTitle = fallbackTitle,
+            newArtist = resolveDefaultCarBluetoothArtist(),
+            state = state,
+            force = force
+        )
+    }
+
+    private fun resolveDefaultCarBluetoothTitle(): String {
+        val fallback = carBluetoothFallbackTitle.trim()
+        if (fallback.isNotEmpty()) return fallback
+        val currentMetadata = player?.currentMediaItem?.mediaMetadata ?: return ""
+        val extras = currentMetadata.extras
+        return extras?.getString(EXTRA_ORIGINAL_MEDIA_TITLE_FOR_CAR)
+            ?.takeIf { it.isNotBlank() }
+            ?: currentMetadata.title?.toString().orEmpty()
+    }
+
+    private fun resolveDefaultCarBluetoothArtist(): String {
+        val fallback = carBluetoothFallbackArtist.trim()
+        if (fallback.isNotEmpty()) return fallback
+        val currentMetadata = player?.currentMediaItem?.mediaMetadata ?: return ""
+        return currentMetadata.artist?.toString().orEmpty()
+    }
+
+    private fun pushCarBluetoothMediaMetadata(
+        newTitle: String,
+        newArtist: String,
+        state: CarBluetoothLyricState,
+        force: Boolean
+    ) {
+        val normalizedTitle = newTitle.trim()
+        if (normalizedTitle.isEmpty()) return
+        val normalizedArtist = newArtist.trim()
+        if (!force &&
+            lastPushedCarState == state &&
+            lastPushedCarTitle == normalizedTitle &&
+            lastPushedCarArtist == normalizedArtist
+        ) {
+            return
+        }
+        if (!force &&
+            lastPushedCarTitle == normalizedTitle &&
+            lastPushedCarArtist == normalizedArtist
+        ) {
+            lastPushedCarState = state
+            lastPushedCarTitle = normalizedTitle
+            lastPushedCarArtist = normalizedArtist
+            return
+        }
+
+        val updated = updateCarBluetoothSessionMetadata(
+            title = normalizedTitle,
+            subtitle = normalizedArtist,
+            artist = normalizedArtist
+        )
+        if (!updated) return
+
+        lastPushedCarState = state
+        lastPushedCarTitle = normalizedTitle
+        lastPushedCarArtist = normalizedArtist
+    }
+
+    private fun updateCarBluetoothSessionMetadata(
+        title: String,
+        subtitle: String,
+        artist: String
+    ): Boolean {
+        val session = mediaSession ?: return false
+        return runCatching {
+            val impl = session.javaClass.getDeclaredMethod("getImpl").apply {
+                isAccessible = true
+            }.invoke(session) ?: return false
+            val legacyStub = impl.javaClass.getDeclaredMethod("getMediaSessionLegacyStub").apply {
+                isAccessible = true
+            }.invoke(impl) ?: return false
+            val sessionCompat = legacyStub.javaClass.getMethod("getSessionCompat").invoke(legacyStub)
+                ?: return false
+
+            val controller = sessionCompat.javaClass.getMethod("getController").invoke(sessionCompat)
+            val currentMetadata = controller?.javaClass?.getMethod("getMetadata")?.invoke(controller)
+            val bundle = (currentMetadata?.javaClass?.getMethod("getBundle")?.invoke(currentMetadata) as? Bundle)
+                ?: Bundle()
+
+            bundle.putCharSequence(android.media.MediaMetadata.METADATA_KEY_TITLE, title)
+            bundle.putCharSequence(android.media.MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
+            bundle.putCharSequence(android.media.MediaMetadata.METADATA_KEY_ARTIST, artist)
+            bundle.putCharSequence(android.media.MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, subtitle)
+
+            val compatMetadataClass = Class.forName("androidx.media3.session.legacy.MediaMetadataCompat")
+            val constructor = compatMetadataClass.getDeclaredConstructor(Bundle::class.java).apply {
+                isAccessible = true
+            }
+            val compatMetadata = constructor.newInstance(bundle)
+            sessionCompat.javaClass
+                .getMethod("setMetadata", compatMetadataClass)
+                .invoke(sessionCompat, compatMetadata)
+            true
+        }.onFailure { throwable ->
+            Log.w("MusicPlaybackService", "Failed to update car bluetooth session metadata", throwable)
+        }.getOrDefault(false)
+    }
+
+    private fun updateDesktopLyricForPosition(positionMs: Long) {
+        if (!desktopLyricEnabled) {
+            desktopLyricState = DesktopLyricState.DISABLED
+            updateDesktopLyricVisibility(animated = true)
+            return
+        }
+        updateDesktopLyricVisibility(animated = false)
+        val lines = desktopLyricLines
+        if (lines.isEmpty()) {
+            desktopLyricState = DesktopLyricState.BEFORE_FIRST_LYRIC
+            pushDesktopLyricLine(
+                state = DesktopLyricState.BEFORE_FIRST_LYRIC,
+                mainText = buildDesktopFallbackNowPlayingText(),
+                translationText = ""
+            )
+            return
+        }
+
+        val firstBegin = lines.first().beginMs
+        val lastLine = lines.last()
+        val lastEnd = lastLine.endMs.coerceAtLeast(lastLine.beginMs + 1L)
+
+        val state = when {
+            positionMs < firstBegin -> DesktopLyricState.BEFORE_FIRST_LYRIC
+            positionMs > lastEnd -> DesktopLyricState.AFTER_LAST_LYRIC
+            else -> DesktopLyricState.SHOWING_LYRIC
+        }
+        desktopLyricState = state
+
+        when (state) {
+            DesktopLyricState.BEFORE_FIRST_LYRIC -> {
+                pushDesktopLyricLine(
+                    state = state,
+                    mainText = buildDesktopFallbackNowPlayingText(),
+                    translationText = ""
+                )
+            }
+            DesktopLyricState.AFTER_LAST_LYRIC -> {
+                refreshDesktopLyricSongCache(player)
+                pushDesktopLyricLine(
+                    state = state,
+                    mainText = buildDesktopFallbackUpcomingText(),
+                    translationText = ""
+                )
+            }
+            DesktopLyricState.SHOWING_LYRIC -> {
+                val lookaheadMs = (positionMs + 400L).coerceAtLeast(0L)
+                val targetIndex = lines.indexOfLast { lookaheadMs >= it.beginMs }
+                val line = lines.getOrNull(targetIndex.coerceAtLeast(0)) ?: return
+                val mainText = line.text.trim()
+                if (mainText.isEmpty()) return
+                pushDesktopLyricLine(
+                    state = state,
+                    mainText = mainText,
+                    translationText = line.translation.trim()
+                )
+            }
+            DesktopLyricState.DISABLED -> Unit
+        }
+    }
+
+    private fun pushDesktopLyricLine(
+        state: DesktopLyricState,
+        mainText: String,
+        translationText: String
+    ) {
+        val normalizedMain = mainText.trim()
+        if (normalizedMain.isEmpty()) return
+        val showTranslation = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_TRANSLATION,
+            LyricPreviewActivity.DEFAULT_DESKTOP_LYRIC_SHOW_TRANSLATION
+        )
+        val normalizedTranslation = if (showTranslation) translationText.trim() else ""
+        if (
+            normalizedMain == lastDesktopLyricMain &&
+            normalizedTranslation == lastDesktopLyricTranslation &&
+            state == lastDesktopLyricState
+        ) {
+            return
+        }
+        val animate = state == DesktopLyricState.SHOWING_LYRIC &&
+            lastDesktopLyricState == DesktopLyricState.SHOWING_LYRIC
+        desktopLyricsOverlayManager.setLyric(
+            main = normalizedMain,
+            translation = normalizedTranslation,
+            animate = animate
+        )
+        lastDesktopLyricMain = normalizedMain
+        lastDesktopLyricTranslation = normalizedTranslation
+        lastDesktopLyricState = state
+    }
+
+    private fun buildDesktopFallbackNowPlayingText(): String {
+        val title = desktopLyricFallbackTitle.trim()
+        val artist = desktopLyricFallbackArtist.trim()
+        return when {
+            title.isNotEmpty() && artist.isNotEmpty() -> "$title - $artist"
+            title.isNotEmpty() -> title
+            else -> artist.ifBlank { "正在播放" }
+        }
+    }
+
+    private fun buildDesktopFallbackUpcomingText(): String {
+        val nextTitle = desktopLyricNextTitle.trim()
+        val nextArtist = desktopLyricNextArtist.trim()
+        if (nextTitle.isBlank() && nextArtist.isBlank()) {
+            return buildDesktopFallbackNowPlayingText()
+        }
+        return when {
+            nextTitle.isNotEmpty() && nextArtist.isNotEmpty() -> "即将播放：$nextTitle - $nextArtist"
+            nextTitle.isNotEmpty() -> "即将播放：$nextTitle"
+            else -> "即将播放：$nextArtist"
+        }
+    }
+
+    private fun refreshDesktopLyricSongCache(playerSnapshot: Player?) {
+        val snapshot = playerSnapshot ?: player
+        if (snapshot == null) {
+            desktopLyricNextTitle = ""
+            desktopLyricNextArtist = ""
+            return
+        }
+        val nextSong = resolveDesktopLyricNextSong(snapshot)
+        desktopLyricNextTitle = nextSong?.first.orEmpty()
+        desktopLyricNextArtist = nextSong?.second.orEmpty()
+    }
+
+    private fun resolveDesktopLyricNextSong(snapshot: Player): Pair<String, String>? {
+        val manualNextIndex = resolveManualNextIndex(applicationContext, snapshot, consume = false)
+        val candidateIndex = when {
+            manualNextIndex in 0 until snapshot.mediaItemCount -> manualNextIndex
+            snapshot.nextMediaItemIndex in 0 until snapshot.mediaItemCount -> snapshot.nextMediaItemIndex
+            else -> -1
+        }
+        if (candidateIndex !in 0 until snapshot.mediaItemCount) return null
+        val nextItem = snapshot.getMediaItemAt(candidateIndex)
+        val fallbackTitle = nextItem.resolveOriginalAudioPath()
+            ?.let { path -> runCatching { File(path).nameWithoutExtension }.getOrNull() }
+            ?.takeIf { it.isNotBlank() }
+            ?: "未知歌曲"
+        val title = nextItem.mediaMetadata.title
+            ?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: fallbackTitle
+        val artist = nextItem.mediaMetadata.artist
+            ?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: "未知艺术家"
+        return title to artist
     }
 
     private fun maybeHandleCurrentAlacPlayback(player: ExoPlayer, reason: String) {
@@ -1344,6 +2049,7 @@ private fun MediaItem.ensurePlayable(): MediaItem {
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
+private const val EXTRA_ORIGINAL_MEDIA_TITLE_FOR_CAR = "car_bt_original_media_title"
 private const val PLAYBACK_STATE_PREFS_NAME = "music_playback_state"
 private const val KEY_LAST_AUDIO_PATH = "last_audio_path"
 private const val KEY_LAST_TITLE = "last_title"

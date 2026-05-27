@@ -1,23 +1,35 @@
 package com.example.LyricBox
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.widget.Toast
 import android.content.res.Configuration
 import android.graphics.Typeface
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
@@ -36,6 +48,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -60,11 +73,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlin.math.roundToInt
 
 private enum class LyricSettingsPage {
     MAIN,
     STATUS_BAR_LYRIC,
+    DESKTOP_LYRIC,
     PAGE_BACKGROUND,
     LYRIC_DISPLAY_MODE,
     LYRIC_DISPLAY_POSITION,
@@ -89,6 +106,7 @@ fun LyricSettingsBottomSheet(
     lyricGlowEnabled: Boolean,
     pageBackgroundMode: Int,
     lyriconStatusBarEnabled: Boolean,
+    carBluetoothLyricEnabled: Boolean,
     flymeStatusBarLyricEnabled: Boolean,
     flymeStatusBarLyricHideNotificationEnabled: Boolean,
     keepScreenOnEnabled: Boolean,
@@ -110,6 +128,7 @@ fun LyricSettingsBottomSheet(
     onLyricGlowEnabledChange: (Boolean) -> Unit,
     onPageBackgroundModeChange: (Int) -> Unit,
     onLyriconStatusBarEnabledChange: (Boolean) -> Unit,
+    onCarBluetoothLyricEnabledChange: (Boolean) -> Unit,
     onFlymeStatusBarLyricEnabledChange: (Boolean) -> Unit,
     onFlymeStatusBarLyricHideNotificationEnabledChange: (Boolean) -> Unit,
     onKeepScreenOnEnabledChange: (Boolean) -> Unit,
@@ -131,9 +150,14 @@ fun LyricSettingsBottomSheet(
     accentColor: Color
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val isPortraitMode = LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
+    val prefs = remember {
+        context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    val loadedDesktopSettings = remember { DesktopLyricsSettingsStore.load(prefs) }
     val blockSheetDragFromList = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(
@@ -155,8 +179,36 @@ fun LyricSettingsBottomSheet(
     var tempWordLiftDistanceDp by remember(wordLiftDistanceDp) { mutableFloatStateOf(wordLiftDistanceDp) }
     var tempPlayedLyricAlpha by remember(playedLyricAlpha) { mutableFloatStateOf(playedLyricAlpha.coerceIn(0f, 1f)) }
     var tempUpcomingLyricContrast by remember(upcomingLyricContrast) { mutableFloatStateOf(upcomingLyricContrast.coerceIn(0f, 1f)) }
+    var desktopLyricSettings by remember { mutableStateOf(loadedDesktopSettings) }
+    var pendingOverlayPermissionEnable by remember { mutableStateOf(false) }
     val previewTypeface = remember(selectedFontId, fontOptions) {
         LyricCustomFontStore.resolveTypefaceById(context, selectedFontId)
+    }
+    fun saveDesktopSettings(settings: DesktopLyricsSettings) {
+        desktopLyricSettings = settings
+        DesktopLyricsSettingsStore.save(context, settings)
+    }
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (canDrawDesktopLyricOverlay(context)) {
+            saveDesktopSettings(desktopLyricSettings.copy(enabled = true))
+            pendingOverlayPermissionEnable = false
+        }
+    }
+    DisposableEffect(lifecycleOwner, pendingOverlayPermissionEnable) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && pendingOverlayPermissionEnable) {
+                if (canDrawDesktopLyricOverlay(context)) {
+                    saveDesktopSettings(desktopLyricSettings.copy(enabled = true))
+                    pendingOverlayPermissionEnable = false
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
     LaunchedEffect(page) { listState.scrollToItem(0) }
 
@@ -304,6 +356,11 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.STATUS_BAR_LYRIC }
                     )
+                    LyricSettingsActionRow(
+                        title = "桌面歌词",
+                        contentColor = contentColor,
+                        onClick = { page = LyricSettingsPage.DESKTOP_LYRIC }
+                    )
                     LyricSettingsSwitchRow(
                         title = "屏幕常亮",
                         checked = keepScreenOnEnabled,
@@ -335,6 +392,240 @@ fun LyricSettingsBottomSheet(
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
+                    LyricSettingsSwitchRow(
+                        title = "车载蓝牙歌词",
+                        checked = carBluetoothLyricEnabled,
+                        onCheckedChange = onCarBluetoothLyricEnabledChange,
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                }
+
+                LyricSettingsPage.DESKTOP_LYRIC -> {
+                    LyricSettingsSubPageTitle(
+                        title = "桌面歌词",
+                        contentColor = contentColor,
+                        onBack = { page = LyricSettingsPage.MAIN }
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "桌面歌词总开关",
+                        checked = desktopLyricSettings.enabled,
+                        onCheckedChange = { checked ->
+                            if (!checked) {
+                                pendingOverlayPermissionEnable = false
+                                saveDesktopSettings(desktopLyricSettings.copy(enabled = false))
+                                return@LyricSettingsSwitchRow
+                            }
+                            if (!canDrawDesktopLyricOverlay(context)) {
+                                pendingOverlayPermissionEnable = true
+                                Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+                                overlayPermissionLauncher.launch(desktopLyricOverlaySettingsIntent(context))
+                            } else {
+                                pendingOverlayPermissionEnable = false
+                                saveDesktopSettings(desktopLyricSettings.copy(enabled = true))
+                            }
+                        },
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    val widthPercent = desktopLyricSettings.widthPercent.coerceIn(50, 100)
+                    Text(
+                        text = "歌词组件宽度: ${widthPercent}%",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = widthPercent.toFloat(),
+                        onValueChange = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(
+                                    widthPercent = it.roundToInt().coerceIn(50, 100)
+                                )
+                            )
+                        },
+                        valueRange = 50f..100f,
+                        steps = 49,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    val desktopFontSize = desktopLyricSettings.fontSizeSp.coerceIn(8f, 30f)
+                    Text(
+                        text = "字体大小: ${desktopFontSize.roundToInt()}sp",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = desktopFontSize,
+                        onValueChange = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(
+                                    fontSizeSp = it.coerceIn(8f, 30f)
+                                )
+                            )
+                        },
+                        valueRange = 8f..30f,
+                        steps = 21,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    val desktopFontWeight = desktopLyricSettings.fontWeight.coerceIn(400, 900)
+                    Text(
+                        text = "字体粗细: $desktopFontWeight",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = desktopFontWeight.toFloat(),
+                        onValueChange = {
+                            val snapped = (it.roundToInt() / 50 * 50).coerceIn(400, 900)
+                            saveDesktopSettings(desktopLyricSettings.copy(fontWeight = snapped))
+                        },
+                        valueRange = 400f..900f,
+                        steps = 9,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "字体描边",
+                        checked = desktopLyricSettings.strokeEnabled,
+                        onCheckedChange = {
+                            saveDesktopSettings(desktopLyricSettings.copy(strokeEnabled = it))
+                        },
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "显示翻译",
+                        checked = desktopLyricSettings.showTranslation,
+                        onCheckedChange = {
+                            saveDesktopSettings(desktopLyricSettings.copy(showTranslation = it))
+                        },
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "使用自定义字体",
+                        checked = desktopLyricSettings.useCustomFont,
+                        onCheckedChange = {
+                            saveDesktopSettings(desktopLyricSettings.copy(useCustomFont = it))
+                        },
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    Text(
+                        text = "对齐方式",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor.copy(alpha = 0.8f)
+                    )
+                    LyricSettingsRadioRow(
+                        title = "居左",
+                        selected = desktopLyricSettings.align == LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_LEFT,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(align = LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_LEFT)
+                            )
+                        }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "居中",
+                        selected = desktopLyricSettings.align == LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_CENTER,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(align = LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_CENTER)
+                            )
+                        }
+                    )
+                    LyricSettingsRadioRow(
+                        title = "居右",
+                        selected = desktopLyricSettings.align == LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_RIGHT,
+                        contentColor = contentColor,
+                        accentColor = accentColor,
+                        onClick = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(align = LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_RIGHT)
+                            )
+                        }
+                    )
+                    val xPercent = desktopLyricSettings.xPercent.coerceIn(0, 100)
+                    Text(
+                        text = "歌词显示 X 轴位置: ${xPercent}%",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = xPercent.toFloat(),
+                        onValueChange = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(xPercent = it.roundToInt().coerceIn(0, 100))
+                            )
+                        },
+                        valueRange = 0f..100f,
+                        steps = 99,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    val yPercent = desktopLyricSettings.yPercent.coerceIn(0, 100)
+                    Text(
+                        text = "歌词显示 Y 轴位置: ${yPercent}%",
+                        color = contentColor
+                    )
+                    Slider(
+                        value = yPercent.toFloat(),
+                        onValueChange = {
+                            saveDesktopSettings(
+                                desktopLyricSettings.copy(yPercent = it.roundToInt().coerceIn(0, 100))
+                            )
+                        },
+                        valueRange = 0f..100f,
+                        steps = 99,
+                        colors = SliderDefaults.colors(
+                            thumbColor = accentColor,
+                            activeTrackColor = accentColor,
+                            inactiveTrackColor = contentColor.copy(alpha = 0.25f)
+                        )
+                    )
+                    Text(
+                        text = "歌词颜色",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor.copy(alpha = 0.8f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        DesktopLyricsSettingsStore.colorPresets.forEach { (key, color) ->
+                            val selected = desktopLyricSettings.colorKey == key
+                            Box(
+                                modifier = Modifier
+                                    .size(if (selected) 38.dp else 34.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .border(
+                                        width = if (selected) 2.dp else 1.dp,
+                                        color = if (selected) accentColor else contentColor.copy(alpha = 0.38f),
+                                        shape = CircleShape
+                                    )
+                                    .clickable {
+                                        saveDesktopSettings(desktopLyricSettings.copy(colorKey = key))
+                                    }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 LyricSettingsPage.LYRIC_DISPLAY_MODE -> {
@@ -757,6 +1048,17 @@ fun LyricSettingsBottomSheet(
             }
         }
     }
+}
+
+private fun canDrawDesktopLyricOverlay(context: Context): Boolean {
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+}
+
+private fun desktopLyricOverlaySettingsIntent(context: Context): Intent {
+    return Intent(
+        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        Uri.parse("package:${context.packageName}")
+    )
 }
 
 private fun getLyricDisplayPositionLabel(position: Int): String {

@@ -13,6 +13,13 @@ data class LyricParseResult(
     val lyricLines: List<LyricLine>
 )
 
+data class PlainTextLyricLine(
+    val beginTime: String,
+    val endTime: String,
+    val text: String,
+    val translation: String
+)
+
 object LyricParsingUtils {
     private val lrcTimestampTagRegex = Regex("""^\[\d{2}:\d{2}\.\d{2,3}]$""")
     private val bracketTagRegex = Regex("""\[[^\[\]]*]""")
@@ -79,6 +86,169 @@ object LyricParsingUtils {
             }
         }
         return joinTranslationLines(mergedLines)
+    }
+
+    private fun normalizePlainTextSegment(text: String): String {
+        return text
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .replace('\n', ' ')
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun hasWrappedBrackets(text: String): Boolean {
+        if (text.length < 2) return false
+        return (text.startsWith("(") && text.endsWith(")")) ||
+            (text.startsWith("（") && text.endsWith("）"))
+    }
+
+    private fun formatBackgroundSegment(text: String): String {
+        val normalized = normalizePlainTextSegment(text)
+        if (normalized.isEmpty()) return ""
+        return if (hasWrappedBrackets(normalized)) normalized else "($normalized)"
+    }
+
+    private fun joinReadableSegments(first: String, second: String): String {
+        val left = normalizePlainTextSegment(first)
+        val right = normalizePlainTextSegment(second)
+        return when {
+            left.isEmpty() -> right
+            right.isEmpty() -> left
+            else -> "$left $right"
+        }
+    }
+
+    private fun lineRawText(line: LyricLine): String {
+        return line.timeUnits.joinToString(separator = "") { it.text }
+    }
+
+    private fun lineBegin(line: LyricLine): String {
+        return line.timeUnits.firstOrNull()?.startTime ?: "00:00.000"
+    }
+
+    private fun lineEnd(line: LyricLine): String {
+        return line.timeUnits.lastOrNull()?.endTime ?: lineBegin(line)
+    }
+
+    private fun maxTimestamp(first: String, second: String): String {
+        return if (parseTimeToSeconds(first) >= parseTimeToSeconds(second)) first else second
+    }
+
+    private fun findBackgroundPartnerIndex(
+        lines: List<LyricLine>,
+        mainIndex: Int,
+        usedBackgroundIndices: Set<Int>
+    ): Int? {
+        val mainLine = lines[mainIndex]
+        val mainKey = mainLine.lineKey
+        if (mainKey.isNotEmpty()) {
+            val byKey = lines.indices.firstOrNull { candidateIndex ->
+                val candidate = lines[candidateIndex]
+                candidate.agentType == LyricAgentType.BACKGROUND &&
+                    candidate.lineKey == mainKey &&
+                    candidate.timeUnits.isNotEmpty() &&
+                    !usedBackgroundIndices.contains(candidateIndex)
+            }
+            if (byKey != null) return byKey
+        }
+
+        val nextIndex = mainIndex + 1
+        if (nextIndex in lines.indices) {
+            val next = lines[nextIndex]
+            if (
+                next.agentType == LyricAgentType.BACKGROUND &&
+                next.timeUnits.isNotEmpty() &&
+                !usedBackgroundIndices.contains(nextIndex)
+            ) {
+                return nextIndex
+            }
+        }
+        return null
+    }
+
+    fun buildPureTextLinesFromParsedLyrics(lines: List<LyricLine>): List<PlainTextLyricLine> {
+        if (lines.isEmpty()) return emptyList()
+
+        val mergedLines = mutableListOf<PlainTextLyricLine>()
+        val usedBackgroundIndices = mutableSetOf<Int>()
+
+        lines.forEachIndexed { index, mainLine ->
+            if (mainLine.agentType == LyricAgentType.BACKGROUND) return@forEachIndexed
+            if (mainLine.timeUnits.isEmpty()) return@forEachIndexed
+
+            val mainText = normalizePlainTextSegment(lineRawText(mainLine))
+            val mainTranslation = joinTranslationLines(splitTranslationLines(mainLine.translation))
+            val mainBegin = lineBegin(mainLine)
+            val mainEnd = lineEnd(mainLine)
+
+            val bgIndex = findBackgroundPartnerIndex(lines, index, usedBackgroundIndices)
+            val bgLine = bgIndex?.let { lines[it] }
+            if (bgIndex != null) {
+                usedBackgroundIndices.add(bgIndex)
+            }
+
+            val bgText = bgLine?.let { normalizePlainTextSegment(lineRawText(it)) }.orEmpty()
+            val bgTranslation = bgLine?.let { joinTranslationLines(splitTranslationLines(it.translation)) }.orEmpty()
+            val bgBegin = bgLine?.let { lineBegin(it) }.orEmpty()
+            val bgEnd = bgLine?.let { lineEnd(it) }.orEmpty()
+            val bgBeforeMain = bgBegin.isNotEmpty() && parseTimeToSeconds(bgBegin) < parseTimeToSeconds(mainBegin)
+
+            val bgDisplay = formatBackgroundSegment(bgText)
+            val lineText = if (bgBeforeMain) {
+                joinReadableSegments(bgDisplay, mainText)
+            } else {
+                joinReadableSegments(mainText, bgDisplay)
+            }
+            if (lineText.isEmpty()) return@forEachIndexed
+
+            val bgTranslationDisplay = formatBackgroundSegment(bgTranslation)
+            val mainTranslationLines = splitTranslationLines(mainTranslation)
+            val mergedTranslation = when {
+                mainTranslationLines.isNotEmpty() -> {
+                    mainTranslationLines.joinToString("\n") { translationLine ->
+                        if (bgTranslationDisplay.isEmpty()) {
+                            normalizePlainTextSegment(translationLine)
+                        } else if (bgBeforeMain) {
+                            joinReadableSegments(bgTranslationDisplay, translationLine)
+                        } else {
+                            joinReadableSegments(translationLine, bgTranslationDisplay)
+                        }
+                    }
+                }
+                bgTranslationDisplay.isNotEmpty() -> bgTranslationDisplay
+                else -> ""
+            }
+
+            val lineBegin = if (bgBeforeMain) bgBegin else mainBegin
+            val lineEnd = if (bgEnd.isNotEmpty()) maxTimestamp(mainEnd, bgEnd) else mainEnd
+
+            mergedLines.add(
+                PlainTextLyricLine(
+                    beginTime = lineBegin,
+                    endTime = lineEnd,
+                    text = lineText,
+                    translation = mergedTranslation
+                )
+            )
+        }
+
+        return mergedLines
+    }
+
+    fun buildPureTextLrcFromParsedLyrics(lines: List<LyricLine>): String {
+        val mergedLines = buildPureTextLinesFromParsedLyrics(lines)
+        if (mergedLines.isEmpty()) return ""
+        return buildString {
+            mergedLines.forEach { line ->
+                append("[${line.beginTime}]${line.text}")
+                append('\n')
+                splitTranslationLines(line.translation).forEach { translationLine ->
+                    append("[${line.beginTime}]$translationLine")
+                    append('\n')
+                }
+            }
+        }.trimEnd()
     }
 
     private fun extractRoleSpanText(content: String, role: String): String? {

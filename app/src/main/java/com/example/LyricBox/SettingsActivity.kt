@@ -50,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -419,6 +420,14 @@ fun SettingsScreen(
             )
         )
     }
+    var carBluetoothLyricEnabled by remember {
+        mutableStateOf(
+            lyricPreviewPrefs.getBoolean(
+                LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC,
+                LyricPreviewActivity.DEFAULT_CAR_BLUETOOTH_LYRIC
+            )
+        )
+    }
     var flymeStatusBarLyricEnabled by remember {
         mutableStateOf(
             lyricPreviewPrefs.getBoolean(
@@ -460,6 +469,21 @@ fun SettingsScreen(
                 LyricPreviewActivity.DEFAULT_AUTO_HIDE_PLAYBACK_CONTROLS
             )
         )
+    }
+    DisposableEffect(showLyricSettingsSheet) {
+        lyricPreviewPrefs.edit()
+            .putBoolean(
+                LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
+                showLyricSettingsSheet
+            )
+            .apply()
+        onDispose {
+            if (showLyricSettingsSheet) {
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN, false)
+                    .apply()
+            }
+        }
     }
     val savedPlaybackControlStyle = remember {
         when (
@@ -1249,6 +1273,7 @@ fun SettingsScreen(
             lyricGlowEnabled = lyricGlowEnabled,
             pageBackgroundMode = pageBackgroundMode,
             lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+            carBluetoothLyricEnabled = carBluetoothLyricEnabled,
             flymeStatusBarLyricEnabled = flymeStatusBarLyricEnabled,
             flymeStatusBarLyricHideNotificationEnabled = flymeStatusBarLyricHideNotificationEnabled,
             keepScreenOnEnabled = lyricKeepScreenOnEnabled,
@@ -1310,6 +1335,12 @@ fun SettingsScreen(
                         LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
                         if (it) false else flymeStatusBarLyricEnabled
                     )
+                    .apply()
+            },
+            onCarBluetoothLyricEnabledChange = {
+                carBluetoothLyricEnabled = it
+                lyricPreviewPrefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC, it)
                     .apply()
             },
             onFlymeStatusBarLyricEnabledChange = {

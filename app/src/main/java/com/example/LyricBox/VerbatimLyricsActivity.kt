@@ -275,6 +275,7 @@ fun VerbatimLyricsScreen(
     var selectedSong by remember { mutableStateOf<SongSearchResult?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var showTranslation by remember { mutableStateOf(prefs.getBoolean("showTranslation", false)) }
+    var showRoma by remember { mutableStateOf(prefs.getBoolean("showRoma", true)) }
     var filterMetadata by remember { mutableStateOf(prefs.getBoolean("filterMetadata", true)) }
     var keepTranslation by remember { mutableStateOf(prefs.getBoolean("amKeepTranslation", true)) }
     var convertToSimplified by remember { mutableStateOf(prefs.getBoolean("amConvertToSimplified", true)) }
@@ -817,6 +818,11 @@ fun VerbatimLyricsScreen(
                     showTranslation = it
                     prefs.edit().putBoolean("showTranslation", it).apply()
                 },
+                showRoma = showRoma,
+                onShowRomaChange = {
+                    showRoma = it
+                    prefs.edit().putBoolean("showRoma", it).apply()
+                },
                 filterMetadata = filterMetadata,
                 onFilterMetadataChange = { 
                     filterMetadata = it
@@ -862,7 +868,7 @@ fun VerbatimLyricsScreen(
                         ttml
                     } else {
                         // 处理其他文本
-                        var text = getLyricsText(selectedSong!!, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
+                        var text = getLyricsText(selectedSong!!, showTranslation, showRoma, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
                         if (convertToSimplified) {
                             text = com.example.LyricBox.utils.ChineseConverter.toSimplified(text)
                         }
@@ -900,7 +906,7 @@ fun VerbatimLyricsScreen(
                         ttml
                     } else {
                         // 处理其他文本
-                        var text = getLyricsText(selectedSong!!, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
+                        var text = getLyricsText(selectedSong!!, showTranslation, showRoma, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
                         if (convertToSimplified) {
                             text = com.example.LyricBox.utils.ChineseConverter.toSimplified(text)
                         }
@@ -1142,12 +1148,14 @@ fun SongResultItem(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LyricsBottomSheet(
     songResult: SongSearchResult,
     showTranslation: Boolean,
     onTranslationChange: (Boolean) -> Unit,
+    showRoma: Boolean = true,
+    onShowRomaChange: (Boolean) -> Unit = {},
     filterMetadata: Boolean,
     onFilterMetadataChange: (Boolean) -> Unit,
     sheetState: SheetState,
@@ -1168,13 +1176,14 @@ fun LyricsBottomSheet(
     val isAppleMusic = lyricsResult?.source == Source.ITUNES
     val rawTtml = lyricsResult?.rawTtml
     val hasTranslation = lyrics?.ts?.isNotEmpty() == true
+    val hasRoma = lyrics?.roma?.isNotEmpty() == true
     val hasTtmlTranslation = rawTtml?.let { 
         it.contains("<translation") || it.contains("<itunes:translation")
     } == true
     
     // 根据选项处理歌词文本
-    val processedLyricsText = remember(showTranslation, filterMetadata, keepTranslation, convertToSimplified, showLineByLine, showLineEndTimestamp) {
-        var text = getLyricsText(songResult, showTranslation, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
+    val processedLyricsText = remember(showTranslation, showRoma, filterMetadata, keepTranslation, convertToSimplified, showLineByLine, showLineEndTimestamp) {
+        var text = getLyricsText(songResult, showTranslation, showRoma, filterMetadata, keepTranslation, convertToSimplified, rawTtml, showLineByLine, showLineEndTimestamp)
         
         // 处理繁转简
         if (convertToSimplified) {
@@ -1350,9 +1359,10 @@ fun LyricsBottomSheet(
                     }
                 } else {
                     // 非 Apple Music 源的按钮
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Box(
                             modifier = Modifier
@@ -1401,6 +1411,31 @@ fun LyricsBottomSheet(
                                 )
                             }
                         }
+
+                        if (hasRoma) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (showRoma)
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                        else
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .clickable { onShowRomaChange(!showRoma) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "显示罗马音",
+                                    fontSize = 14.sp,
+                                    fontWeight = if (showRoma) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (showRoma)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         
                         Box(
                             modifier = Modifier
@@ -1424,31 +1459,30 @@ fun LyricsBottomSheet(
                                     MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-
-                    if (showLineByLine) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (showLineEndTimestamp)
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        
+                        if (showLineByLine) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (showLineEndTimestamp)
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                        else
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .clickable { onShowLineEndTimestampChange(!showLineEndTimestamp) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "显示行结束时间戳",
+                                    fontSize = 14.sp,
+                                    fontWeight = if (showLineEndTimestamp) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (showLineEndTimestamp)
+                                        MaterialTheme.colorScheme.primary
                                     else
-                                        MaterialTheme.colorScheme.surfaceVariant
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                .clickable { onShowLineEndTimestampChange(!showLineEndTimestamp) }
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
-                        ) {
-                            Text(
-                                text = "显示行结束时间戳",
-                                fontSize = 14.sp,
-                                fontWeight = if (showLineEndTimestamp) FontWeight.Bold else FontWeight.Medium,
-                                color = if (showLineEndTimestamp)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            }
                         }
                     }
                     
@@ -1456,22 +1490,46 @@ fun LyricsBottomSheet(
                 }
             }
             
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onCopy,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("复制")
-                }
-                
-                Button(
-                    onClick = onImport,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("导入")
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val compactLayout = maxWidth < 320.dp
+                if (compactLayout) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onCopy,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("复制")
+                        }
+
+                        Button(
+                            onClick = onImport,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("导入")
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onCopy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("复制")
+                        }
+
+                        Button(
+                            onClick = onImport,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("导入")
+                        }
+                    }
                 }
             }
             
@@ -1483,6 +1541,7 @@ fun LyricsBottomSheet(
 fun getLyricsText(
     songResult: SongSearchResult, 
     showTranslation: Boolean, 
+    showRoma: Boolean,
     filterMetadata: Boolean,
     keepTranslation: Boolean = true,
     convertToSimplified: Boolean = true,
@@ -1518,6 +1577,15 @@ fun getLyricsText(
     } else {
         null
     }
+
+    val filteredRoma = if (showRoma && lyrics.roma.isNotEmpty()) {
+        lyrics.roma.filter { line ->
+            val lineText = line.words.joinToString("") { it.text }.trim()
+            lineText.isNotEmpty() && lineText != "//" && !lineText.matches(Regex("^/+$"))
+        }
+    } else {
+        null
+    }
     
     var text = if (showLineByLine) {
         // 逐行歌词格式
@@ -1535,6 +1603,19 @@ fun getLyricsText(
                 }
                 sb.append("\n")
             }
+
+            // 添加罗马音（位于翻译上方）
+            filteredRoma?.let { roma ->
+                val romaLine = findMatchingTranslationLine(line.start, roma)
+                if (romaLine != null && romaLine.words.isNotEmpty()) {
+                    val romaText = romaLine.words.joinToString("") { it.text }.trim()
+                    if (romaText.isNotEmpty() && romaText != "//" && !romaText.matches(Regex("^/+$"))) {
+                        sb.append("[$lineStartTime]")
+                        sb.append(romaText)
+                        sb.append("\n")
+                    }
+                }
+            }
             
             // 添加翻译
             filteredTs?.let { ts ->
@@ -1544,9 +1625,6 @@ fun getLyricsText(
                     if (translationText.isNotEmpty() && translationText != "//" && !translationText.matches(Regex("^/+$"))) {
                         sb.append("[$lineStartTime]")
                         sb.append(translationText)
-                        if (showLineEndTimestamp && lineEndTime != null) {
-                            sb.append("[$lineEndTime]")
-                        }
                         sb.append("\n")
                     }
                 }
@@ -1557,7 +1635,8 @@ fun getLyricsText(
         // 逐字歌词格式
         VerbatimLrcConverter.toVerbatimLrc(
             lyrics.orig,
-            filteredTs
+            filteredTs,
+            filteredRoma
         )
     }
     

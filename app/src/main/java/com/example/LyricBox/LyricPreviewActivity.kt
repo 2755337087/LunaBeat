@@ -1256,6 +1256,19 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_DYNAMIC_COVER_BACKGROUND = "dynamic_cover_background"
         const val KEY_PAGE_BACKGROUND_MODE = "page_background_mode"
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
+        const val KEY_CAR_BLUETOOTH_LYRIC = "car_bluetooth_lyric"
+        const val KEY_DESKTOP_LYRIC_ENABLED = "desktop_lyric_enabled"
+        const val KEY_DESKTOP_LYRIC_WIDTH_PERCENT = "desktop_lyric_width_percent"
+        const val KEY_DESKTOP_LYRIC_FONT_SIZE_SP = "desktop_lyric_font_size_sp"
+        const val KEY_DESKTOP_LYRIC_FONT_WEIGHT = "desktop_lyric_font_weight"
+        const val KEY_DESKTOP_LYRIC_STROKE_ENABLED = "desktop_lyric_stroke_enabled"
+        const val KEY_DESKTOP_LYRIC_SHOW_TRANSLATION = "desktop_lyric_show_translation"
+        const val KEY_DESKTOP_LYRIC_USE_CUSTOM_FONT = "desktop_lyric_use_custom_font"
+        const val KEY_DESKTOP_LYRIC_ALIGN = "desktop_lyric_align"
+        const val KEY_DESKTOP_LYRIC_X_PERCENT = "desktop_lyric_x_percent"
+        const val KEY_DESKTOP_LYRIC_Y_PERCENT = "desktop_lyric_y_percent"
+        const val KEY_DESKTOP_LYRIC_COLOR = "desktop_lyric_color"
+        const val KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN = "desktop_lyric_settings_sheet_open"
         const val KEY_FLYME_STATUS_BAR_LYRIC = "flyme_status_bar_lyric"
         const val KEY_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION = "flyme_status_bar_lyric_hide_notification"
         const val KEY_SCREEN_KEEP_ON = "screen_keep_on"
@@ -1280,6 +1293,22 @@ class LyricPreviewActivity : ComponentActivity() {
         const val PAGE_BACKGROUND_DYNAMIC_FLOW = 2
         const val DEFAULT_PAGE_BACKGROUND_MODE = PAGE_BACKGROUND_STATIC_BLUR
         const val DEFAULT_LYRICON_STATUS_BAR = false
+        const val DEFAULT_CAR_BLUETOOTH_LYRIC = false
+        const val DEFAULT_DESKTOP_LYRIC_ENABLED = false
+        const val DEFAULT_DESKTOP_LYRIC_WIDTH_PERCENT = 80
+        const val DEFAULT_DESKTOP_LYRIC_FONT_SIZE_SP = 28f
+        const val DEFAULT_DESKTOP_LYRIC_FONT_WEIGHT = 700
+        const val DEFAULT_DESKTOP_LYRIC_STROKE_ENABLED = true
+        const val DEFAULT_DESKTOP_LYRIC_SHOW_TRANSLATION = false
+        const val DEFAULT_DESKTOP_LYRIC_USE_CUSTOM_FONT = false
+        const val DESKTOP_LYRIC_ALIGN_LEFT = 0
+        const val DESKTOP_LYRIC_ALIGN_CENTER = 1
+        const val DESKTOP_LYRIC_ALIGN_RIGHT = 2
+        const val DEFAULT_DESKTOP_LYRIC_ALIGN = DESKTOP_LYRIC_ALIGN_CENTER
+        const val DEFAULT_DESKTOP_LYRIC_X_PERCENT = 50
+        const val DEFAULT_DESKTOP_LYRIC_Y_PERCENT = 22
+        const val DEFAULT_DESKTOP_LYRIC_COLOR = "white"
+        const val DEFAULT_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN = false
         const val DEFAULT_FLYME_STATUS_BAR_LYRIC = false
         const val DEFAULT_FLYME_STATUS_BAR_LYRIC_HIDE_NOTIFICATION = false
         const val DEFAULT_SCREEN_KEEP_ON = true
@@ -3250,6 +3279,14 @@ fun LyricPreviewScreen(
             )
         )
     }
+    var carBluetoothLyricEnabled by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC,
+                LyricPreviewActivity.DEFAULT_CAR_BLUETOOTH_LYRIC
+            )
+        )
+    }
     var latinWordLiftAsWholeEnabled by remember {
         mutableStateOf(
             prefs.getBoolean(
@@ -3363,6 +3400,21 @@ fun LyricPreviewScreen(
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
+    DisposableEffect(showLyricSettingsSheet) {
+        prefs.edit()
+            .putBoolean(
+                LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
+                showLyricSettingsSheet
+            )
+            .apply()
+        onDispose {
+            if (showLyricSettingsSheet) {
+                prefs.edit()
+                    .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN, false)
+                    .apply()
+            }
+        }
+    }
     var pendingArtistSheetAlbum by remember { mutableStateOf("") }
     var pendingArtistSheetArtists by remember { mutableStateOf(listOf<String>()) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
@@ -4716,6 +4768,13 @@ fun LyricPreviewScreen(
                 LyricPreviewActivity.KEY_FLYME_STATUS_BAR_LYRIC,
                 if (enabled) false else flymeStatusBarLyricEnabled
             )
+            .apply()
+    }
+
+    fun saveCarBluetoothLyricEnabled(enabled: Boolean) {
+        carBluetoothLyricEnabled = enabled
+        prefs.edit()
+            .putBoolean(LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC, enabled)
             .apply()
     }
 
@@ -6476,6 +6535,7 @@ fun LyricPreviewScreen(
                 lyricGlowEnabled = lyricGlowEnabled,
                 pageBackgroundMode = pageBackgroundMode,
                 lyriconStatusBarEnabled = lyriconStatusBarEnabled,
+                carBluetoothLyricEnabled = carBluetoothLyricEnabled,
                 flymeStatusBarLyricEnabled = flymeStatusBarLyricEnabled,
                 flymeStatusBarLyricHideNotificationEnabled = flymeStatusBarLyricHideNotificationEnabled,
                 keepScreenOnEnabled = keepScreenOnEnabled,
@@ -6497,6 +6557,7 @@ fun LyricPreviewScreen(
                 onLyricGlowEnabledChange = { saveLyricGlowEnabled(it) },
                 onPageBackgroundModeChange = { savePageBackgroundMode(it) },
                 onLyriconStatusBarEnabledChange = { saveLyriconStatusBarEnabled(it) },
+                onCarBluetoothLyricEnabledChange = { saveCarBluetoothLyricEnabled(it) },
                 onFlymeStatusBarLyricEnabledChange = { saveFlymeStatusBarLyricEnabled(it) },
                 onFlymeStatusBarLyricHideNotificationEnabledChange = { saveFlymeStatusBarLyricHideNotificationEnabled(it) },
                 onKeepScreenOnEnabledChange = { saveKeepScreenOnEnabled(it) },
