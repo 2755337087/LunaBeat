@@ -470,21 +470,6 @@ fun SettingsScreen(
             )
         )
     }
-    DisposableEffect(showLyricSettingsSheet) {
-        lyricPreviewPrefs.edit()
-            .putBoolean(
-                LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
-                showLyricSettingsSheet
-            )
-            .apply()
-        onDispose {
-            if (showLyricSettingsSheet) {
-                lyricPreviewPrefs.edit()
-                    .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN, false)
-                    .apply()
-            }
-        }
-    }
     val savedPlaybackControlStyle = remember {
         when (
             lyricPreviewPrefs.getInt(
@@ -1265,6 +1250,14 @@ fun SettingsScreen(
     if (showLyricSettingsSheet) {
         LyricSettingsBottomSheet(
             onDismissRequest = { showLyricSettingsSheet = false },
+            onDesktopLyricSettingsVisibilityChange = { isDesktopPageVisible ->
+                lyricPreviewPrefs.edit()
+                    .putBoolean(
+                        LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
+                        isDesktopPageVisible
+                    )
+                    .apply()
+            },
             showTranslation = lyricShowTranslation,
             showTransliteration = lyricShowTransliteration,
             supportsLyricBlur = supportsLyricBlur,

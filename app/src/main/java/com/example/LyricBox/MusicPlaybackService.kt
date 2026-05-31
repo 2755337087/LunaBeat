@@ -3,6 +3,7 @@ package com.example.LyricBox
 import android.app.PendingIntent
 import android.app.Activity
 import android.app.Application
+import android.app.ActivityManager
 import android.content.ContentUris
 import android.content.Context
 import android.content.SharedPreferences
@@ -44,6 +45,8 @@ import java.io.File
 import java.util.concurrent.Executors
 import android.view.KeyEvent
 import androidx.media3.common.util.UnstableApi
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -112,6 +115,7 @@ class MusicPlaybackService : MediaSessionService() {
     private var desktopLyricNextArtist: String = ""
     private var desktopLyricLines: List<TimedDesktopLyricLine> = emptyList()
     private var desktopLyricEnabled = false
+    private var desktopLyricShowInApp = false
     private var desktopLyricSheetOpen = false
     private var desktopLyricAppForeground = false
     private var foregroundActivityCount = 0
@@ -150,6 +154,7 @@ class MusicPlaybackService : MediaSessionService() {
             LyricPreviewActivity.KEY_LYRICON_STATUS_BAR -> syncLyriconEnabledFromPrefs()
             LyricPreviewActivity.KEY_CAR_BLUETOOTH_LYRIC -> syncCarBluetoothLyricEnabledFromPrefs()
             LyricPreviewActivity.KEY_DESKTOP_LYRIC_ENABLED -> syncDesktopLyricEnabledFromPrefs()
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_IN_APP -> syncDesktopLyricShowInAppFromPrefs()
             LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_TRANSLATION,
             LyricPreviewActivity.KEY_DESKTOP_LYRIC_WIDTH_PERCENT,
             LyricPreviewActivity.KEY_DESKTOP_LYRIC_FONT_SIZE_SP,
@@ -405,16 +410,20 @@ class MusicPlaybackService : MediaSessionService() {
             .build()
 
         normalizeFlymeStatusBarLyricPrefs()
+        lyricPreviewPrefs.edit()
+            .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN, false)
+            .apply()
         lyricPreviewPrefs.registerOnSharedPreferenceChangeListener(lyricPrefsListener)
+        foregroundActivityCount = 0
+        desktopLyricAppForeground = isAppProcessInForeground()
         syncLyriconEnabledFromPrefs()
         syncCarBluetoothLyricEnabledFromPrefs()
         syncDesktopLyricEnabledFromPrefs()
+        syncDesktopLyricShowInAppFromPrefs()
         syncDesktopLyricSheetOpenFromPrefs()
         syncDesktopLyricStyleFromPrefs()
         syncFlymeStatusBarLyricEnabledFromPrefs()
         syncFlymeHideNotificationFromPrefs()
-        foregroundActivityCount = 0
-        desktopLyricAppForeground = false
         updateDesktopLyricVisibility(animated = false)
         activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
@@ -689,6 +698,14 @@ class MusicPlaybackService : MediaSessionService() {
         updateDesktopLyricVisibility(animated = true)
     }
 
+    private fun syncDesktopLyricShowInAppFromPrefs() {
+        desktopLyricShowInApp = lyricPreviewPrefs.getBoolean(
+            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_IN_APP,
+            LyricPreviewActivity.DEFAULT_DESKTOP_LYRIC_SHOW_IN_APP
+        )
+        updateDesktopLyricVisibility(animated = true)
+    }
+
     private fun syncDesktopLyricStyleFromPrefs() {
         if (!desktopLyricEnabled || !canDrawDesktopLyricOverlay()) return
         val settings = DesktopLyricsSettingsStore.load(lyricPreviewPrefs)
@@ -699,11 +716,24 @@ class MusicPlaybackService : MediaSessionService() {
 
     private fun updateDesktopLyricVisibility(animated: Boolean) {
         val playbackActive = isDesktopLyricPlaybackActive()
+        val allowForegroundDisplay = desktopLyricShowInApp || desktopLyricSheetOpen
+        val appForeground = foregroundActivityCount > 0 || isAppProcessInForeground()
+        desktopLyricAppForeground = appForeground
         val shouldShow = desktopLyricEnabled &&
             playbackActive &&
             canDrawDesktopLyricOverlay() &&
-            (!desktopLyricAppForeground || desktopLyricSheetOpen)
+            (!appForeground || allowForegroundDisplay)
         desktopLyricsOverlayManager.setVisible(shouldShow, animated = animated)
+    }
+
+    private fun isAppProcessInForeground(): Boolean {
+        val lifecycleForeground = runCatching {
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        }.getOrDefault(false)
+        if (lifecycleForeground) return true
+        val processInfo = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(processInfo)
+        return processInfo.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 
     private fun isDesktopLyricPlaybackActive(): Boolean {

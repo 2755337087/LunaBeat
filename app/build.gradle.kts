@@ -10,7 +10,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.LyricBox"
+    namespace = "com.example.LyricBox1"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.LyricBox1"
+        applicationId = "com.example.LyricBox"
 //        applicationId = "com.kugou.android"
         minSdk = 24
         targetSdk = 36
@@ -92,6 +92,7 @@ tasks.matching { it.name == "assembleRelease" }.configureEach {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.lifecycle:lifecycle-process:2.6.1")
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

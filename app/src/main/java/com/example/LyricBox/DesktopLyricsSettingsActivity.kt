@@ -110,6 +110,7 @@ private fun DesktopLyricsSettingsContent(
     }
     val loaded = remember { DesktopLyricsSettingsStore.load(prefs) }
     var enabled by remember { mutableStateOf(loaded.enabled) }
+    var showInApp by remember { mutableStateOf(loaded.showInApp) }
     var widthPercent by remember { mutableIntStateOf(loaded.widthPercent) }
     var fontSize by remember { mutableFloatStateOf(loaded.fontSizeSp) }
     var fontWeight by remember { mutableIntStateOf(loaded.fontWeight) }
@@ -127,6 +128,7 @@ private fun DesktopLyricsSettingsContent(
             context = context,
             settings = DesktopLyricsSettings(
                 enabled = enabled,
+                showInApp = showInApp,
                 widthPercent = widthPercent,
                 fontSizeSp = fontSize,
                 fontWeight = fontWeight,
@@ -191,6 +193,16 @@ private fun DesktopLyricsSettingsContent(
                         pendingOverlayPermissionEnable = false
                         persistCurrent()
                     }
+                }
+            )
+        }
+        item {
+            DesktopSwitchRow(
+                title = "软件中显示歌词",
+                checked = showInApp,
+                onCheckedChange = {
+                    showInApp = it
+                    persistCurrent()
                 }
             )
         }

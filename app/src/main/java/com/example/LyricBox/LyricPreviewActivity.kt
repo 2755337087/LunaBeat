@@ -1258,6 +1258,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val KEY_LYRICON_STATUS_BAR = "lyricon_status_bar"
         const val KEY_CAR_BLUETOOTH_LYRIC = "car_bluetooth_lyric"
         const val KEY_DESKTOP_LYRIC_ENABLED = "desktop_lyric_enabled"
+        const val KEY_DESKTOP_LYRIC_SHOW_IN_APP = "desktop_lyric_show_in_app"
         const val KEY_DESKTOP_LYRIC_WIDTH_PERCENT = "desktop_lyric_width_percent"
         const val KEY_DESKTOP_LYRIC_FONT_SIZE_SP = "desktop_lyric_font_size_sp"
         const val KEY_DESKTOP_LYRIC_FONT_WEIGHT = "desktop_lyric_font_weight"
@@ -1295,6 +1296,7 @@ class LyricPreviewActivity : ComponentActivity() {
         const val DEFAULT_LYRICON_STATUS_BAR = false
         const val DEFAULT_CAR_BLUETOOTH_LYRIC = false
         const val DEFAULT_DESKTOP_LYRIC_ENABLED = false
+        const val DEFAULT_DESKTOP_LYRIC_SHOW_IN_APP = false
         const val DEFAULT_DESKTOP_LYRIC_WIDTH_PERCENT = 80
         const val DEFAULT_DESKTOP_LYRIC_FONT_SIZE_SP = 28f
         const val DEFAULT_DESKTOP_LYRIC_FONT_WEIGHT = 700
@@ -3400,21 +3402,6 @@ fun LyricPreviewScreen(
     var showSongInfoSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showArtistSelectionSheet by remember { mutableStateOf(false) }
-    DisposableEffect(showLyricSettingsSheet) {
-        prefs.edit()
-            .putBoolean(
-                LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
-                showLyricSettingsSheet
-            )
-            .apply()
-        onDispose {
-            if (showLyricSettingsSheet) {
-                prefs.edit()
-                    .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN, false)
-                    .apply()
-            }
-        }
-    }
     var pendingArtistSheetAlbum by remember { mutableStateOf("") }
     var pendingArtistSheetArtists by remember { mutableStateOf(listOf<String>()) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
@@ -6527,6 +6514,14 @@ fun LyricPreviewScreen(
         if (showLyricSettingsSheet) {
             LyricSettingsBottomSheet(
                 onDismissRequest = { showLyricSettingsSheet = false },
+                onDesktopLyricSettingsVisibilityChange = { isDesktopPageVisible ->
+                    prefs.edit()
+                        .putBoolean(
+                            LyricPreviewActivity.KEY_DESKTOP_LYRIC_SETTINGS_SHEET_OPEN,
+                            isDesktopPageVisible
+                        )
+                        .apply()
+                },
                 showTranslation = showTranslation,
                 showTransliteration = showTransliteration,
                 supportsLyricBlur = supportsLyricBlur,

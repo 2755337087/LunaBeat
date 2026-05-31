@@ -65,6 +65,10 @@
 -keep class androidx.transition.** { *; }
 -keep class com.yalantis.ucrop.** { *; }
 
+# Keep Media3 session internals used by car bluetooth lyric reflection path in release.
+-keep class androidx.media3.session.** { *; }
+-keep class androidx.media3.session.legacy.** { *; }
+
 # Remove all Log statements in release build
 -assumenosideeffects class android.util.Log {
     public static boolean isLoggable(java.lang.String, int);

@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 
 data class DesktopLyricsSettings(
     val enabled: Boolean,
+    val showInApp: Boolean,
     val widthPercent: Int,
     val fontSizeSp: Float,
     val fontWeight: Int,
@@ -46,6 +47,10 @@ object DesktopLyricsSettingsStore {
             enabled = prefs.getBoolean(
                 LyricPreviewActivity.KEY_DESKTOP_LYRIC_ENABLED,
                 LyricPreviewActivity.DEFAULT_DESKTOP_LYRIC_ENABLED
+            ),
+            showInApp = prefs.getBoolean(
+                LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_IN_APP,
+                LyricPreviewActivity.DEFAULT_DESKTOP_LYRIC_SHOW_IN_APP
             ),
             widthPercent = prefs.getInt(
                 LyricPreviewActivity.KEY_DESKTOP_LYRIC_WIDTH_PERCENT,
@@ -88,6 +93,7 @@ object DesktopLyricsSettingsStore {
         val prefs = context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_ENABLED, settings.enabled)
+            .putBoolean(LyricPreviewActivity.KEY_DESKTOP_LYRIC_SHOW_IN_APP, settings.showInApp)
             .putInt(LyricPreviewActivity.KEY_DESKTOP_LYRIC_WIDTH_PERCENT, settings.widthPercent.coerceIn(50, 100))
             .putFloat(LyricPreviewActivity.KEY_DESKTOP_LYRIC_FONT_SIZE_SP, settings.fontSizeSp.coerceIn(8f, 30f))
             .putInt(LyricPreviewActivity.KEY_DESKTOP_LYRIC_FONT_WEIGHT, settings.fontWeight.coerceIn(400, 900))

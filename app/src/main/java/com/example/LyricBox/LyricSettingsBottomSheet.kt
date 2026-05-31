@@ -11,8 +11,6 @@ import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,16 +53,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
@@ -72,7 +67,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.Velocity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -98,6 +92,7 @@ private enum class LyricSettingsPage {
 @Composable
 fun LyricSettingsBottomSheet(
     onDismissRequest: () -> Unit,
+    onDesktopLyricSettingsVisibilityChange: (Boolean) -> Unit,
     showTranslation: Boolean,
     showTransliteration: Boolean,
     supportsLyricBlur: Boolean,
@@ -158,18 +153,6 @@ fun LyricSettingsBottomSheet(
         context.getSharedPreferences(LyricPreviewActivity.PREFS_NAME, Context.MODE_PRIVATE)
     }
     val loadedDesktopSettings = remember { DesktopLyricsSettingsStore.load(prefs) }
-    val blockSheetDragFromList = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset = Offset(x = 0f, y = available.y)
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-                Velocity(x = 0f, y = available.y)
-        }
-    }
     var page by remember { mutableStateOf(LyricSettingsPage.MAIN) }
     var tempLyricDisplayPosition by remember(lyricDisplayPosition) { mutableFloatStateOf(lyricDisplayPosition.toFloat()) }
     var tempLyricDisplayMode by remember(lyricDisplayMode) { mutableIntStateOf(lyricDisplayMode) }
@@ -210,6 +193,14 @@ fun LyricSettingsBottomSheet(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+    SideEffect {
+        onDesktopLyricSettingsVisibilityChange(page == LyricSettingsPage.DESKTOP_LYRIC)
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            onDesktopLyricSettingsVisibilityChange(false)
+        }
+    }
     LaunchedEffect(page) { listState.scrollToItem(0) }
 
     ModalBottomSheet(
@@ -224,14 +215,12 @@ fun LyricSettingsBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .nestedScroll(blockSheetDragFromList)
-                .animateContentSize(animationSpec = tween(durationMillis = 260))
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
             state = listState,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
+            item(key = page.name) {
                 when (page) {
                 LyricSettingsPage.MAIN -> {
                     Text(
@@ -424,6 +413,15 @@ fun LyricSettingsBottomSheet(
                                 pendingOverlayPermissionEnable = false
                                 saveDesktopSettings(desktopLyricSettings.copy(enabled = true))
                             }
+                        },
+                        contentColor = contentColor,
+                        accentColor = accentColor
+                    )
+                    LyricSettingsSwitchRow(
+                        title = "软件中显示歌词",
+                        checked = desktopLyricSettings.showInApp,
+                        onCheckedChange = {
+                            saveDesktopSettings(desktopLyricSettings.copy(showInApp = it))
                         },
                         contentColor = contentColor,
                         accentColor = accentColor
