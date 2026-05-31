@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.collect
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 private const val EXTRA_AUDIO_PATH = "audio_path"
 private const val EXTRA_COVER_CACHE_PATH = "cover_cache_path"
@@ -137,6 +138,7 @@ class MusicPlaybackController(private val context: Context) {
     private var dsdModeActive: Boolean = false
     private var dsdQueueSnapshot: List<AudioFile> = emptyList()
     private var dsdCurrentIndex: Int = -1
+    private val queuePlaybackRequestSerial = AtomicLong(0L)
 
     val hasCurrentItem: Boolean
         get() = currentAudioPath != null
@@ -301,6 +303,7 @@ class MusicPlaybackController(private val context: Context) {
     fun playQueue(queue: List<AudioFile>, startPath: String) {
         val player = controller ?: return
         if (queue.isEmpty()) return
+        val requestSerial = queuePlaybackRequestSerial.incrementAndGet()
         val queueSnapshot = queue.distinctBy { it.path }
         val startIndex = queueSnapshot.indexOfFirst { it.path == startPath }.coerceAtLeast(0)
         if (queueSnapshot.getOrNull(startIndex)?.path?.isDsfAudioPath() == true) {
@@ -329,6 +332,7 @@ class MusicPlaybackController(private val context: Context) {
                 )
             }
             ContextCompat.getMainExecutor(context).execute {
+                if (requestSerial != queuePlaybackRequestSerial.get()) return@execute
                 val latestPlayer = controller ?: return@execute
                 latestPlayer.setMediaItems(mediaItems, startIndex, 0L)
                 latestPlayer.prepare()
@@ -560,6 +564,7 @@ class MusicPlaybackController(private val context: Context) {
     private fun playQueueItemWithPreTranscode(index: Int, forcePlay: Boolean) {
         val player = controller ?: return
         if (index !in 0 until player.mediaItemCount) return
+        val requestSerial = queuePlaybackRequestSerial.incrementAndGet()
 
         val sourceItem = player.getMediaItemAt(index)
         val sourcePath = sourceItem.resolveSourcePath()
@@ -587,6 +592,7 @@ class MusicPlaybackController(private val context: Context) {
         transcodeQueueExecutor.execute {
             val playbackPath = resolvePlayablePathForPlayback(context, sourcePath)
             ContextCompat.getMainExecutor(context).execute {
+                if (requestSerial != queuePlaybackRequestSerial.get()) return@execute
                 val latestPlayer = controller ?: return@execute
                 if (index !in 0 until latestPlayer.mediaItemCount) return@execute
                 val latestItem = latestPlayer.getMediaItemAt(index)
@@ -1728,7 +1734,13 @@ fun rememberMusicPlaybackController(): MusicPlaybackController {
     LaunchedEffect(controller) {
         while (true) {
             controller.refreshSleepTimerState()
-            delay(1000L)
+            val remaining = controller.sleepTimerState.remainingMs
+            val delayMs = if (controller.sleepTimerState.isActive && remaining in 1L..2_000L) {
+                200L
+            } else {
+                1000L
+            }
+            delay(delayMs)
         }
     }
 

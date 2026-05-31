@@ -50,6 +50,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicLong
 
 class MusicPlaybackService : MediaSessionService() {
 
@@ -84,6 +85,7 @@ class MusicPlaybackService : MediaSessionService() {
     private var lastRestoreStatePersistRealtimeMs = 0L
     private var lastRestoreStatePersistPath: String? = null
     private var lastRestoreStatePersistPositionMs: Long = -1L
+    private val alacPlaybackRequestSerial = AtomicLong(0L)
     @Volatile
     private var cachedDirectAlacDecodeSupport: Boolean? = null
     private var lastArtworkUpdatedSourcePath: String? = null
@@ -217,6 +219,7 @@ class MusicPlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    alacPlaybackRequestSerial.incrementAndGet()
                     drainPlaybackStatsTick()
                     val oldSong = lastPlaybackStatsSong
                     val newSong = mediaItem?.toPlaybackStatsSong()
@@ -1932,6 +1935,7 @@ class MusicPlaybackService : MediaSessionService() {
             player.playWhenReady = false
         }
         isTranscodingCurrentItem = true
+        val requestSerial = alacPlaybackRequestSerial.get()
 
         transcodeExecutor.execute {
             val transcodedPath = PlaybackAlacTranscodeManager.ensureTranscodedPath(
@@ -1941,6 +1945,13 @@ class MusicPlaybackService : MediaSessionService() {
             )
             mainHandler.post {
                 isTranscodingCurrentItem = false
+                val isStillRequestedSource = player.currentMediaItem?.resolveOriginalAudioPath() == sourcePath
+                if (requestSerial != alacPlaybackRequestSerial.get() && !isStillRequestedSource) {
+                    if (pendingPlayAfterTranscode) {
+                        pendingPlayAfterTranscode = false
+                    }
+                    return@post
+                }
                 if (transcodedPath.isNullOrBlank()) {
                     lastFailedAlacPath = sourcePath
                     lastFailedAlacAtMs = SystemClock.elapsedRealtime()

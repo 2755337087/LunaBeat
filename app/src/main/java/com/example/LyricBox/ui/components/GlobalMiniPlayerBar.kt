@@ -446,12 +446,13 @@ fun GlobalMiniPlayerBar(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.size(2.dp))
-                Text(
+                AutoMarqueeText(
                     text = controller.currentArtist.ifBlank { "未知艺术家" },
-                    fontSize = 12.sp,
-                    color = onPanelColor.copy(alpha = 0.75f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        color = onPanelColor.copy(alpha = 0.75f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 

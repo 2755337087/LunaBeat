@@ -82,6 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.LyricBox.ui.theme.歌词转换Theme
+import com.example.LyricBox.ui.components.AutoMarqueeText
 import com.example.LyricBox.utils.AudioMetadataReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -463,6 +464,7 @@ private fun MusicPlayerScreen(
         SleepTimerBottomSheet(
             isRunning = controller.sleepTimerState.isActive,
             remainingMs = controller.sleepTimerState.remainingMs,
+            waitingForSongEnd = controller.sleepTimerState.waitingForSongEnd,
             onDismiss = { showSleepTimerSheet = false },
             onStartTimer = { minutes, finishCurrentSong ->
                 controller.startSleepTimer(minutes = minutes, finishCurrentSong = finishCurrentSong)
@@ -889,21 +891,23 @@ private fun MusicPlayerControlPanel(
                         }
                     }
             ) {
-                Text(
+                AutoMarqueeText(
                     text = controller.currentTitle.ifBlank { "未选择歌曲" },
-                    fontSize = titleSize,
-                    fontWeight = FontWeight.Bold,
-                    color = panelOnColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = titleSize,
+                        fontWeight = FontWeight.Bold,
+                        color = panelOnColor
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
+                AutoMarqueeText(
                     text = controller.currentArtist.ifBlank { "未知艺术家" },
-                    fontSize = artistSize,
-                    color = panelOnColor.copy(alpha = 0.78f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = artistSize,
+                        color = panelOnColor.copy(alpha = 0.78f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             IconButton(onClick = onSongInfoClick) {

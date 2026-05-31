@@ -10,7 +10,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.LyricBox1"
+    namespace = "com.example.LyricBox"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.LyricBox"
+        applicationId = "com.example.LyricBox1"
 //        applicationId = "com.kugou.android"
         minSdk = 24
         targetSdk = 36

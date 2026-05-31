@@ -1,8 +1,8 @@
-com.lonx.audiotag-pngs-0 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\build\generated\res\pngs\debug
-com.lonx.audiotag-updated_navigation_xml-1 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\build\generated\updated_navigation_xml\debug
-com.lonx.audiotag-mergeDebugResources-2 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\build\intermediates\incremental\debug\mergeDebugResources\merged.dir
-com.lonx.audiotag-mergeDebugResources-3 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\build\intermediates\incremental\debug\mergeDebugResources\stripped.dir
-com.lonx.audiotag-debug-4 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\build\intermediates\merged_res\debug\mergeDebugResources
-com.lonx.audiotag-debug-5 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\build\intermediates\packaged_res\debug\packageDebugResources
-com.lonx.audiotag-debug-6 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\src\debug\res
-com.lonx.audiotag-main-7 D:\Users\B\AndroidStudioProjects\lyricEdite\audiotag\src\main\res
+com.lonx.audiotag-pngs-0 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/build/generated/res/pngs/debug
+com.lonx.audiotag-updated_navigation_xml-1 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/build/generated/updated_navigation_xml/debug
+com.lonx.audiotag-mergeDebugResources-2 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/build/intermediates/incremental/debug/mergeDebugResources/merged.dir
+com.lonx.audiotag-mergeDebugResources-3 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir
+com.lonx.audiotag-debug-4 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/build/intermediates/merged_res/debug/mergeDebugResources
+com.lonx.audiotag-debug-5 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/build/intermediates/packaged_res/debug/packageDebugResources
+com.lonx.audiotag-debug-6 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/src/debug/res
+com.lonx.audiotag-main-7 /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/src/main/res

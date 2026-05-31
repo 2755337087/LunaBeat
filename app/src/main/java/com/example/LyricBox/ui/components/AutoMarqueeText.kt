@@ -39,6 +39,7 @@ fun AutoMarqueeText(
     style: TextStyle,
     modifier: Modifier = Modifier,
     edgeFadeWidth: Dp = 18.dp,
+    leadingFadeShift: Dp = edgeFadeWidth,
     gapText: String = "       ",
     startPauseMillis: Long = 2000L,
     speedDpPerSecond: Float = 36f
@@ -67,6 +68,7 @@ fun AutoMarqueeText(
     val textWidthPx = textLayout.size.width
     val cycleWidthPx = cycleLayout.size.width
     val edgeFadePx = with(density) { edgeFadeWidth.toPx() }
+    val leadingFadeShiftPx = with(density) { leadingFadeShift.toPx() }.coerceAtLeast(0f)
     val speedPxPerSecond = with(density) { speedDpPerSecond.dp.toPx() }.coerceAtLeast(1f)
     val shouldScroll = containerWidthPx > 0 && textWidthPx > containerWidthPx
     val offset = remember(text) { Animatable(0f) }
@@ -102,15 +104,16 @@ fun AutoMarqueeText(
                         .drawWithContent {
                             drawContent()
                             if (edgeFadePx <= 0f || size.width <= edgeFadePx * 2f) return@drawWithContent
+                            val maskWidth = size.width + leadingFadeShiftPx
                             drawRect(
                                 brush = Brush.linearGradient(
                                     colorStops = arrayOf(
                                         0f to Color.Transparent,
-                                        (edgeFadePx / size.width).coerceIn(0f, 0.5f) to Color.Black,
-                                        (1f - edgeFadePx / size.width).coerceIn(0.5f, 1f) to Color.Black,
+                                        (edgeFadePx / maskWidth).coerceIn(0f, 0.5f) to Color.Black,
+                                        (1f - edgeFadePx / maskWidth).coerceIn(0.5f, 1f) to Color.Black,
                                         1f to Color.Transparent
                                     ),
-                                    start = Offset.Zero,
+                                    start = Offset(-leadingFadeShiftPx, 0f),
                                     end = Offset(size.width, 0f)
                                 ),
                                 blendMode = BlendMode.DstIn

@@ -2,7 +2,7 @@
   {
     "level_": 0,
     "message_": "Start JSON generation. Platform version: 24 min SDK version: x86",
-    "file_": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\src\\main\\cpp\\CMakeLists.txt",
+    "file_": "/Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/src/main/cpp/CMakeLists.txt",
     "tag_": "release|x86",
     "diagnosticCode_": 0,
     "memoizedIsInitialized": 1,
@@ -14,8 +14,8 @@
   },
   {
     "level_": 0,
-    "message_": "JSON \u0027D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\.cxx\\RelWithDebInfo\\4uq1o135\\x86\\android_gradle_build.json\u0027 was up-to-date",
-    "file_": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\src\\main\\cpp\\CMakeLists.txt",
+    "message_": "JSON \u0027/Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/.cxx/RelWithDebInfo/4uq1o135/x86/android_gradle_build.json\u0027 was up-to-date",
+    "file_": "/Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/src/main/cpp/CMakeLists.txt",
     "tag_": "release|x86",
     "diagnosticCode_": 0,
     "memoizedIsInitialized": 1,
@@ -28,7 +28,7 @@
   {
     "level_": 0,
     "message_": "JSON generation completed without problems",
-    "file_": "D:\\Users\\B\\AndroidStudioProjects\\lyricEdite\\audiotag\\src\\main\\cpp\\CMakeLists.txt",
+    "file_": "/Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/src/main/cpp/CMakeLists.txt",
     "tag_": "release|x86",
     "diagnosticCode_": 0,
     "memoizedIsInitialized": 1,

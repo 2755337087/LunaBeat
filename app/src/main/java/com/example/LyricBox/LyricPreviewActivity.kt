@@ -1695,6 +1695,15 @@ class LyricPreviewActivity : ComponentActivity() {
                         if (shouldRebuildLyrics) {
                             val resolvedNowPath = nowPath ?: ""
                             val resolvedNowMediaStoreId = controller.currentMediaStoreId
+                            delay(90L)
+                            val latestControllerBeforeLoad = sharedPlaybackController
+                            if (
+                                latestControllerBeforeLoad == null ||
+                                latestControllerBeforeLoad.currentAudioPath != resolvedNowPath
+                            ) {
+                                delay(80L)
+                                continue
+                            }
                             previewLyricsLoadingState.value = true
                             previewLyricLinesState.value = emptyList()
                             val payload = withContext(Dispatchers.IO) {
@@ -1704,31 +1713,71 @@ class LyricPreviewActivity : ComponentActivity() {
                                     mediaStoreId = resolvedNowMediaStoreId
                                 )
                             }
-                            val rebuiltLines = reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
+                            val latestControllerAfterLoad = sharedPlaybackController
+                            if (
+                                latestControllerAfterLoad == null ||
+                                latestControllerAfterLoad.currentAudioPath != resolvedNowPath
+                            ) {
+                                if (
+                                    previewSourceAudioPathState.value == resolvedNowPath ||
+                                    previewAudioPathState.value == resolvedNowPath
+                                ) {
+                                    previewLyricsLoadingState.value = false
+                                }
+                                delay(80L)
+                                continue
+                            }
+                            val resolvedCompanion = withContext(Dispatchers.IO) {
+                                resolveCompanionAudioPath(resolvedNowPath)
+                            }
+                            val latestControllerAfterCompanion = sharedPlaybackController
+                            if (
+                                latestControllerAfterCompanion == null ||
+                                latestControllerAfterCompanion.currentAudioPath != resolvedNowPath
+                            ) {
+                                if (
+                                    previewSourceAudioPathState.value == resolvedNowPath ||
+                                    previewAudioPathState.value == resolvedNowPath
+                                ) {
+                                    previewLyricsLoadingState.value = false
+                                }
+                                delay(80L)
+                                continue
+                            }
+                            val rebuiltLines = withContext(Dispatchers.Default) {
+                                reorganizeLyricsWithBackground(payload?.lines ?: emptyList())
+                            }
+                            if (sharedPlaybackController?.currentAudioPath != resolvedNowPath) {
+                                if (
+                                    previewSourceAudioPathState.value == resolvedNowPath ||
+                                    previewAudioPathState.value == resolvedNowPath
+                                ) {
+                                    previewLyricsLoadingState.value = false
+                                }
+                                delay(80L)
+                                continue
+                            }
                             previewAudioPathState.value = resolvedNowPath
                             previewSourceAudioPathState.value = resolvedNowPath
-                            previewMediaStoreIdState.longValue = resolvedNowMediaStoreId
-                            previewTitleState.value = controller.currentTitle.ifBlank {
+                            previewMediaStoreIdState.longValue = latestControllerAfterCompanion.currentMediaStoreId
+                            previewTitleState.value = latestControllerAfterCompanion.currentTitle.ifBlank {
                                 File(resolvedNowPath).nameWithoutExtension
                             }
                             previewCreatorsState.value = payload?.creators ?: emptyList()
                             previewLyricLinesState.value = rebuiltLines
                             previewLyricsLoadingState.value = false
                             companionModeEnabled = false
-                            val resolvedCompanion = withContext(Dispatchers.IO) {
-                                resolveCompanionAudioPath(resolvedNowPath)
-                            }
                             companionAudioPathState.value = resolvedCompanion
                             Log.d(
                                 COMPANION_AUDIO_LOG_TAG,
                                 "sharedTrackChanged source=$resolvedNowPath companion=${companionAudioPathState.value ?: "null"}"
                             )
-                            currentPlaybackPosition = controller.positionMs
+                            currentPlaybackPosition = latestControllerAfterCompanion.realtimePositionMs()
                             playbackCompleted = false
                             lastResolvedPath = resolvedNowPath
                         }
                     }
-                    delay(180L)
+                    delay(250L)
                 }
             }
         }
@@ -6654,6 +6703,7 @@ fun LyricPreviewScreen(
             SleepTimerBottomSheet(
                 isRunning = activePlaybackController.sleepTimerState.isActive,
                 remainingMs = activePlaybackController.sleepTimerState.remainingMs,
+                waitingForSongEnd = activePlaybackController.sleepTimerState.waitingForSongEnd,
                 onDismiss = { showSleepTimerSheet = false },
                 onStartTimer = { minutes, finishCurrentSong ->
                     activePlaybackController.startSleepTimer(
@@ -8846,12 +8896,13 @@ fun PlaybackControls(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
+                    AutoMarqueeText(
                         text = trackArtist.ifBlank { "未知艺术家" },
-                        fontSize = 15.sp,
-                        color = panelTextColor.copy(alpha = 0.78f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        style = TextStyle(
+                            fontSize = 15.sp,
+                            color = panelTextColor.copy(alpha = 0.78f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
                 if (onTrackInfoClick != null || onTrackInfoMenuClick != null) {
@@ -9635,12 +9686,13 @@ fun LyricPreviewCompactHeader(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(6.dp))
-            Text(
+            AutoMarqueeText(
                 text = artist,
-                fontSize = artistSize,
-                color = artistColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = TextStyle(
+                    fontSize = artistSize,
+                    color = artistColor
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
@@ -10180,12 +10232,13 @@ fun LyricPreviewHeader(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text(
+                    AutoMarqueeText(
                         text = artist,
-                        fontSize = 16.sp,
-                        color = artistColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        style = TextStyle(
+                            fontSize = 16.sp,
+                            color = artistColor
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }

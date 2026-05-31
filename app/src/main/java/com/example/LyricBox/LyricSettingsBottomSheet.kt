@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -224,31 +225,31 @@ fun LyricSettingsBottomSheet(
                 when (page) {
                 LyricSettingsPage.MAIN -> {
                     Text(
-                        text = "歌词设置",
+                        text = stringResource(R.string.lyric_settings_title),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = contentColor
                     )
                     LyricSettingsSectionTitle(
-                        title = "歌词显示",
+                        title = stringResource(R.string.lyric_settings_section_display),
                         contentColor = contentColor
                     )
                     LyricSettingsSwitchRow(
-                        title = "显示翻译",
+                        title = stringResource(R.string.lyric_settings_show_translation),
                         checked = showTranslation,
                         onCheckedChange = onShowTranslationChange,
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
                     LyricSettingsSwitchRow(
-                        title = "显示注音",
+                        title = stringResource(R.string.lyric_settings_show_transliteration),
                         checked = showTransliteration,
                         onCheckedChange = onShowTransliterationChange,
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
                     LyricSettingsActionRow(
-                        title = "歌词显示模式",
+                        title = stringResource(R.string.lyric_settings_display_mode),
                         contentColor = contentColor,
                         onClick = {
                             tempLyricDisplayMode = lyricDisplayMode
@@ -256,7 +257,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "歌词显示位置",
+                        title = stringResource(R.string.lyric_settings_display_position),
                         contentColor = contentColor,
                         onClick = {
                             tempLyricDisplayPosition = lyricDisplayPosition.toFloat()
@@ -264,7 +265,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "歌词播放状态",
+                        title = stringResource(R.string.lyric_settings_playback_state),
                         contentColor = contentColor,
                         onClick = {
                             tempPlayedLyricAlpha = playedLyricAlpha.coerceIn(0f, 1f)
@@ -273,7 +274,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "字体大小",
+                        title = stringResource(R.string.lyric_settings_font_size),
                         contentColor = contentColor,
                         onClick = {
                             tempFontSize = fontSize
@@ -281,7 +282,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "字体粗细",
+                        title = stringResource(R.string.lyric_settings_font_weight),
                         contentColor = contentColor,
                         onClick = {
                             tempFontWeight = fontWeight.toFloat()
@@ -289,22 +290,22 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "自定义字体",
+                        title = stringResource(R.string.lyric_settings_custom_font),
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.CUSTOM_FONT }
                     )
 
                     LyricSettingsSectionTitle(
-                        title = "动画效果",
+                        title = stringResource(R.string.lyric_settings_section_animation),
                         contentColor = contentColor
                     )
                     LyricSettingsActionRow(
-                        title = "页面背景",
+                        title = stringResource(R.string.lyric_settings_page_background),
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.PAGE_BACKGROUND }
                     )
                     LyricSettingsActionRow(
-                        title = "间奏动画",
+                        title = stringResource(R.string.lyric_settings_interlude_animation),
                         contentColor = contentColor,
                         onClick = {
                             tempAnimationType = animationType
@@ -312,7 +313,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsActionRow(
-                        title = "上抬动画",
+                        title = stringResource(R.string.lyric_settings_word_lift_animation),
                         contentColor = contentColor,
                         onClick = {
                             tempWordLiftDistanceDp = wordLiftDistanceDp
@@ -320,7 +321,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsSwitchRow(
-                        title = "歌词发光",
+                        title = stringResource(R.string.lyric_settings_lyric_glow),
                         checked = lyricGlowEnabled,
                         onCheckedChange = onLyricGlowEnabledChange,
                         contentColor = contentColor,
@@ -328,7 +329,7 @@ fun LyricSettingsBottomSheet(
                     )
                     if (supportsLyricBlur) {
                         LyricSettingsSwitchRow(
-                            title = "歌词模糊",
+                            title = stringResource(R.string.lyric_settings_lyric_blur),
                             checked = lyricBlurEnabled,
                             onCheckedChange = onLyricBlurEnabledChange,
                             contentColor = contentColor,
@@ -337,21 +338,21 @@ fun LyricSettingsBottomSheet(
                     }
 
                     LyricSettingsSectionTitle(
-                        title = "播放与系统",
+                        title = stringResource(R.string.lyric_settings_section_system),
                         contentColor = contentColor
                     )
                     LyricSettingsActionRow(
-                        title = "状态栏歌词",
+                        title = stringResource(R.string.lyric_settings_status_bar_lyric),
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.STATUS_BAR_LYRIC }
                     )
                     LyricSettingsActionRow(
-                        title = "桌面歌词",
+                        title = stringResource(R.string.lyric_settings_desktop_lyric),
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.DESKTOP_LYRIC }
                     )
                     LyricSettingsSwitchRow(
-                        title = "屏幕常亮",
+                        title = stringResource(R.string.lyric_settings_keep_screen_on),
                         checked = keepScreenOnEnabled,
                         onCheckedChange = onKeepScreenOnEnabledChange,
                         contentColor = contentColor,
@@ -359,7 +360,7 @@ fun LyricSettingsBottomSheet(
                     )
                     if (isPortraitMode) {
                         LyricSettingsSwitchRow(
-                            title = "自动隐藏播放组件",
+                            title = stringResource(R.string.lyric_settings_auto_hide_playback_controls),
                             checked = autoHidePlaybackControlsEnabled,
                             onCheckedChange = onAutoHidePlaybackControlsEnabledChange,
                             contentColor = contentColor,
@@ -370,19 +371,19 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.STATUS_BAR_LYRIC -> {
                     LyricSettingsSubPageTitle(
-                        title = "状态栏歌词",
+                        title = stringResource(R.string.lyric_settings_status_bar_lyric),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsSwitchRow(
-                        title = "状态栏歌词（词幕）",
+                        title = stringResource(R.string.lyric_settings_status_bar_lyricon),
                         checked = lyriconStatusBarEnabled,
                         onCheckedChange = onLyriconStatusBarEnabledChange,
                         contentColor = contentColor,
                         accentColor = accentColor
                     )
                     LyricSettingsSwitchRow(
-                        title = "车载蓝牙歌词",
+                        title = stringResource(R.string.lyric_settings_car_bluetooth_lyric),
                         checked = carBluetoothLyricEnabled,
                         onCheckedChange = onCarBluetoothLyricEnabledChange,
                         contentColor = contentColor,
@@ -392,12 +393,12 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.DESKTOP_LYRIC -> {
                     LyricSettingsSubPageTitle(
-                        title = "桌面歌词",
+                        title = stringResource(R.string.lyric_settings_desktop_lyric),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsSwitchRow(
-                        title = "桌面歌词总开关",
+                        title = stringResource(R.string.lyric_settings_desktop_lyric_master_switch),
                         checked = desktopLyricSettings.enabled,
                         onCheckedChange = { checked ->
                             if (!checked) {
@@ -407,7 +408,7 @@ fun LyricSettingsBottomSheet(
                             }
                             if (!canDrawDesktopLyricOverlay(context)) {
                                 pendingOverlayPermissionEnable = true
-                                Toast.makeText(context, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.lyric_settings_overlay_permission_required), Toast.LENGTH_SHORT).show()
                                 overlayPermissionLauncher.launch(desktopLyricOverlaySettingsIntent(context))
                             } else {
                                 pendingOverlayPermissionEnable = false
@@ -418,7 +419,7 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     LyricSettingsSwitchRow(
-                        title = "软件中显示歌词",
+                        title = stringResource(R.string.lyric_settings_show_in_app),
                         checked = desktopLyricSettings.showInApp,
                         onCheckedChange = {
                             saveDesktopSettings(desktopLyricSettings.copy(showInApp = it))
@@ -428,7 +429,7 @@ fun LyricSettingsBottomSheet(
                     )
                     val widthPercent = desktopLyricSettings.widthPercent.coerceIn(50, 100)
                     Text(
-                        text = "歌词组件宽度: ${widthPercent}%",
+                        text = stringResource(R.string.lyric_settings_desktop_width, widthPercent),
                         color = contentColor
                     )
                     Slider(
@@ -450,7 +451,7 @@ fun LyricSettingsBottomSheet(
                     )
                     val desktopFontSize = desktopLyricSettings.fontSizeSp.coerceIn(8f, 30f)
                     Text(
-                        text = "字体大小: ${desktopFontSize.roundToInt()}sp",
+                        text = stringResource(R.string.lyric_settings_desktop_font_size, desktopFontSize.roundToInt()),
                         color = contentColor
                     )
                     Slider(
@@ -472,7 +473,7 @@ fun LyricSettingsBottomSheet(
                     )
                     val desktopFontWeight = desktopLyricSettings.fontWeight.coerceIn(400, 900)
                     Text(
-                        text = "字体粗细: $desktopFontWeight",
+                        text = stringResource(R.string.lyric_settings_desktop_font_weight, desktopFontWeight),
                         color = contentColor
                     )
                     Slider(
@@ -490,7 +491,7 @@ fun LyricSettingsBottomSheet(
                         )
                     )
                     LyricSettingsSwitchRow(
-                        title = "字体描边",
+                        title = stringResource(R.string.lyric_settings_font_stroke),
                         checked = desktopLyricSettings.strokeEnabled,
                         onCheckedChange = {
                             saveDesktopSettings(desktopLyricSettings.copy(strokeEnabled = it))
@@ -499,7 +500,7 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     LyricSettingsSwitchRow(
-                        title = "显示翻译",
+                        title = stringResource(R.string.lyric_settings_show_translation),
                         checked = desktopLyricSettings.showTranslation,
                         onCheckedChange = {
                             saveDesktopSettings(desktopLyricSettings.copy(showTranslation = it))
@@ -508,7 +509,7 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     LyricSettingsSwitchRow(
-                        title = "使用自定义字体",
+                        title = stringResource(R.string.lyric_settings_use_custom_font),
                         checked = desktopLyricSettings.useCustomFont,
                         onCheckedChange = {
                             saveDesktopSettings(desktopLyricSettings.copy(useCustomFont = it))
@@ -517,13 +518,13 @@ fun LyricSettingsBottomSheet(
                         accentColor = accentColor
                     )
                     Text(
-                        text = "对齐方式",
+                        text = stringResource(R.string.lyric_settings_alignment),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = contentColor.copy(alpha = 0.8f)
                     )
                     LyricSettingsRadioRow(
-                        title = "居左",
+                        title = stringResource(R.string.lyric_settings_align_left),
                         selected = desktopLyricSettings.align == LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_LEFT,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -534,7 +535,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsRadioRow(
-                        title = "居中",
+                        title = stringResource(R.string.lyric_settings_align_center),
                         selected = desktopLyricSettings.align == LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_CENTER,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -545,7 +546,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsRadioRow(
-                        title = "居右",
+                        title = stringResource(R.string.lyric_settings_align_right),
                         selected = desktopLyricSettings.align == LyricPreviewActivity.DESKTOP_LYRIC_ALIGN_RIGHT,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -557,7 +558,7 @@ fun LyricSettingsBottomSheet(
                     )
                     val xPercent = desktopLyricSettings.xPercent.coerceIn(0, 100)
                     Text(
-                        text = "歌词显示 X 轴位置: ${xPercent}%",
+                        text = stringResource(R.string.lyric_settings_display_x_axis, xPercent),
                         color = contentColor
                     )
                     Slider(
@@ -577,7 +578,7 @@ fun LyricSettingsBottomSheet(
                     )
                     val yPercent = desktopLyricSettings.yPercent.coerceIn(0, 100)
                     Text(
-                        text = "歌词显示 Y 轴位置: ${yPercent}%",
+                        text = stringResource(R.string.lyric_settings_display_y_axis, yPercent),
                         color = contentColor
                     )
                     Slider(
@@ -596,7 +597,7 @@ fun LyricSettingsBottomSheet(
                         )
                     )
                     Text(
-                        text = "歌词颜色",
+                        text = stringResource(R.string.lyric_settings_lyric_color),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = contentColor.copy(alpha = 0.8f)
@@ -628,12 +629,12 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.LYRIC_DISPLAY_MODE -> {
                     LyricSettingsSubPageTitle(
-                        title = "歌词显示模式",
+                        title = stringResource(R.string.lyric_settings_display_mode),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsRadioRow(
-                        title = "默认",
+                        title = stringResource(R.string.lyric_settings_default),
                         selected = tempLyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_DEFAULT,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -643,7 +644,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsRadioRow(
-                        title = "强制逐字",
+                        title = stringResource(R.string.lyric_settings_force_word),
                         selected = tempLyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_WORD,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -653,7 +654,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsRadioRow(
-                        title = "强制逐行",
+                        title = stringResource(R.string.lyric_settings_force_line),
                         selected = tempLyricDisplayMode == LyricPreviewActivity.LYRIC_DISPLAY_MODE_FORCE_LINE,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -666,7 +667,7 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.LYRIC_DISPLAY_POSITION -> {
                     LyricSettingsSubPageTitle(
-                        title = "歌词显示位置",
+                        title = stringResource(R.string.lyric_settings_display_position),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
@@ -683,7 +684,7 @@ fun LyricSettingsBottomSheet(
                             LyricPreviewActivity.LYRIC_DISPLAY_POSITION_MAX
                         )
                     Text(
-                        text = "当前位置：${getLyricDisplayPositionLabel(snappedPosition)}",
+                        text = stringResource(R.string.lyric_settings_current_position, getLyricDisplayPositionLabel(snappedPosition)),
                         color = labelColor,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -738,12 +739,12 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.FONT_SIZE -> {
                     LyricSettingsSubPageTitle(
-                        title = "字体大小",
+                        title = stringResource(R.string.lyric_settings_font_size),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     Text(
-                        text = "当前大小: ${tempFontSize.toInt()}sp",
+                        text = stringResource(R.string.lyric_settings_current_font_size, tempFontSize.toInt()),
                         color = contentColor
                     )
                     Slider(
@@ -772,12 +773,12 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.FONT_WEIGHT -> {
                     LyricSettingsSubPageTitle(
-                        title = "字体粗细",
+                        title = stringResource(R.string.lyric_settings_font_weight),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     Text(
-                        text = "当前粗细: ${getFontWeightLabelForSheet(tempFontWeight.toInt().coerceIn(100, 900) / 100 * 100)}",
+                        text = stringResource(R.string.lyric_settings_current_font_weight, getFontWeightLabelForSheet(tempFontWeight.toInt().coerceIn(100, 900) / 100 * 100)),
                         color = contentColor
                     )
                     Slider(
@@ -808,12 +809,12 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.INTERLUDE_ANIMATION -> {
                     LyricSettingsSubPageTitle(
-                        title = "间奏动画",
+                        title = stringResource(R.string.lyric_settings_interlude_animation),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsRadioRow(
-                        title = "默认 圆点",
+                        title = stringResource(R.string.lyric_settings_interlude_default_dot),
                         selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DEFAULT,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -823,7 +824,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsRadioRow(
-                        title = "恐龙",
+                        title = stringResource(R.string.lyric_settings_interlude_dinosaur),
                         selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DINOSAUR,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -833,7 +834,7 @@ fun LyricSettingsBottomSheet(
                         }
                     )
                     LyricSettingsRadioRow(
-                        title = "小狗",
+                        title = stringResource(R.string.lyric_settings_interlude_doge),
                         selected = tempAnimationType == LyricPreviewActivity.ANIMATION_TYPE_DOGE,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -846,12 +847,12 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.WORD_LIFT_ANIMATION -> {
                     LyricSettingsSubPageTitle(
-                        title = "上抬动画",
+                        title = stringResource(R.string.lyric_settings_word_lift_animation),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsSwitchRow(
-                        title = "拉丁字母整体上移",
+                        title = stringResource(R.string.lyric_settings_latin_lift_whole),
                         checked = latinWordLiftAsWholeEnabled,
                         onCheckedChange = onLatinWordLiftAsWholeEnabledChange,
                         contentColor = contentColor,
@@ -862,7 +863,7 @@ fun LyricSettingsBottomSheet(
                         LyricPreviewActivity.WORD_LIFT_DISTANCE_MAX_DP.toInt()
                     )
                     Text(
-                        text = "上抬距离: ${snappedLiftDistance}dp",
+                        text = stringResource(R.string.lyric_settings_lift_distance, snappedLiftDistance),
                         color = contentColor
                     )
                     Slider(
@@ -895,17 +896,17 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.CUSTOM_FONT -> {
                     LyricSettingsSubPageTitle(
-                        title = "自定义字体",
+                        title = stringResource(R.string.lyric_settings_custom_font),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsActionRow(
-                        title = "添加TTF字体",
+                        title = stringResource(R.string.lyric_settings_add_ttf_font),
                         contentColor = contentColor,
                         onClick = onOpenCustomFontPicker
                     )
                     LyricSettingsActionRow(
-                        title = "预览字体",
+                        title = stringResource(R.string.lyric_settings_preview_font),
                         contentColor = contentColor,
                         onClick = { page = LyricSettingsPage.FONT_PREVIEW }
                     )
@@ -931,13 +932,13 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.LYRIC_PLAYBACK_STATE -> {
                     LyricSettingsSubPageTitle(
-                        title = "歌词播放状态",
+                        title = stringResource(R.string.lyric_settings_playback_state),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     val playedAlphaPercent = (tempPlayedLyricAlpha * 100f).roundToInt()
                     Text(
-                        text = "已播放歌词透明度: ${playedAlphaPercent}%",
+                        text = stringResource(R.string.lyric_settings_played_alpha, playedAlphaPercent),
                         color = contentColor
                     )
                     Slider(
@@ -957,13 +958,13 @@ fun LyricSettingsBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("隐藏", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("默认", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text(stringResource(R.string.lyric_settings_hidden), fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text(stringResource(R.string.lyric_settings_default), fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
                         Text("100%", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
                     }
                     val contrastPercent = (tempUpcomingLyricContrast * 100f).roundToInt()
                     Text(
-                        text = "未播放歌词对比度: ${contrastPercent}%",
+                        text = stringResource(R.string.lyric_settings_upcoming_contrast, contrastPercent),
                         color = contentColor
                     )
                     Slider(
@@ -983,12 +984,12 @@ fun LyricSettingsBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("低", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("默认", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
-                        Text("高", fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text(stringResource(R.string.lyric_settings_low), fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text(stringResource(R.string.lyric_settings_default), fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
+                        Text(stringResource(R.string.lyric_settings_high), fontSize = 12.sp, color = contentColor.copy(alpha = 0.82f))
                     }
                     Text(
-                        text = "已播放歌词隐藏仅在自动滚动中生效，手动浏览时会恢复默认显示。",
+                        text = stringResource(R.string.lyric_settings_played_hidden_hint),
                         fontSize = 12.sp,
                         color = contentColor.copy(alpha = 0.7f)
                     )
@@ -996,19 +997,19 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.PAGE_BACKGROUND -> {
                     LyricSettingsSubPageTitle(
-                        title = "页面背景",
+                        title = stringResource(R.string.lyric_settings_page_background),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.MAIN }
                     )
                     LyricSettingsRadioRow(
-                        title = "纯色背景",
+                        title = stringResource(R.string.lyric_settings_bg_solid),
                         selected = pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_SOLID,
                         contentColor = contentColor,
                         accentColor = accentColor,
                         onClick = { onPageBackgroundModeChange(LyricPreviewActivity.PAGE_BACKGROUND_SOLID) }
                     )
                     LyricSettingsRadioRow(
-                        title = "静态模糊背景",
+                        title = stringResource(R.string.lyric_settings_bg_static_blur),
                         selected = pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_STATIC_BLUR,
                         contentColor = contentColor,
                         accentColor = accentColor,
@@ -1016,7 +1017,7 @@ fun LyricSettingsBottomSheet(
                     )
                     if (supportsDynamicCoverBackground) {
                         LyricSettingsRadioRow(
-                            title = "动态流光背景",
+                            title = stringResource(R.string.lyric_settings_bg_dynamic),
                             selected = pageBackgroundMode == LyricPreviewActivity.PAGE_BACKGROUND_DYNAMIC_FLOW,
                             contentColor = contentColor,
                             accentColor = accentColor,
@@ -1024,7 +1025,7 @@ fun LyricSettingsBottomSheet(
                         )
                     } else {
                         LyricSettingsActionRow(
-                            title = "动态流光背景（仅 Android 12+）",
+                            title = stringResource(R.string.lyric_settings_bg_dynamic_android12),
                             contentColor = contentColor.copy(alpha = 0.62f),
                             onClick = {}
                         )
@@ -1033,7 +1034,7 @@ fun LyricSettingsBottomSheet(
 
                 LyricSettingsPage.FONT_PREVIEW -> {
                     LyricSettingsSubPageTitle(
-                        title = "预览字体",
+                        title = stringResource(R.string.lyric_settings_preview_font),
                         contentColor = contentColor,
                         onBack = { page = LyricSettingsPage.CUSTOM_FONT }
                     )
@@ -1059,28 +1060,30 @@ private fun desktopLyricOverlaySettingsIntent(context: Context): Intent {
     )
 }
 
+@Composable
 private fun getLyricDisplayPositionLabel(position: Int): String {
     return when (position) {
-        LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT -> "默认 上移3档"
-        in Int.MIN_VALUE..-1 -> "上移${-position}档"
-        0 -> "0档"
-        else -> "下移${position}档"
+        LyricPreviewActivity.LYRIC_DISPLAY_POSITION_DEFAULT -> stringResource(R.string.lyric_settings_position_default)
+        in Int.MIN_VALUE..-1 -> stringResource(R.string.lyric_settings_position_up, -position)
+        0 -> stringResource(R.string.lyric_settings_position_zero)
+        else -> stringResource(R.string.lyric_settings_position_down, position)
     }
 }
 
+@Composable
 private fun getFontWeightLabelForSheet(weight: Int): String {
     val safeWeight = weight.coerceIn(100, 900) / 100 * 100
     return when (safeWeight) {
-        100 -> "极细 100"
-        200 -> "特细 200"
-        300 -> "细 300"
-        400 -> "正常 400"
-        500 -> "中 500"
-        600 -> "半粗 600"
-        700 -> "粗 700"
-        800 -> "特粗 800"
-        900 -> "极粗 900"
-        else -> "正常 400"
+        100 -> stringResource(R.string.lyric_settings_weight_100)
+        200 -> stringResource(R.string.lyric_settings_weight_200)
+        300 -> stringResource(R.string.lyric_settings_weight_300)
+        400 -> stringResource(R.string.lyric_settings_weight_400)
+        500 -> stringResource(R.string.lyric_settings_weight_500)
+        600 -> stringResource(R.string.lyric_settings_weight_600)
+        700 -> stringResource(R.string.lyric_settings_weight_700)
+        800 -> stringResource(R.string.lyric_settings_weight_800)
+        900 -> stringResource(R.string.lyric_settings_weight_900)
+        else -> stringResource(R.string.lyric_settings_weight_400)
     }
 }
 
@@ -1110,7 +1113,7 @@ private fun LyricSettingsSubPageTitle(
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "返回",
+            contentDescription = stringResource(R.string.lyric_settings_cd_back),
             tint = contentColor,
             modifier = Modifier
                 .size(22.dp)
@@ -1265,7 +1268,7 @@ private fun LyricSettingsFontRow(
             IconButton(onClick = onDelete) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "删除字体",
+                    contentDescription = stringResource(R.string.lyric_settings_cd_delete_font),
                     tint = contentColor.copy(alpha = 0.8f)
                 )
             }

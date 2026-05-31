@@ -103,6 +103,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -602,7 +603,7 @@ internal fun EmbeddedArtistsScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         CommonHeadBar(
-            title = if (showDoubleTapHint) "双击返回顶部" else "艺术家",
+            title = if (showDoubleTapHint) stringResource(R.string.artists_double_tap_back_top) else stringResource(R.string.artists_title),
             showBack = true,
             showMenu = true,
             onBackClick = onBack,
@@ -623,7 +624,7 @@ internal fun EmbeddedArtistsScreen(
                     onDismissRequest = { menuExpanded = false },
                     items = listOf(
                         MenuItem(
-                            title = "排序方式",
+                            title = stringResource(R.string.artists_sort_type),
                             subItems = ArtistSortType.values().map { item ->
                                 MenuItem(
                                     title = item.displayName,
@@ -660,7 +661,7 @@ internal fun EmbeddedArtistsScreen(
                 }
                 visibleArtists.isEmpty() -> {
                     EmptyArtistsState(
-                        text = if (searchQuery.isBlank()) "暂无艺术家" else "未找到匹配的艺术家",
+                        text = if (searchQuery.isBlank()) stringResource(R.string.artists_empty) else stringResource(R.string.artists_not_found_match),
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -788,7 +789,7 @@ internal fun EmbeddedArtistDetailScreen(
             }
             detailInfo == null -> {
                 EmptyArtistsState(
-                    text = "未找到艺术家",
+                    text = stringResource(R.string.artists_not_found),
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
@@ -817,7 +818,7 @@ internal fun EmbeddedArtistDetailScreen(
             titleAlpha = animatedHeadBarProgress,
             menuItems = listOf(
                 MenuItem(
-                    title = "修改艺术家图片",
+                    title = stringResource(R.string.artists_edit_image),
                     onClick = { artistImageController.launchPicker() }
                 )
             ),
@@ -901,7 +902,7 @@ internal fun EmbeddedAlbumDetailScreen(
             }
             detailInfo == null -> {
                 EmptyArtistsState(
-                    text = "未找到专辑",
+                    text = stringResource(R.string.artists_album_not_found),
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
@@ -929,7 +930,7 @@ internal fun EmbeddedAlbumDetailScreen(
             titleAlpha = animatedHeadBarProgress,
             menuItems = listOf(
                 MenuItem(
-                    title = "添加视频封面",
+                    title = stringResource(R.string.artists_add_video_cover),
                     onClick = { albumVideoController.launchPicker() }
                 )
             ),
@@ -1059,7 +1060,7 @@ private fun ArtistsScreen(
                 .layerBackdrop(miniPlayerBackdrop)
         ) {
             CommonHeadBar(
-                title = if (showDoubleTapHint) "双击返回顶部" else "艺术家",
+                title = if (showDoubleTapHint) stringResource(R.string.artists_double_tap_back_top) else stringResource(R.string.artists_title),
                 showBack = true,
                 showMenu = true,
                 onBackClick = onBack,
@@ -1080,7 +1081,7 @@ private fun ArtistsScreen(
                         onDismissRequest = { menuExpanded = false },
                         items = listOf(
                             MenuItem(
-                                title = "排序方式",
+                                title = stringResource(R.string.artists_sort_type),
                                 subItems = ArtistSortType.values().map { item ->
                                     MenuItem(
                                         title = item.displayName,
@@ -1119,7 +1120,7 @@ private fun ArtistsScreen(
                     }
                     visibleArtists.isEmpty() -> {
                         EmptyArtistsState(
-                            text = if (searchQuery.isBlank()) "暂无艺术家" else "未找到匹配的艺术家",
+                            text = if (searchQuery.isBlank()) stringResource(R.string.artists_empty) else stringResource(R.string.artists_not_found_match),
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
@@ -1287,7 +1288,7 @@ private fun ArtistDetailScreen(
                 }
                 detailInfo == null -> {
                     EmptyArtistsState(
-                        text = "未找到艺术家",
+                        text = stringResource(R.string.artists_not_found),
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -1321,7 +1322,7 @@ private fun ArtistDetailScreen(
                 titleAlpha = animatedHeadBarProgress,
                 menuItems = listOf(
                     MenuItem(
-                        title = "修改艺术家图片",
+                        title = stringResource(R.string.artists_edit_image),
                         onClick = { artistImageController.launchPicker() }
                     )
                 ),
@@ -1366,6 +1367,7 @@ private fun ArtistDetailScreen(
         SleepTimerBottomSheet(
             isRunning = playbackController.sleepTimerState.isActive,
             remainingMs = playbackController.sleepTimerState.remainingMs,
+            waitingForSongEnd = playbackController.sleepTimerState.waitingForSongEnd,
             onDismiss = { showSleepTimerSheet = false },
             onStartTimer = { minutes, finishCurrentSong ->
                 playbackController.startSleepTimer(minutes = minutes, finishCurrentSong = finishCurrentSong)
@@ -2285,7 +2287,7 @@ private fun AlbumDetailSongItem(
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                contentDescription = "更多",
+                contentDescription = stringResource(R.string.ml_music_library_more),
                 tint = accentColor,
                 modifier = Modifier.size(20.dp)
             )
@@ -2575,7 +2577,7 @@ private fun TransparentArtistHeadBar(
         IconButton(onClick = onBack) {
             Icon(
                 painter = painterResource(id = R.drawable.baseline_arrow_back_24),
-                contentDescription = "返回",
+                contentDescription = stringResource(R.string.lyric_settings_cd_back),
                 tint = contentColor
             )
         }
@@ -2610,7 +2612,7 @@ private fun TransparentArtistHeadBar(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                    contentDescription = "更多",
+                    contentDescription = stringResource(R.string.ml_music_library_more),
                     tint = contentColor
                 )
             }
@@ -2852,7 +2854,7 @@ private fun MediaSaveResultDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("知道了")
+                Text(stringResource(R.string.artists_got_it))
             }
         },
         dismissButton = dialogState.sourceUri?.let { sourceUri ->
@@ -2980,7 +2982,7 @@ private fun ArtistDetailSongItem(
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                contentDescription = "更多",
+                contentDescription = stringResource(R.string.ml_music_library_more),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp)
             )
@@ -3131,7 +3133,7 @@ private fun ArtistSearchBar(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.search),
-                        contentDescription = "搜索",
+                        contentDescription = stringResource(R.string.verbatim_search_button),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -3139,7 +3141,7 @@ private fun ArtistSearchBar(
                     Box(modifier = Modifier.weight(1f)) {
                         if (query.isEmpty()) {
                             Text(
-                                text = "搜索艺术家",
+                                text = stringResource(R.string.artists_search_hint),
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                 fontSize = 16.sp,
                                 maxLines = 1,
@@ -3155,7 +3157,7 @@ private fun ArtistSearchBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
-                                contentDescription = "清除",
+                                contentDescription = stringResource(R.string.verbatim_cd_clear),
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f),
                                 modifier = Modifier.size(18.dp)
                             )

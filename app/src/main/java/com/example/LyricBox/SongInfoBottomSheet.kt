@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -173,7 +174,7 @@ fun SongInfoBottomSheet(
                     .padding(bottom = 32.dp)
             ) {
                 Text(
-                    text = "歌曲信息",
+                    text = stringResource(R.string.song_info_title),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -183,7 +184,7 @@ fun SongInfoBottomSheet(
                     if (coverBitmap != null) {
                         Image(
                             bitmap = coverBitmap!!.asImageBitmap(),
-                            contentDescription = "封面",
+                            contentDescription = stringResource(R.string.song_info_cover_cd),
                             modifier = Modifier
                                 .size(74.dp)
                                 .clip(RoundedCornerShape(10.dp))
@@ -219,7 +220,7 @@ fun SongInfoBottomSheet(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 SongInfoActionItem(
-                    title = if (hasQueuedAsNext) "已加入下一首" else "下一首播放",
+                    title = if (hasQueuedAsNext) stringResource(R.string.song_info_added_next) else stringResource(R.string.song_info_play_next),
                     onClick = {
                         if (!hasQueuedAsNext) {
                             if (onPlayNext != null) {
@@ -229,12 +230,12 @@ fun SongInfoBottomSheet(
                                 fallbackPlaybackController.insertNext(audio)
                                 hasQueuedAsNext = true
                             } else {
-                                Toast.makeText(context, "播放控制器未就绪，稍后再试", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.song_info_playback_not_ready), Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
                 )
-                SongInfoActionItem(title = "查看专辑、艺术家", onClick = {
+                SongInfoActionItem(title = stringResource(R.string.song_info_view_album_artist), onClick = {
                     val artists = extractAllArtistsForSheet(
                         title = infoState.title,
                         artist = infoState.artist,
@@ -250,7 +251,7 @@ fun SongInfoBottomSheet(
                     }
                 })
                 SongInfoActionItem(
-                    title = if (favoriteState) "取消收藏" else "收藏音乐",
+                    title = if (favoriteState) stringResource(R.string.song_info_unfavorite) else stringResource(R.string.song_info_favorite),
                     onClick = {
                         if (onToggleFavorite != null) {
                             onToggleFavorite()
@@ -261,13 +262,13 @@ fun SongInfoBottomSheet(
                     }
                 )
                 SongInfoActionItem(
-                    title = if (isSleepTimerRunning) "定时播放中" else "定时播放",
+                    title = if (isSleepTimerRunning) stringResource(R.string.song_info_sleep_timer_running) else stringResource(R.string.song_info_sleep_timer),
                     onClick = {
                         onOpenSleepTimer?.invoke()
                     }
                 )
                 SongInfoActionItem(
-                    title = "去打轴界面编辑歌词",
+                    title = stringResource(R.string.song_info_edit_timing_lyrics),
                     onClick = {
                         handleMusicLibraryItemLyricsAction(
                             scope = scope,
@@ -303,7 +304,7 @@ fun SongInfoBottomSheet(
                     }
                 )
                 SongInfoActionItem(
-                    title = "去编辑歌曲元数据",
+                    title = stringResource(R.string.song_info_edit_metadata),
                     onClick = {
                         if (onEditMetadataFromSheet != null) {
                             onEditMetadataFromSheet(audio)
@@ -314,7 +315,7 @@ fun SongInfoBottomSheet(
                     }
                 )
                 SongInfoActionItem(
-                    title = "分享文件",
+                    title = stringResource(R.string.song_info_share_file),
                     onClick = {
                         if (onShareFile != null) {
                             onShareFile()
@@ -324,7 +325,7 @@ fun SongInfoBottomSheet(
                     }
                 )
                 SongInfoActionItem(
-                    title = if (showRenameSuccess) "重命名成功" else "重命名文件",
+                    title = if (showRenameSuccess) stringResource(R.string.song_info_rename_success) else stringResource(R.string.song_info_rename_file),
                     onClick = {
                         if (onRenameFile != null) {
                             onRenameFile()
@@ -340,7 +341,7 @@ fun SongInfoBottomSheet(
                     }
                 )
                 SongInfoActionItem(
-                    title = "删除文件",
+                    title = stringResource(R.string.song_info_delete_file),
                     onClick = {
                         if (onDeleteFile != null) {
                             onDeleteFile()
@@ -422,7 +423,7 @@ fun SongInfoBottomSheet(
     if (showRenameDialog) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("重命名文件") },
+            title = { Text(stringResource(R.string.song_info_rename_file)) },
             text = {
                 Box(
                     modifier = Modifier
@@ -447,7 +448,7 @@ fun SongInfoBottomSheet(
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 if (renameInputValue.isEmpty()) {
                                     Text(
-                                        text = "输入文件名",
+                                        text = stringResource(R.string.song_info_input_filename),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -479,12 +480,12 @@ fun SongInfoBottomSheet(
                         }
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -493,8 +494,8 @@ fun SongInfoBottomSheet(
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("删除文件") },
-            text = { Text("确认删除该音频文件吗？此操作不可撤销。") },
+            title = { Text(stringResource(R.string.song_info_delete_file)) },
+            text = { Text(stringResource(R.string.song_info_delete_confirm_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -512,19 +513,19 @@ fun SongInfoBottomSheet(
                             // 预览页场景：删除后从播放队列移除并优先切换到下一首。
                             fallbackPlaybackController?.removeAudioPathAndAdvance(audio.path)
                             showDeleteConfirmDialog = false
-                            Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.song_info_deleted), Toast.LENGTH_SHORT).show()
                             onDismiss()
                         } else {
-                            Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.song_info_delete_failed), Toast.LENGTH_SHORT).show()
                         }
                     }
                 ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -609,9 +610,9 @@ private fun shareAudioFile(context: Context, audio: AudioFile) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         }
-        context.startActivity(Intent.createChooser(shareIntent, "分享音频"))
+        context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.song_info_share_audio_chooser)))
     }.onFailure {
-        Toast.makeText(context, "分享失败", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.song_info_share_failed), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -765,10 +766,10 @@ private fun buildRelativePathForMediaStore(absolutePath: String): String? {
 
 private fun Int.toSongInfoLyricFormatLabel(): String {
     return when (coerceIn(0, 3)) {
-        1 -> "LRC逐行/逐字歌词"
-        2 -> "增强LRC/ELRC歌词"
-        3 -> "TTML歌词"
-        else -> "纯文本歌词"
+        1 -> "LRC"
+        2 -> "Enhanced LRC/ELRC"
+        3 -> "TTML"
+        else -> "Plain Text"
     }
 }
 
@@ -781,26 +782,26 @@ private fun renameAudioFile(
 ): Boolean {
     val newName = inputName.trim()
     if (newName.isEmpty()) {
-        Toast.makeText(context, "文件名不能为空", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.song_info_filename_empty), Toast.LENGTH_SHORT).show()
         return false
     }
     val sourceFile = File(audio.path)
     if (!sourceFile.exists()) {
-        Toast.makeText(context, "源文件不存在", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.song_info_source_missing), Toast.LENGTH_SHORT).show()
         return false
     }
     val targetFile = File(sourceFile.parentFile, "$newName$extension")
     if (targetFile.absolutePath == sourceFile.absolutePath) {
-        Toast.makeText(context, "文件名未变化", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.song_info_filename_unchanged), Toast.LENGTH_SHORT).show()
         return false
     }
     if (targetFile.exists()) {
-        Toast.makeText(context, "目标文件已存在", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.song_info_target_exists), Toast.LENGTH_SHORT).show()
         return false
     }
     val renamed = runCatching { sourceFile.renameTo(targetFile) }.getOrDefault(false)
     if (!renamed) {
-        Toast.makeText(context, "重命名失败", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.song_info_rename_failed), Toast.LENGTH_SHORT).show()
         return false
     }
 

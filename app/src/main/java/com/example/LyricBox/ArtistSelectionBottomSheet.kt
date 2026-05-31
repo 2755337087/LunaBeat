@@ -16,6 +16,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,7 +48,7 @@ fun ArtistSelectionBottomSheet(
         ) {
             if (albumName.isNotBlank()) {
                 Text(
-                    text = "专辑",
+                    text = stringResource(R.string.artist_selection_album),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -67,7 +68,7 @@ fun ArtistSelectionBottomSheet(
                 }
             }
             Text(
-                text = "艺术家",
+                text = stringResource(R.string.artist_selection_artist),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )

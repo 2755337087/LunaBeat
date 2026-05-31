@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -230,7 +231,7 @@ fun PermissionGuideScreen(
         Spacer(modifier = Modifier.height(48.dp))
         
         Text(
-            text = "欢迎使用",
+            text = stringResource(R.string.permission_guide_welcome),
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
@@ -246,7 +247,7 @@ fun PermissionGuideScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "为了正常使用应用功能，\n请授予以下必要权限",
+            text = stringResource(R.string.permission_guide_intro),
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
@@ -257,14 +258,14 @@ fun PermissionGuideScreen(
         PermissionCard(
             icon = Icons.Filled.Folder,
             title = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                "所有文件访问权限"
+                stringResource(R.string.permission_guide_manage_all_files)
             } else {
-                "存储权限"
+                stringResource(R.string.permission_guide_storage_permission)
             },
             description = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                "用于读取和修改音频文件的歌词信息"
+                stringResource(R.string.permission_guide_manage_all_files_desc)
             } else {
-                "用于访问存储中的音频文件"
+                stringResource(R.string.permission_guide_storage_permission_desc)
             },
             isGranted = hasStoragePermission,
             isRequired = true,
@@ -276,8 +277,8 @@ fun PermissionGuideScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             PermissionCard(
                 icon = Icons.Filled.AudioFile,
-                title = "音频权限",
-                description = "用于扫描和读取设备中的音频文件",
+                title = stringResource(R.string.permission_guide_audio_permission),
+                description = stringResource(R.string.permission_guide_audio_permission_desc),
                 isGranted = hasAudioPermission,
                 isRequired = true,
                 onRequestPermission = onRequestAudioPermission
@@ -287,8 +288,8 @@ fun PermissionGuideScreen(
 
             PermissionCard(
                 icon = Icons.Filled.Notifications,
-                title = "通知权限",
-                description = "用于显示系统媒体通知并支持后台控制播放",
+                title = stringResource(R.string.permission_guide_notification_permission),
+                description = stringResource(R.string.permission_guide_notification_permission_desc),
                 isGranted = hasNotificationPermission,
                 isRequired = true,
                 onRequestPermission = onRequestNotificationPermission
@@ -300,7 +301,7 @@ fun PermissionGuideScreen(
         Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "您的隐私对我们很重要\n这些权限仅用于应用核心功能",
+            text = stringResource(R.string.permission_guide_privacy_note),
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
             textAlign = TextAlign.Center
@@ -371,7 +372,7 @@ fun PermissionCard(
                         if (isRequired && !isGranted) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "必选",
+                                text = stringResource(R.string.permission_guide_required),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.error,
                                 fontWeight = FontWeight.Medium
@@ -408,7 +409,7 @@ fun PermissionCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "已授权",
+                            text = stringResource(R.string.permission_guide_granted),
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium
@@ -422,7 +423,7 @@ fun PermissionCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "未授权",
+                            text = stringResource(R.string.permission_guide_not_granted),
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.error,
                             fontWeight = FontWeight.Medium
@@ -439,7 +440,7 @@ fun PermissionCard(
                         )
                     ) {
                         Text(
-                            text = "去授权",
+                            text = stringResource(R.string.permission_guide_go_authorize),
                             fontSize = 14.sp
                         )
                     }

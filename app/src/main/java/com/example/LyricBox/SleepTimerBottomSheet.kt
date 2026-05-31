@@ -36,9 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.LyricBox.R
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +48,7 @@ import kotlin.math.roundToInt
 fun SleepTimerBottomSheet(
     isRunning: Boolean,
     remainingMs: Long,
+    waitingForSongEnd: Boolean = false,
     onDismiss: () -> Unit,
     onStartTimer: (minutes: Int, finishCurrentSong: Boolean) -> Unit,
     onCancelTimer: () -> Unit
@@ -69,6 +72,7 @@ fun SleepTimerBottomSheet(
             if (running) {
                 SleepTimerRunningContent(
                     remainingMs = remainingMs,
+                    waitingForSongEnd = waitingForSongEnd,
                     onCancel = { onCancelTimer() }
                 )
             } else {
@@ -108,14 +112,14 @@ private fun SleepTimerSetupContent(
             .navigationBarsPadding()
     ) {
         Text(
-            text = "定时播放",
+            text = stringResource(R.string.sleep_timer_title),
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
 
         Spacer(modifier = Modifier.height(18.dp))
         Text(
-            text = "快捷时间选择",
+            text = stringResource(R.string.sleep_timer_quick_select),
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -132,7 +136,7 @@ private fun SleepTimerSetupContent(
                     rowMinutes.forEach { minutes ->
                         val selected = selectedQuickMinute == minutes
                         BoxButton(
-                            text = "${minutes}分钟",
+                            text = stringResource(R.string.sleep_timer_minutes_format, minutes),
                             selected = selected,
                             modifier = Modifier.weight(1f),
                             onClick = {
@@ -147,13 +151,13 @@ private fun SleepTimerSetupContent(
 
         Spacer(modifier = Modifier.height(20.dp))
         Text(
-            text = "自定义时长",
+            text = stringResource(R.string.sleep_timer_custom_duration),
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "当前选择：${customMinutes}分钟",
+            text = stringResource(R.string.sleep_timer_current_selection, customMinutes),
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -170,7 +174,7 @@ private fun SleepTimerSetupContent(
         FinishCurrentSongOption(
             checked = finishCurrentSong,
             onCheckedChange = { finishCurrentSong = it },
-            label = "播放完当前歌曲后结束",
+            label = stringResource(R.string.sleep_timer_finish_current_song),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -183,7 +187,7 @@ private fun SleepTimerSetupContent(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(
-                text = "开始计时：${customMinutes}分钟",
+                text = stringResource(R.string.sleep_timer_start_countdown, customMinutes),
                 fontSize = 16.sp
             )
         }
@@ -193,6 +197,7 @@ private fun SleepTimerSetupContent(
 @Composable
 private fun SleepTimerRunningContent(
     remainingMs: Long,
+    waitingForSongEnd: Boolean,
     onCancel: () -> Unit
 ) {
     Column(
@@ -204,20 +209,20 @@ private fun SleepTimerRunningContent(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "定时播放中",
+            text = stringResource(R.string.sleep_timer_running_title),
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(14.dp))
         Text(
-            text = formatSleepTimerRemaining(remainingMs),
+            text = if (waitingForSongEnd) stringResource(R.string.sleep_timer_wait_current_song_end) else formatSleepTimerRemaining(remainingMs),
             fontSize = 30.sp,
             fontWeight = FontWeight.SemiBold
         )
         Spacer(modifier = Modifier.height(18.dp))
         TextButton(onClick = onCancel) {
             Text(
-                text = "取消定时播放",
+                text = stringResource(R.string.sleep_timer_cancel),
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 15.sp
             )
@@ -299,7 +304,7 @@ private fun BoxButton(
 }
 
 private fun formatSleepTimerRemaining(remainingMs: Long): String {
-    val safeSeconds = (remainingMs.coerceAtLeast(0L) / 1000L)
+    val safeSeconds = ((remainingMs.coerceAtLeast(0L) + 999L) / 1000L)
     val minutes = safeSeconds / 60L
     val seconds = safeSeconds % 60L
     return String.format("%02d:%02d", minutes, seconds)

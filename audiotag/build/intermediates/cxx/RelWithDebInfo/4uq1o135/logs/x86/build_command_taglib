@@ -1,0 +1,4 @@
+/Users/robin/Library/Android/sdk/cmake/3.22.1/bin/ninja \
+  -C \
+  /Users/robin/Documents/AndroidStudioProjects/lyricEdite/audiotag/.cxx/RelWithDebInfo/4uq1o135/x86 \
+  taglib

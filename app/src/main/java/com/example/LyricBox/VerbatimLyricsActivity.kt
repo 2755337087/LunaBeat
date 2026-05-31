@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -261,7 +262,7 @@ fun VerbatimLyricsScreen(
     val appleMusicApi = remember { AppleMusicApi() }
     val prefs = remember { context.getSharedPreferences("VerbatimLyricsSettings", Context.MODE_PRIVATE) }
     
-    val tabTitles = listOf("推荐结果", "QM", "KG", "NE", "AM")
+    val tabTitles = listOf(stringResource(R.string.verbatim_tab_recommended), "QM", "KG", "NE", "AM")
     val tabSources = listOf(null, Source.QM, Source.KG, Source.NE, Source.ITUNES)
     var selectedTabIndex by remember { mutableStateOf(0) }
     val pagerState = androidx.compose.foundation.pager.rememberPagerState { 5 }
@@ -371,14 +372,14 @@ fun VerbatimLyricsScreen(
                 }
                 
                 if (groups.isEmpty()) {
-                    searchError = "未找到歌词"
+                    searchError = context.getString(R.string.verbatim_error_no_lyrics_found)
                 } else {
                     sourceGroups = groups
                 }
             } catch (e: Exception) {
                 searchError = when {
-                    e.message?.contains("network", ignoreCase = true) == true -> "请求失败，请检查网络"
-                    else -> "搜索失败：${e.message}"
+                    e.message?.contains("network", ignoreCase = true) == true -> context.getString(R.string.verbatim_error_request_failed)
+                    else -> context.getString(R.string.verbatim_error_search_failed, e.message ?: context.getString(R.string.ml_music_library_unknown_error))
                 }
             } finally {
                 isSearching = false
@@ -425,7 +426,7 @@ fun VerbatimLyricsScreen(
     
     Column(modifier = modifier.fillMaxSize()) {
         CommonHeadBar(
-            title = "获取逐字歌词",
+            title = stringResource(R.string.verbatim_title),
             showBack = true,
             showMenu = true,
             onBackClick = onBack,
@@ -436,7 +437,7 @@ fun VerbatimLyricsScreen(
                     onDismissRequest = { showHeadbarMenu = false },
                     items = listOf(
                         MenuItem(
-                            title = "AM歌词配置",
+                            title = stringResource(R.string.verbatim_am_config),
                             onClick = {
                                 tempAMTokenConfig = currentAMTokenConfig
                                 showAMTokenDialog = true
@@ -483,7 +484,7 @@ fun VerbatimLyricsScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "搜索",
+                                    contentDescription = stringResource(R.string.verbatim_cd_search),
                                     modifier = Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
@@ -491,7 +492,7 @@ fun VerbatimLyricsScreen(
                                 Box(modifier = Modifier.weight(1f)) {
                                     if (searchInput.isEmpty()) {
                                         Text(
-                                            text = "歌曲名 歌手 / 歌曲名 / 歌手",
+                                            text = stringResource(R.string.verbatim_search_placeholder),
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                             fontSize = 16.sp
                                         )
@@ -505,7 +506,7 @@ fun VerbatimLyricsScreen(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Close,
-                                            contentDescription = "清除",
+                                            contentDescription = stringResource(R.string.verbatim_cd_clear),
                                             tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                             modifier = Modifier.size(16.dp)
                                         )
@@ -525,7 +526,7 @@ fun VerbatimLyricsScreen(
                     if (isSearching) {
                         LoadingIndicator(modifier = Modifier.size(20.dp))
                     } else {
-                        Text("搜索")
+                        Text(stringResource(R.string.verbatim_search_button))
                     }
                 }
             }
@@ -538,13 +539,13 @@ fun VerbatimLyricsScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Audiotrack,
-                        contentDescription = "音频时长",
+                        contentDescription = stringResource(R.string.verbatim_cd_audio_duration),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "当前音频时长: ${formatDuration(audioDuration)}",
+                        text = stringResource(R.string.verbatim_current_audio_duration, formatDuration(audioDuration)),
                         color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -598,7 +599,7 @@ fun VerbatimLyricsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "暂无符合条件的推荐结果",
+                                    text = stringResource(R.string.verbatim_no_recommended_result),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 14.sp
                                 )
@@ -645,7 +646,7 @@ fun VerbatimLyricsScreen(
                                                                 source = result.songInfo.source,
                                                                 sourceName = "AM",
                                                                 lyrics = null,
-                                                                error = error ?: "获取歌词失败"
+                                                                error = error ?: context.getString(R.string.verbatim_error_fetch_lyrics_failed)
                                                             )
                                                         }
                                                     } else {
@@ -722,7 +723,7 @@ fun VerbatimLyricsScreen(
                                                                 source = result.songInfo.source,
                                                                 sourceName = "AM",
                                                                 lyrics = null,
-                                                                error = error ?: "获取歌词失败"
+                                                                error = error ?: context.getString(R.string.verbatim_error_fetch_lyrics_failed)
                                                             )
                                                         }
                                                     } else {
@@ -762,7 +763,7 @@ fun VerbatimLyricsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "该来源暂无结果",
+                                    text = stringResource(R.string.verbatim_no_result_for_source),
                                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                                 )
                             }
@@ -781,7 +782,7 @@ fun VerbatimLyricsScreen(
                     LoadingIndicator(modifier = Modifier.size(32.dp))
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "正在搜索中...",
+                        text = stringResource(R.string.verbatim_searching),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
@@ -794,13 +795,13 @@ fun VerbatimLyricsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "输入格式：歌曲名 歌手 / 歌曲名 / 歌手",
+                        text = stringResource(R.string.verbatim_input_format),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "示例：成都 赵雷",
+                        text = stringResource(R.string.verbatim_input_example),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
@@ -876,7 +877,7 @@ fun VerbatimLyricsScreen(
                     }
                     if (lyricsText.isNotEmpty()) {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val clip = ClipData.newPlainText("歌词", lyricsText)
+                        val clip = ClipData.newPlainText(context.getString(R.string.verbatim_clip_label), lyricsText)
                         clipboard.setPrimaryClip(clip)
                         showCopiedDialog = true
                     } else {
@@ -887,9 +888,9 @@ fun VerbatimLyricsScreen(
                     val isAppleMusic = selectedSong?.lyricsResult?.source == Source.ITUNES
                     val rawTtml = selectedSong?.lyricsResult?.rawTtml
                     val lyricsFormat = if (isAppleMusic && !rawTtml.isNullOrEmpty()) {
-                        "TTML歌词"
+                        context.getString(R.string.ml_music_library_ttml_lyrics)
                     } else {
-                        "LRC逐行/逐字歌词"
+                        context.getString(R.string.ml_music_library_lrc_verbatim_lyrics)
                     }
                     val lyricsText = if (isAppleMusic && !rawTtml.isNullOrEmpty()) {
                         // 处理 TTML 文本
@@ -947,11 +948,11 @@ fun VerbatimLyricsScreen(
     if (showInputDialog) {
         AlertDialog(
             onDismissRequest = { showInputDialog = false },
-            title = { Text("提示") },
-            text = { Text("请输入搜索内容") },
+            title = { Text(stringResource(R.string.verbatim_dialog_hint_title)) },
+            text = { Text(stringResource(R.string.verbatim_dialog_input_search_content)) },
             confirmButton = {
                 Button(onClick = { showInputDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         )
@@ -960,11 +961,11 @@ fun VerbatimLyricsScreen(
     if (showCopiedDialog) {
         AlertDialog(
             onDismissRequest = { showCopiedDialog = false },
-            title = { Text("提示") },
-            text = { Text("已复制到剪贴板") },
+            title = { Text(stringResource(R.string.verbatim_dialog_hint_title)) },
+            text = { Text(stringResource(R.string.verbatim_dialog_copied_clipboard)) },
             confirmButton = {
                 Button(onClick = { showCopiedDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         )
@@ -973,11 +974,11 @@ fun VerbatimLyricsScreen(
     if (showNoLyricsDialog) {
         AlertDialog(
             onDismissRequest = { showNoLyricsDialog = false },
-            title = { Text("提示") },
-            text = { Text("暂无歌词") },
+            title = { Text(stringResource(R.string.verbatim_dialog_hint_title)) },
+            text = { Text(stringResource(R.string.verbatim_dialog_no_lyrics)) },
             confirmButton = {
                 Button(onClick = { showNoLyricsDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         )
@@ -1007,7 +1008,7 @@ fun SongResultItemWithSource(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = song.title ?: "未知歌曲",
+                    text = song.title ?: stringResource(R.string.verbatim_unknown_song),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,

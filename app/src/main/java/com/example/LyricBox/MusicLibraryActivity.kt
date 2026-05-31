@@ -4398,6 +4398,7 @@ fun MusicLibraryScreen(
         SleepTimerBottomSheet(
             isRunning = playbackController.sleepTimerState.isActive,
             remainingMs = playbackController.sleepTimerState.remainingMs,
+            waitingForSongEnd = playbackController.sleepTimerState.waitingForSongEnd,
             onDismiss = { showSleepTimerSheet = false },
             onStartTimer = { minutes, finishCurrentSong ->
                 playbackController.startSleepTimer(minutes = minutes, finishCurrentSong = finishCurrentSong)
@@ -5373,12 +5374,13 @@ private fun MusicLibraryMiniPlayerBar(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(2.dp))
-            Text(
+            AutoMarqueeText(
                 text = controller.currentArtist.ifBlank { stringResource(R.string.ml_music_library_unknown_artist) },
-                fontSize = 12.sp,
-                color = onBaseColor.copy(alpha = 0.75f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    color = onBaseColor.copy(alpha = 0.75f)
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
         }
 

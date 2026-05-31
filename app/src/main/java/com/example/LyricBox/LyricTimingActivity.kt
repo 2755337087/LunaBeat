@@ -624,7 +624,8 @@ class LyricTimingActivity : ComponentActivity() {
             val lyricsContent = result.data?.getStringExtra("lyricsContent") ?: ""
             val lyricsFormat = result.data?.getStringExtra("lyricsFormat") ?: "LRC逐行/逐字歌词"
             if (lyricsContent.isNotEmpty()) {
-                if (lyricsFormat == "TTML歌词") {
+                val resolvedFormat = resolveLyricsFormat(lyricsFormat, lyricsContent)
+                if (resolvedFormat == 3) {
                     // 导入 TTML 歌词
                     // 先解析创作者信息
                     val parsedSongwriters = LyricParsingUtils.parseSongwritersFromTtml(lyricsContent)
@@ -704,13 +705,10 @@ class LyricTimingActivity : ComponentActivity() {
         val intentLyricsContent = intent.getStringExtra("lyricsContent") ?: ""
         val intentMediaStoreId = intent.getLongExtra(EXTRA_MEDIA_STORE_ID, -1L)
         val intentInitialPlaybackPositionMs = intent.getLongExtra(EXTRA_INITIAL_PLAYBACK_POSITION_MS, -1L)
-        val intentLyricsFormat = when (intent.getStringExtra("lyricsFormat") ?: "") {
-            "纯文本歌词" -> 0
-            "LRC歌词", "LRC逐行/逐字歌词" -> 1
-            "增强LRC/ELRC歌词" -> 2
-            "TTML歌词" -> 3
-            else -> 0
-        }
+        val intentLyricsFormat = resolveLyricsFormat(
+            intent.getStringExtra("lyricsFormat").orEmpty(),
+            intentLyricsContent
+        )
         
         // 如果没有直接传入路径，尝试从外部 Intent 解析
         if (intentAudioPath.isBlank()) {
@@ -912,6 +910,19 @@ class LyricTimingActivity : ComponentActivity() {
             2 -> "增强LRC/ELRC歌词"
             else -> "LRC逐行/逐字歌词"
         }
+    }
+
+    private fun resolveLyricsFormat(formatLabel: String, lyricsContent: String): Int {
+        val normalized = formatLabel.trim().lowercase()
+        if (normalized.contains("ttml")) return 3
+        if (normalized.contains("elrc") || normalized.contains("enhanced")) return 2
+        if (normalized.contains("lrc")) return 1
+        if (normalized.contains("plain") || normalized.contains("text")) return 0
+        if (normalized.contains("纯文本")) return 0
+        if (normalized.contains("增强")) return 2
+        if (normalized.contains("ttml歌词") || normalized.contains("ttml歌詞")) return 3
+        if (normalized.contains("lrc歌词") || normalized.contains("逐行") || normalized.contains("逐字")) return 1
+        return detectLyricsFormat(lyricsContent).coerceIn(0, 3)
     }
 
     private fun finishWithLyricsResult(lyricLinesOverride: List<LyricLine>? = null) {
@@ -1367,6 +1378,12 @@ private data class CjkTransliterationUnit(
 private val JapaneseSmallKanaChars = setOf(
     'ゃ', 'ゅ', 'ょ', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'ゎ', 'っ',
     'ャ', 'ュ', 'ョ', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ヮ', 'ッ'
+)
+
+private val JapaneseTrailingAttachableChars = setOf(
+    'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'ゃ', 'ゅ', 'ょ', 'ゎ', 'ゕ', 'ゖ',
+    'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ャ', 'ュ', 'ョ', 'ヮ', 'ヵ', 'ヶ',
+    'ー'
 )
 
 private fun clearAllLyricLineTransliterations(lines: List<LyricLine>): List<LyricLine> {
@@ -5393,7 +5410,7 @@ private fun RecognizeRomajiRubyDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "此功能仅用于识别日语歌词翻译中的罗马音注音，并转换为 TTML 歌词标准的逐字注音。识别完成后，需要将歌词保存为 TTML 格式才可保留逐字注音。",
+                    text = "此功能用于识别翻译中的罗马音注音（支持日语、韩语），并转换为 TTML 歌词标准的逐字注音。日语会兼容小假名与促音场景。识别完成后，需要将歌词保存为 TTML 格式才可保留逐字注音。",
                     fontSize = 13.sp,
                     lineHeight = 20.sp
                 )
@@ -5445,7 +5462,7 @@ private fun RecognizeRomajiRubyDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(onClick = onRomajiToKanaClick) {
-                    Text("罗马音注音转假名")
+                    Text("罗马音转假名（仅日语）")
                 }
                 TextButton(onClick = onDismiss) {
                     Text("取消")
@@ -5539,11 +5556,20 @@ private fun isKanaChar(char: Char): Boolean {
     return normalized in '\u3040'..'\u309F' || char == 'ー'
 }
 
+private fun isTrailingKanaAttachableChar(char: Char): Boolean {
+    return JapaneseTrailingAttachableChars.contains(char)
+}
+
 private fun isRubyAssignableCharacter(char: Char): Boolean {
     val codePoint = char.code
     return (codePoint in 0x3400..0x4DBF) ||
             (codePoint in 0x4E00..0x9FFF) ||
             (codePoint in 0xF900..0xFAFF) ||
+            (codePoint in 0xAC00..0xD7AF) ||
+            (codePoint in 0x1100..0x11FF) ||
+            (codePoint in 0x3130..0x318F) ||
+            (codePoint in 0xA960..0xA97F) ||
+            (codePoint in 0xD7B0..0xD7FF) ||
             char == '々' ||
             char == '〆'
 }
@@ -5606,7 +5632,11 @@ private fun kanaRomanOptions(
     val normalized = normalizeKanaText(kana)
     val direct = mapping.romanByKana[normalized]
     if (normalized == "っ") {
-        return linkedSetOf("t", "xtu", "ltu", "xtsu", "ltsu")
+        return linkedSetOf(
+            "t", "k", "s", "p", "c", "f", "h", "m", "r", "g", "d", "b", "j", "z", "q", "v", "w", "y",
+            "ch", "sh", "ts",
+            "xtu", "ltu", "xtsu", "ltsu"
+        )
     }
     if (normalized == "ー") {
         return emptySet()
@@ -5668,6 +5698,39 @@ private fun buildRecognitionLineItems(
         }
     }
 
+    fun leadingConsonantCandidate(romaji: String): String? {
+        if (romaji.isBlank()) return null
+        val vowels = setOf('a', 'e', 'i', 'o', 'u')
+        val normalized = romaji.lowercase(Locale.ROOT)
+        val firstVowelIndex = normalized.indexOfFirst { it in vowels }
+        val prefix = when {
+            firstVowelIndex < 0 -> normalized
+            firstVowelIndex == 0 -> ""
+            firstVowelIndex == 1 -> normalized.substring(0, 1)
+            else -> normalized.substring(0, minOf(2, firstVowelIndex))
+        }
+        return prefix.takeIf { it.isNotBlank() }
+    }
+
+    fun peekNextKanaCandidates(startIndex: Int): Set<String> {
+        var index = startIndex
+        while (index < lineTokens.size && lineTokens[index].char.isWhitespace()) {
+            index++
+        }
+        if (index >= lineTokens.size) return emptySet()
+        if (!isKanaChar(lineTokens[index].char)) return emptySet()
+        val longest = minOf(3, lineTokens.size - index)
+        for (len in longest downTo 1) {
+            val candidateTokens = lineTokens.subList(index, index + len)
+            if (candidateTokens.any { it.char.isWhitespace() || !isKanaChar(it.char) }) continue
+            val candidateKana = candidateTokens.joinToString("") { it.char.toString() }
+            if (hasKanaMappingCandidate(candidateKana, mapping)) {
+                return kanaRomanOptions(candidateKana, mapping)
+            }
+        }
+        return emptySet()
+    }
+
     var tokenIndex = 0
     while (tokenIndex < lineTokens.size) {
         val currentToken = lineTokens[tokenIndex]
@@ -5682,6 +5745,22 @@ private fun buildRecognitionLineItems(
             pendingNonKana.add(currentToken.ref)
             tokenIndex++
             continue
+        }
+
+        val hasAdjacentPrevious = tokenIndex > 0 && !lineTokens[tokenIndex - 1].char.isWhitespace()
+        if (isTrailingKanaAttachableChar(currentChar) && pendingNonKana.isEmpty() && hasAdjacentPrevious) {
+            val previous = items.lastOrNull()
+            val previousAnchor = previous?.kanaAnchor
+            if (previous?.type == RecognitionItemType.KANA_ANCHOR && previousAnchor != null) {
+                items[items.lastIndex] = previous.copy(
+                    kanaAnchor = previousAnchor.copy(
+                        chars = previousAnchor.chars + currentToken.ref,
+                        kanaText = previousAnchor.kanaText + currentChar
+                    )
+                )
+                tokenIndex++
+                continue
+            }
         }
 
         flushNonKana()
@@ -5707,13 +5786,27 @@ private fun buildRecognitionLineItems(
         val refs = lineTokens
             .subList(tokenIndex, tokenIndex + matchedLength)
             .map { it.ref }
+        val baseCandidates = kanaRomanOptions(matchedKana, mapping)
+        val normalizedMatched = normalizeKanaText(matchedKana)
+        val mergedCandidates = if (normalizedMatched == "っ") {
+            val nextCandidates = peekNextKanaCandidates(tokenIndex + matchedLength)
+            val fromNext = nextCandidates.mapNotNull { candidate ->
+                leadingConsonantCandidate(candidate)
+            }
+            linkedSetOf<String>().apply {
+                addAll(baseCandidates)
+                addAll(fromNext)
+            }
+        } else {
+            baseCandidates
+        }
         items.add(
             RecognitionLineItem(
                 type = RecognitionItemType.KANA_ANCHOR,
                 kanaAnchor = KanaAnchor(
                     chars = refs,
                     kanaText = matchedKana,
-                    romajiCandidates = kanaRomanOptions(matchedKana, mapping)
+                    romajiCandidates = mergedCandidates
                 )
             )
         )
@@ -10614,7 +10707,7 @@ fun LyricTimingScreen(
                 }
                 transliterationResultSuccess = result.successCount > 0
                 transliterationResultMessage =
-                    "注音识别完成：成功 ${result.successCount} 行，失败 ${result.failureCount} 行。请保存为 TTML 格式以保留逐字注音。"
+                    "注音识别完成（日韩罗马音）：成功 ${result.successCount} 行，失败 ${result.failureCount} 行。请保存为 TTML 格式以保留逐字注音。"
                 showTransliterationResultDialog = true
             }
         )
