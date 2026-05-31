@@ -224,4 +224,220 @@
     <string name="settings_language_zh_cn">簡体字中国語</string>
     <string name="settings_language_en">英語</string>
     <string name="settings_language_ja">日本語</string>
+
+    <!-- Common 通用文案 -->
+    <string name="common_confirm">確認</string>
+    <string name="common_cancel">キャンセル</string>
+    <string name="common_delete">削除</string>
+
+    <!-- SleepTimerBottomSheet 定时播放弹窗 -->
+    <string name="sleep_timer_title">スリープタイマー</string>
+    <string name="sleep_timer_quick_select">クイック時間選択</string>
+    <string name="sleep_timer_minutes_format">%1$d分</string>
+    <string name="sleep_timer_custom_duration">カスタム時間</string>
+    <string name="sleep_timer_current_selection">現在の選択：%1$d分</string>
+    <string name="sleep_timer_finish_current_song">現在の曲が終わったら停止</string>
+    <string name="sleep_timer_start_countdown">タイマー開始：%1$d分</string>
+    <string name="sleep_timer_running_title">タイマー実行中</string>
+    <string name="sleep_timer_wait_current_song_end">現在の曲の終了を待機中</string>
+    <string name="sleep_timer_cancel">スリープタイマーをキャンセル</string>
+
+    <!-- SongInfoBottomSheet 歌曲信息弹窗 -->
+    <string name="song_info_title">曲情報</string>
+    <string name="song_info_cover_cd">ジャケット</string>
+    <string name="song_info_added_next">次の曲に追加済み</string>
+    <string name="song_info_play_next">次に再生</string>
+    <string name="song_info_playback_not_ready">再生コントローラーの準備ができていません。しばらくしてから再試行してください。</string>
+    <string name="song_info_view_album_artist">アルバム・アーティストを見る</string>
+    <string name="song_info_unfavorite">お気に入り解除</string>
+    <string name="song_info_favorite">お気に入りに追加</string>
+    <string name="song_info_sleep_timer_running">タイマー実行中</string>
+    <string name="song_info_sleep_timer">スリープタイマー</string>
+    <string name="song_info_edit_timing_lyrics">タイミング編集画面で歌詞を編集</string>
+    <string name="song_info_edit_metadata">曲メタデータを編集</string>
+    <string name="song_info_share_file">ファイルを共有</string>
+    <string name="song_info_rename_success">リネーム成功</string>
+    <string name="song_info_rename_file">ファイル名変更</string>
+    <string name="song_info_delete_file">ファイル削除</string>
+    <string name="song_info_input_filename">ファイル名を入力</string>
+    <string name="song_info_delete_confirm_message">この音声ファイルを削除しますか？この操作は取り消せません。</string>
+    <string name="song_info_deleted">削除しました</string>
+    <string name="song_info_delete_failed">削除に失敗しました</string>
+    <string name="song_info_share_audio_chooser">音声を共有</string>
+    <string name="song_info_share_failed">共有に失敗しました</string>
+    <string name="song_info_filename_empty">ファイル名を入力してください</string>
+    <string name="song_info_source_missing">元ファイルが存在しません</string>
+    <string name="song_info_filename_unchanged">ファイル名が変更されていません</string>
+    <string name="song_info_target_exists">同名のファイルが既に存在します</string>
+    <string name="song_info_rename_failed">リネームに失敗しました</string>
+
+    <!-- ArtistSelectionBottomSheet 艺术家选择弹窗 -->
+    <string name="artist_selection_album">アルバム</string>
+    <string name="artist_selection_artist">アーティスト</string>
+
+    <!-- PermissionGuideActivity 权限引导页面 -->
+    <string name="permission_guide_welcome">ようこそ</string>
+    <string name="permission_guide_intro">アプリを正常に利用するために、\n以下の必要な権限を許可してください。</string>
+    <string name="permission_guide_manage_all_files">すべてのファイルへのアクセス権限</string>
+    <string name="permission_guide_storage_permission">ストレージ権限</string>
+    <string name="permission_guide_manage_all_files_desc">音声ファイルの歌詞情報を読み取り・編集するために使用します</string>
+    <string name="permission_guide_storage_permission_desc">ストレージ内の音声ファイルへアクセスするために使用します</string>
+    <string name="permission_guide_audio_permission">音声権限</string>
+    <string name="permission_guide_audio_permission_desc">端末内の音声ファイルをスキャン・読み取りするために使用します</string>
+    <string name="permission_guide_notification_permission">通知権限</string>
+    <string name="permission_guide_notification_permission_desc">メディア通知の表示とバックグラウンド再生操作のために使用します</string>
+    <string name="permission_guide_privacy_note">あなたのプライバシーは重要です。\nこれらの権限はアプリの主要機能にのみ使用されます。</string>
+    <string name="permission_guide_required">必須</string>
+    <string name="permission_guide_granted">許可済み</string>
+    <string name="permission_guide_not_granted">未許可</string>
+    <string name="permission_guide_go_authorize">許可する</string>
+
+    <!-- VerbatimLyricsActivity 逐字歌词获取页面 -->
+    <string name="verbatim_tab_recommended">おすすめ</string>
+    <string name="verbatim_title">逐字歌詞を取得</string>
+    <string name="verbatim_am_config">AM歌詞設定</string>
+    <string name="verbatim_cd_search">検索</string>
+    <string name="verbatim_search_placeholder">曲名 歌手 / 曲名 / 歌手</string>
+    <string name="verbatim_cd_clear">クリア</string>
+    <string name="verbatim_search_button">検索</string>
+    <string name="verbatim_cd_audio_duration">音声時間</string>
+    <string name="verbatim_current_audio_duration">現在の音声時間: %1$s</string>
+    <string name="verbatim_no_recommended_result">条件に合うおすすめ結果がありません</string>
+    <string name="verbatim_no_result_for_source">このソースには結果がありません</string>
+    <string name="verbatim_searching">検索中...</string>
+    <string name="verbatim_input_format">入力形式：曲名 歌手 / 曲名 / 歌手</string>
+    <string name="verbatim_input_example">例：Lemon 米津玄師</string>
+    <string name="verbatim_clip_label">歌詞</string>
+    <string name="verbatim_dialog_hint_title">ヒント</string>
+    <string name="verbatim_dialog_input_search_content">検索内容を入力してください</string>
+    <string name="verbatim_dialog_copied_clipboard">クリップボードにコピーしました</string>
+    <string name="verbatim_dialog_no_lyrics">歌詞がありません</string>
+    <string name="verbatim_unknown_song">不明な曲</string>
+    <string name="verbatim_error_no_lyrics_found">歌詞が見つかりません</string>
+    <string name="verbatim_error_request_failed">リクエストに失敗しました。ネットワークを確認してください。</string>
+    <string name="verbatim_error_search_failed">検索に失敗しました：%1$s</string>
+    <string name="verbatim_error_fetch_lyrics_failed">歌詞の取得に失敗しました</string>
+    <string name="ml_music_library_lrc_verbatim_lyrics">LRC逐行/逐字歌詞</string>
+
+    <!-- LyricSettingsBottomSheet 歌词设置弹窗 -->
+    <string name="lyric_settings_title">歌詞設定</string>
+    <string name="lyric_settings_section_display">歌詞表示</string>
+    <string name="lyric_settings_show_translation">翻訳を表示</string>
+    <string name="lyric_settings_show_transliteration">ルビを表示</string>
+    <string name="lyric_settings_display_mode">表示モード</string>
+    <string name="lyric_settings_display_position">表示位置</string>
+    <string name="lyric_settings_playback_state">再生状態</string>
+    <string name="lyric_settings_font_size">文字サイズ</string>
+    <string name="lyric_settings_font_weight">文字の太さ</string>
+    <string name="lyric_settings_custom_font">カスタムフォント</string>
+    <string name="lyric_settings_section_animation">アニメーション</string>
+    <string name="lyric_settings_page_background">ページ背景</string>
+    <string name="lyric_settings_interlude_animation">間奏アニメーション</string>
+    <string name="lyric_settings_word_lift_animation">持ち上げアニメーション</string>
+    <string name="lyric_settings_lyric_glow">歌詞の発光</string>
+    <string name="lyric_settings_lyric_blur">歌詞ぼかし</string>
+    <string name="lyric_settings_section_system">再生とシステム</string>
+    <string name="lyric_settings_status_bar_lyric">ステータスバー歌詞</string>
+    <string name="lyric_settings_desktop_lyric">デスクトップ歌詞</string>
+    <string name="lyric_settings_keep_screen_on">画面を常時オン</string>
+    <string name="lyric_settings_auto_hide_playback_controls">再生コントロールを自動で隠す</string>
+    <string name="lyric_settings_status_bar_lyricon">ステータスバー歌詞（詞幕）</string>
+    <string name="lyric_settings_car_bluetooth_lyric">車載Bluetooth歌詞</string>
+    <string name="lyric_settings_desktop_lyric_master_switch">デスクトップ歌詞メインスイッチ</string>
+    <string name="lyric_settings_overlay_permission_required">先にオーバーレイ権限を許可してください</string>
+    <string name="lyric_settings_show_in_app">アプリ内で歌詞を表示</string>
+    <string name="lyric_settings_cd_back">戻る</string>
+<string name="lyric_settings_desktop_width">歌詞コンポーネント幅: %1$d%%</string>
+    <string name="lyric_settings_desktop_font_size">文字サイズ: %1$dsp</string>
+    <string name="lyric_settings_desktop_font_weight">文字の太さ: %1$d</string>
+    <string name="lyric_settings_font_stroke">文字の縁取り</string>
+    <string name="lyric_settings_use_custom_font">カスタムフォントを使用</string>
+    <string name="lyric_settings_alignment">配置</string>
+    <string name="lyric_settings_align_left">左寄せ</string>
+    <string name="lyric_settings_align_center">中央</string>
+    <string name="lyric_settings_align_right">右寄せ</string>
+    <string name="lyric_settings_display_x_axis">歌詞表示 X 位置: %1$d%%</string>
+    <string name="lyric_settings_display_y_axis">歌詞表示 Y 位置: %1$d%%</string>
+    <string name="lyric_settings_lyric_color">歌詞カラー</string>
+    <string name="lyric_settings_default">デフォルト</string>
+    <string name="lyric_settings_force_word">逐字を強制</string>
+    <string name="lyric_settings_force_line">逐行を強制</string>
+    <string name="lyric_settings_current_position">現在位置：%1$s</string>
+    <string name="lyric_settings_current_font_size">現在サイズ: %1$dsp</string>
+    <string name="lyric_settings_current_font_weight">現在の太さ: %1$s</string>
+    <string name="lyric_settings_interlude_default_dot">デフォルト ドット</string>
+    <string name="lyric_settings_interlude_dinosaur">恐竜</string>
+    <string name="lyric_settings_interlude_doge">子犬</string>
+    <string name="lyric_settings_latin_lift_whole">ラテン文字をまとめて上移動</string>
+    <string name="lyric_settings_lift_distance">持ち上げ距離: %1$ddp</string>
+    <string name="lyric_settings_add_ttf_font">TTFフォントを追加</string>
+    <string name="lyric_settings_preview_font">フォントプレビュー</string>
+    <string name="lyric_settings_played_alpha">再生済み歌詞の透明度: %1$d%%</string>
+    <string name="lyric_settings_hidden">非表示</string>
+    <string name="lyric_settings_upcoming_contrast">未再生歌詞のコントラスト: %1$d%%</string>
+    <string name="lyric_settings_low">低</string>
+    <string name="lyric_settings_high">高</string>
+    <string name="lyric_settings_played_hidden_hint">再生済み歌詞の非表示は自動スクロール時のみ有効で、手動閲覧時は通常表示に戻ります。</string>
+    <string name="lyric_settings_bg_solid">単色背景</string>
+    <string name="lyric_settings_bg_static_blur">静的ぼかし背景</string>
+    <string name="lyric_settings_bg_dynamic">動的フロー背景</string>
+    <string name="lyric_settings_bg_dynamic_android12">動的フロー背景（Android 12+のみ）</string>
+    <string name="lyric_settings_position_default">デフォルト 上へ3段</string>
+    <string name="lyric_settings_position_up">上へ%1$d段</string>
+    <string name="lyric_settings_position_zero">0段</string>
+    <string name="lyric_settings_position_down">下へ%1$d段</string>
+    <string name="lyric_settings_weight_100">極細 100</string>
+    <string name="lyric_settings_weight_200">特細 200</string>
+    <string name="lyric_settings_weight_300">細 300</string>
+    <string name="lyric_settings_weight_400">標準 400</string>
+    <string name="lyric_settings_weight_500">中 500</string>
+    <string name="lyric_settings_weight_600">準太 600</string>
+    <string name="lyric_settings_weight_700">太 700</string>
+    <string name="lyric_settings_weight_800">特太 800</string>
+    <string name="lyric_settings_weight_900">極太 900</string>
+    <string name="lyric_settings_cd_delete_font">フォントを削除</string>
+
+    <string name="artists_double_tap_back_top">ダブルタップで先頭へ戻る</string>
+    <string name="artists_title">アーティスト</string>
+    <string name="artists_sort_type">並び替え</string>
+    <string name="artists_empty">アーティストがありません</string>
+    <string name="artists_not_found_match">一致するアーティストが見つかりません</string>
+    <string name="artists_not_found">アーティストが見つかりません</string>
+    <string name="artists_edit_image">アーティスト画像を変更</string>
+    <string name="artists_album_not_found">アルバムが見つかりません</string>
+    <string name="artists_add_video_cover">動画カバーを追加</string>
+    <string name="artists_got_it">了解</string>
+    <string name="artists_search_hint">アーティストを検索</string>
+
+
+
+
+    <!-- SettingsActivity 设置页面 -->
+    <string name="settings_page_title">設定</string>
+    <string name="settings_section_software">ソフト設定</string>
+    <string name="settings_dark_mode">ダークモード</string>
+    <string name="settings_layout_mode">レイアウトモード</string>
+    <string name="settings_section_timing">タイミング設定</string>
+    <string name="settings_seek_time">早送り/巻き戻し時間</string>
+    <string name="settings_vibration_feedback">バイブフィードバック</string>
+    <string name="settings_section_home">ホーム設定</string>
+    <string name="settings_playback_bar_bg">再生バー背景</string>
+    <string name="settings_playback_control_style">再生コントロールスタイル</string>
+    <string name="settings_landscape_playbar_position">横画面・タブレット時の再生バー既定位置</string>
+    <string name="settings_section_library">ライブラリ設定</string>
+    <string name="settings_artist_split_whitelist">アーティスト分割ホワイトリスト</string>
+    <string name="settings_featuring_recognition">コラボアーティスト認識</string>
+    <string name="settings_section_metadata_edit">メタデータ編集設定</string>
+    <string name="settings_custom_metadata_fields">カスタムメタデータ項目</string>
+    <string name="settings_auto_close_after_save">保存後に自動終了</string>
+    <string name="settings_section_metadata_download">音声メタデータ取得設定</string>
+    <string name="settings_qm_cover_size">QM メタデータジャケットサイズ</string>
+    <string name="settings_ne_cover_size">NE メタデータジャケットサイズ</string>
+    <string name="settings_am_cover_size">AM メタデータジャケットサイズ</string>
+    <string name="settings_am_default_region">AM 既定地域</string>
+    <string name="settings_section_lyrics_download">歌詞ダウンロード設定</string>
+    <string name="settings_default_bracket">(既定)</string>
+    <string name="settings_add">追加</string>
+    <string name="common_not_set">未設定</string>
+    <string name="common_custom">カスタム</string>
 </resources>

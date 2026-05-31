@@ -18,7 +18,8 @@ object PiracyChecker {
         "OG47bD48PDg4Ozk7Ozxvbg==",
         "bWhqO25ibD9saj9uO2pqaA==",
         "bTtja21qPjk4bThqaWNrOw==",
-        "OGg8a2xibD87OWpram85bg=="
+        "OGg8a2xibD87OWpram85bg==",
+        "bDlobjtpajg7YmJiP2NrPw=="
     )
     
     private fun xorDecryptWithBase64(encrypted: String, key: Int): String {

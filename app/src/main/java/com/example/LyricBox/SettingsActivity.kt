@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -308,11 +309,11 @@ fun SettingsScreen(
         AppLayoutProfile.TABLET -> 24.dp
     }
     fun languageTagDisplayName(tag: String): String = when (tag) {
-        APP_LANGUAGE_SYSTEM -> "跟随系统"
-        "zh-CN" -> "简体中文"
-        "en" -> "英语"
-        "ja" -> "日语"
-        else -> "跟随系统"
+        APP_LANGUAGE_SYSTEM -> context.getString(R.string.settings_language_system)
+        "zh-CN" -> context.getString(R.string.settings_language_zh_cn)
+        "en" -> context.getString(R.string.settings_language_en)
+        "ja" -> context.getString(R.string.settings_language_ja)
+        else -> context.getString(R.string.settings_language_system)
     }
     val currentCoverSize = remember { mutableStateOf(savedCoverSize) }
     val currentQmCoverSize = remember { mutableStateOf(savedQmCoverSize) }
@@ -586,7 +587,7 @@ fun SettingsScreen(
                 lyricFontOptions = LyricCustomFontStore.loadOptions(context)
                 lyricSelectedFontId = option.id
             }.onFailure { error ->
-                Toast.makeText(context, error.message ?: "字体导入失败", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, error.message ?: context.getString(R.string.settings_font_import_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -594,7 +595,7 @@ fun SettingsScreen(
     CompositionLocalProvider(LocalSettingsLayoutProfile provides effectiveLayoutProfile) {
         Column(modifier = modifier.fillMaxSize()) {
             CommonHeadBar(
-                title = "设置",
+                title = stringResource(R.string.settings_page_title),
                 showBack = true,
                 showMenu = false,
                 onBackClick = onBack
@@ -609,7 +610,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
             
-                item { SettingsSectionTitle("软件设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_software)) }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -617,7 +618,7 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "深色模式",
+                    title = stringResource(R.string.settings_dark_mode),
                     summary = currentDarkModeType.value.displayName,
                     onClick = {
                         tempDarkModeType = currentDarkModeType.value
@@ -632,7 +633,7 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "布局模式",
+                    title = stringResource(R.string.settings_layout_mode),
                     summary = getAppLayoutModeSummary(context, currentLayoutModePreference.value),
                     onClick = {
                         tempLayoutModePreference = currentLayoutModePreference.value
@@ -647,7 +648,7 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "语言设置",
+                    title = stringResource(R.string.settings_language_title),
                     summary = languageTagDisplayName(currentLanguageTag.value),
                     onClick = {
                         tempLanguageTag = currentLanguageTag.value
@@ -660,7 +661,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-                item { SettingsSectionTitle("打轴设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_timing)) }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -668,8 +669,8 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "快进/快退时间",
-                    summary = "${currentSeekTimeSeconds.value.toInt()} 秒",
+                    title = stringResource(R.string.settings_seek_time),
+                    summary = stringResource(R.string.settings_seconds_value, currentSeekTimeSeconds.value.toInt()),
                     onClick = {
                         tempSeekTimeSeconds = currentSeekTimeSeconds.value
                         showSeekTimeDialog = true
@@ -683,13 +684,13 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "震动反馈",
+                    title = stringResource(R.string.settings_vibration_feedback),
                     summary = when (currentVibrationIntensity.value) {
-                        "off" -> "关闭"
-                        "weak" -> "弱"
-                        "medium" -> "中等"
-                        "strong" -> "强"
-                        else -> "弱"
+                        "off" -> stringResource(R.string.settings_vibration_off)
+                        "weak" -> stringResource(R.string.settings_vibration_weak)
+                        "medium" -> stringResource(R.string.settings_vibration_medium)
+                        "strong" -> stringResource(R.string.settings_vibration_strong)
+                        else -> stringResource(R.string.settings_vibration_weak)
                     },
                     onClick = {
                         tempVibrationIntensity = currentVibrationIntensity.value
@@ -702,7 +703,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-                item { SettingsSectionTitle("主页设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_home)) }
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -710,7 +711,7 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "播放控制条背景",
+                    title = stringResource(R.string.settings_playback_bar_bg),
                     summary = getMiniPlayerBackgroundModeLabel(currentMiniPlayerBackgroundMode.value),
                     onClick = {
                         tempMiniPlayerBackgroundMode = currentMiniPlayerBackgroundMode.value
@@ -725,8 +726,8 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "播放控制区域样式",
-                    summary = getPlaybackControlStyleLabel(currentPlaybackControlStyle.value),
+                    title = stringResource(R.string.settings_playback_control_style),
+                    summary = getPlaybackControlStyleLabel(context, currentPlaybackControlStyle.value),
                     onClick = {
                         tempPlaybackControlStyle = currentPlaybackControlStyle.value
                         showPlaybackControlStyleDialog = true
@@ -740,7 +741,7 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "横屏、平板模式下播放条默认位置",
+                    title = stringResource(R.string.settings_landscape_playbar_position),
                     summary = getMiniPlayerLandscapeAlignmentLabel(currentMiniPlayerLandscapeAlignment.value),
                     onClick = {
                         tempMiniPlayerLandscapeAlignment = currentMiniPlayerLandscapeAlignment.value
@@ -753,7 +754,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-                item { SettingsSectionTitle("音乐库设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_library)) }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -761,8 +762,8 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "目录设置",
-                    summary = "设置目录、排序方式",
+                    title = stringResource(R.string.ml_music_library_directory_settings),
+                    summary = stringResource(R.string.settings_library_directory_summary),
                     onClick = onNavigateToMusicLibrarySettings
                 )
             }
@@ -773,8 +774,8 @@ fun SettingsScreen(
             
             item {
                 SettingsItemWithSwitch(
-                    title = "进入音乐库时自动扫描",
-                    summary = "开启后进入音乐库会自动扫描新文件",
+                    title = stringResource(R.string.settings_auto_scan_library),
+                    summary = stringResource(R.string.settings_auto_scan_library_summary),
                     checked = autoScan,
                     onCheckedChange = { newValue ->
                         autoScan = newValue
@@ -789,12 +790,12 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "点击歌曲默认操作",
+                    title = stringResource(R.string.ml_music_library_select_default_action),
                     summary = when (currentSongClickAction.value) {
-                        "editLyrics" -> "编辑歌词"
-                        "editMetadata" -> "编辑元数据"
-                        "playMusic" -> "播放音乐"
-                        else -> "未设置"
+                        "editLyrics" -> stringResource(R.string.settings_song_action_edit_lyrics)
+                        "editMetadata" -> stringResource(R.string.settings_song_action_edit_metadata)
+                        "playMusic" -> stringResource(R.string.settings_song_action_play_music)
+                        else -> stringResource(R.string.common_not_set)
                     },
                     onClick = {
                         tempSongClickAction = currentSongClickAction.value
@@ -810,8 +811,8 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "歌词设置",
-                    summary = "显示、动画、播放与系统",
+                    title = stringResource(R.string.lyric_settings_title),
+                    summary = stringResource(R.string.settings_lyric_settings_summary),
                     onClick = { showLyricSettingsSheet = true }
                 )
             }
@@ -822,11 +823,11 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "艺术家拆分白名单",
+                    title = stringResource(R.string.settings_artist_split_whitelist),
                     summary = if (artistSplitWhitelist.isEmpty()) {
-                        "未添加"
+                        stringResource(R.string.settings_not_added)
                     } else {
-                        "已添加 ${artistSplitWhitelist.size} 个艺术家"
+                        stringResource(R.string.settings_artist_count_added, artistSplitWhitelist.size)
                     },
                     onClick = { showArtistSplitWhitelistSheet = true }
                 )
@@ -838,12 +839,12 @@ fun SettingsScreen(
 
             item {
                 val keywordSummary = if (featuringKeywords.isEmpty()) {
-                    "未启用"
+                    stringResource(R.string.settings_not_enabled)
                 } else {
                     featuringKeywords.joinToString("|")
                 }
                 SettingsItem(
-                    title = "合作艺人识别",
+                    title = stringResource(R.string.settings_featuring_recognition),
                     summary = keywordSummary,
                     onClick = { showFeaturingKeywordSheet = true }
                 )
@@ -853,7 +854,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-                item { SettingsSectionTitle("元数据编辑设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_metadata_edit)) }
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -861,8 +862,8 @@ fun SettingsScreen(
 
             item {
                 SettingsItem(
-                    title = "自定义元数据字段",
-                    summary = "设置要显示的自定义元数据字段",
+                    title = stringResource(R.string.settings_custom_metadata_fields),
+                    summary = stringResource(R.string.settings_custom_metadata_fields_summary),
                     onClick = onNavigateToCustomMetadataFieldsSettings
                 )
             }
@@ -873,8 +874,8 @@ fun SettingsScreen(
 
             item {
                 SettingsItemWithSwitch(
-                    title = "保存后自动关闭",
-                    summary = "开启后保存成功会直接退出编辑页，不显示操作成功对话框",
+                    title = stringResource(R.string.settings_auto_close_after_save),
+                    summary = stringResource(R.string.settings_auto_close_after_save_summary),
                     checked = metadataSaveAutoClose,
                     onCheckedChange = { newValue ->
                         metadataSaveAutoClose = newValue
@@ -889,7 +890,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-                item { SettingsSectionTitle("音频元数据下载设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_metadata_download)) }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -897,7 +898,7 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "QM 元数据封面尺寸",
+                    title = stringResource(R.string.settings_qm_cover_size),
                     summary = "${currentQmCoverSize.value}x${currentQmCoverSize.value}",
                     onClick = {
                         tempQmCoverSize = currentQmCoverSize.value
@@ -912,7 +913,7 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "NE 元数据封面尺寸",
+                    title = stringResource(R.string.settings_ne_cover_size),
                     summary = "${currentNeCoverSize.value}x${currentNeCoverSize.value}",
                     onClick = {
                         tempNeCoverSize = currentNeCoverSize.value
@@ -927,7 +928,7 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "AM 元数据封面尺寸",
+                    title = stringResource(R.string.settings_am_cover_size),
                     summary = "${currentCoverSize.value}x${currentCoverSize.value}",
                     onClick = {
                         tempCoverSize = currentCoverSize.value
@@ -942,7 +943,7 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "AM 默认地区",
+                    title = stringResource(R.string.settings_am_default_region),
                     summary = getAMRegionDisplayName(currentAMRegion.value),
                     onClick = {
                         tempAMRegion = currentAMRegion.value
@@ -957,7 +958,7 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "艺术家分隔符",
+                    title = stringResource(R.string.ml_music_library_artist_separator),
                     summary = if (currentArtistSeparator.value.isNotEmpty()) "\"${currentArtistSeparator.value}\"" else "\"/\"",
                     onClick = {
                         tempArtistSeparator = currentArtistSeparator.value
@@ -972,7 +973,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-                item { SettingsSectionTitle("歌词下载设置") }
+                item { SettingsSectionTitle(stringResource(R.string.settings_section_lyrics_download)) }
             
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1610,7 +1611,7 @@ fun DarkModeDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("深色模式") },
+        title = { Text(stringResource(R.string.settings_dark_mode)) },
         text = {
             Column {
                 DarkModeType.values().forEach { type ->
@@ -1636,12 +1637,12 @@ fun DarkModeDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -1672,7 +1673,7 @@ fun LayoutModeDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("布局模式") },
+        title = { Text(stringResource(R.string.settings_layout_mode)) },
         text = {
             Column {
                 options.forEach { option ->
@@ -1690,7 +1691,7 @@ fun LayoutModeDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (option == AppLayoutModePreference.AUTO) {
-                                "${option.displayName}（当前：${autoProfile.displayName}）"
+                                stringResource(R.string.settings_layout_mode_current_profile, option.displayName, autoProfile.displayName)
                             } else {
                                 option.displayName
                             },
@@ -1699,7 +1700,7 @@ fun LayoutModeDialog(
                         if (option == AppLayoutModePreference.AUTO) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -1710,12 +1711,12 @@ fun LayoutModeDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -1748,7 +1749,7 @@ fun ArtistSplitWhitelistBottomSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "艺术家拆分白名单",
+                text = stringResource(R.string.settings_artist_split_whitelist),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -1763,8 +1764,8 @@ fun ArtistSplitWhitelistBottomSheet(
                     errorText = ""
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("新增艺术家") },
-                placeholder = { Text("一行一个艺术家") },
+                label = { Text(stringResource(R.string.settings_add_artist_label)) },
+                placeholder = { Text(stringResource(R.string.settings_add_artist_placeholder)) },
                 minLines = 3,
                 maxLines = 6
             )
@@ -1789,37 +1790,37 @@ fun ArtistSplitWhitelistBottomSheet(
                     modifier = Modifier.weight(1f),
                     enabled = inputText.isNotBlank()
                 ) {
-                    Text("清空")
+                    Text(stringResource(R.string.ml_music_library_clear_selection))
                 }
                 Button(
                     onClick = {
                         val newArtists = ArtistSplitWhitelistStore.parseInput(inputText)
                         if (newArtists.isEmpty()) {
-                            errorText = "请输入要添加的艺术家"
+                            errorText = context.getString(R.string.settings_add_artist_empty_error)
                             return@Button
                         }
 
                         val merged = ArtistSplitWhitelistStore.normalize(whitelist + newArtists)
                         if (merged.size == whitelist.size) {
-                            errorText = "没有可添加的新艺术家"
+                            errorText = context.getString(R.string.settings_add_artist_no_new_error)
                             return@Button
                         }
 
                         onWhitelistChange(merged)
                         inputText = ""
                         errorText = ""
-                        Toast.makeText(context, "已添加 ${merged.size - whitelist.size} 个艺术家", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.settings_add_artist_success, merged.size - whitelist.size), Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("添加")
+                    Text(stringResource(R.string.settings_add))
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "当前白名单",
+                text = stringResource(R.string.settings_current_whitelist),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1829,7 +1830,7 @@ fun ArtistSplitWhitelistBottomSheet(
 
             if (whitelist.isEmpty()) {
                 Text(
-                    text = "暂无艺术家",
+                    text = stringResource(R.string.settings_no_artist),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1858,7 +1859,7 @@ fun ArtistSplitWhitelistBottomSheet(
                                 )
                             }
                         ) {
-                            Text("删除")
+                            Text(stringResource(R.string.common_delete))
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1900,7 +1901,7 @@ fun FeaturingArtistKeywordBottomSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "合作艺人识别",
+                text = stringResource(R.string.settings_featuring_recognition),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -1908,7 +1909,7 @@ fun FeaturingArtistKeywordBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "命中这些单词后，将从标题中识别合作艺人",
+                text = stringResource(R.string.settings_featuring_summary),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1916,7 +1917,7 @@ fun FeaturingArtistKeywordBottomSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "默认命中单词",
+                text = stringResource(R.string.settings_default_keywords),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1967,7 +1968,7 @@ fun FeaturingArtistKeywordBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "自定义命中单词",
+                text = stringResource(R.string.settings_custom_keywords),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1981,8 +1982,8 @@ fun FeaturingArtistKeywordBottomSheet(
                     errorText = ""
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("新增单词") },
-                placeholder = { Text("一行一个单词") },
+                label = { Text(stringResource(R.string.settings_add_keyword_label)) },
+                placeholder = { Text(stringResource(R.string.settings_add_keyword_placeholder)) },
                 minLines = 2,
                 maxLines = 4
             )
@@ -2007,29 +2008,29 @@ fun FeaturingArtistKeywordBottomSheet(
                     modifier = Modifier.weight(1f),
                     enabled = inputText.isNotBlank()
                 ) {
-                    Text("清空")
+                    Text(stringResource(R.string.ml_music_library_clear_selection))
                 }
                 Button(
                     onClick = {
                         val newKeywords = FeaturingArtistKeywordStore.parseInput(inputText)
                         if (newKeywords.isEmpty()) {
-                            errorText = "请输入要添加的单词"
+                            errorText = context.getString(R.string.settings_add_keyword_empty_error)
                             return@Button
                         }
                         val merged = FeaturingArtistKeywordStore.normalize(normalizedKeywords + newKeywords)
                         if (merged.size == normalizedKeywords.size) {
-                            errorText = "没有可添加的新单词"
+                            errorText = context.getString(R.string.settings_add_keyword_no_new_error)
                             return@Button
                         }
                         onKeywordsChange(merged)
                         inputText = ""
                         errorText = ""
-                        Toast.makeText(context, "已添加 ${merged.size - normalizedKeywords.size} 个单词", Toast.LENGTH_SHORT)
+                        Toast.makeText(context, context.getString(R.string.settings_add_keyword_success, merged.size - normalizedKeywords.size), Toast.LENGTH_SHORT)
                             .show()
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("添加")
+                    Text(stringResource(R.string.settings_add))
                 }
             }
 
@@ -2037,7 +2038,7 @@ fun FeaturingArtistKeywordBottomSheet(
 
             if (customKeywords.isEmpty()) {
                 Text(
-                    text = "暂无自定义单词",
+                    text = stringResource(R.string.settings_no_custom_keyword),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2066,7 +2067,7 @@ fun FeaturingArtistKeywordBottomSheet(
                                 )
                             }
                         ) {
-                            Text("删除")
+                            Text(stringResource(R.string.common_delete))
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -2085,11 +2086,11 @@ fun SeekTimeDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("快进/快退时间") },
+        title = { Text(stringResource(R.string.settings_seek_time)) },
         text = {
             Column {
                 Text(
-                    text = "当前设置: ${currentValue.toInt()} 秒",
+                    text = stringResource(R.string.settings_current_seek_time, currentValue.toInt()),
                     fontSize = 16.sp,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -2104,20 +2105,20 @@ fun SeekTimeDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("1秒", fontSize = 12.sp)
-                    Text("5秒", fontSize = 12.sp)
-                    Text("10秒", fontSize = 12.sp)
+                    Text(stringResource(R.string.settings_one_second), fontSize = 12.sp)
+                    Text(stringResource(R.string.settings_five_seconds), fontSize = 12.sp)
+                    Text(stringResource(R.string.settings_ten_seconds), fontSize = 12.sp)
                 }
             }
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2133,7 +2134,7 @@ fun QmCoverSizeDialog(
     val coverSizes = listOf(500, 800, 1200)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("QM 元数据封面尺寸") },
+        title = { Text(stringResource(R.string.settings_qm_cover_size)) },
         text = {
             Column {
                 coverSizes.forEach { size ->
@@ -2156,7 +2157,7 @@ fun QmCoverSizeDialog(
                         if (size == 1200) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2167,12 +2168,12 @@ fun QmCoverSizeDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2188,7 +2189,7 @@ fun NeCoverSizeDialog(
     val coverSizes = listOf(500, 1000, 3000)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("NE 元数据封面尺寸") },
+        title = { Text(stringResource(R.string.settings_ne_cover_size)) },
         text = {
             Column {
                 coverSizes.forEach { size ->
@@ -2211,7 +2212,7 @@ fun NeCoverSizeDialog(
                         if (size == 1000) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2222,12 +2223,12 @@ fun NeCoverSizeDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2243,7 +2244,7 @@ fun CoverSizeDialog(
     val coverSizes = listOf(500, 1000, 3000)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("AM 元数据封面尺寸") },
+        title = { Text(stringResource(R.string.settings_am_cover_size)) },
         text = {
             Column {
                 coverSizes.forEach { size ->
@@ -2266,7 +2267,7 @@ fun CoverSizeDialog(
                         if (size == 3000) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2277,12 +2278,12 @@ fun CoverSizeDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2298,7 +2299,7 @@ fun AMRegionDialog(
     val regions = AM_REGION_OPTIONS
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("AM 默认地区") },
+        title = { Text(stringResource(R.string.settings_am_default_region)) },
         text = {
             Column {
                 regions.forEach { (key, displayName) ->
@@ -2321,7 +2322,7 @@ fun AMRegionDialog(
                         if (key == "HK_SC") {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2332,12 +2333,12 @@ fun AMRegionDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2368,7 +2369,7 @@ fun AMTokenDialog(
                 val tokenSources = listOf(
                     "cloudflare" to defaultUrlName,
                     "contributor" to contributorUrlName,
-                    "custom" to "自行填写"
+                    "custom" to stringResource(R.string.settings_custom_fill_in)
                 )
                 
                 tokenSources.forEach { (key, displayName) ->
@@ -2391,7 +2392,7 @@ fun AMTokenDialog(
                         if (key == "cloudflare") {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2424,7 +2425,7 @@ fun AMTokenDialog(
                             decorationBox = { innerTextField ->
                                 if (currentUserToken.isEmpty()) {
                                     Text(
-                                        text = "输入你的 Media-User-Token",
+                                        text = stringResource(R.string.settings_am_user_token_placeholder),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -2457,7 +2458,7 @@ fun AMTokenDialog(
                             decorationBox = { innerTextField ->
                                 if (currentCountry.isEmpty()) {
                                     Text(
-                                        text = "国家代号 (例如: cn, us, jp)",
+                                        text = stringResource(R.string.settings_country_code_placeholder),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -2489,13 +2490,13 @@ fun AMTokenDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = if (showDismissButton) {
             {
                 TextButton(onClick = onDismiss) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         } else null
@@ -2513,13 +2514,13 @@ fun SongClickActionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("点击歌曲默认操作") },
+        title = { Text(stringResource(R.string.ml_music_library_select_default_action)) },
         text = {
             Column {
                 val actions = listOf(
-                    "editLyrics" to "编辑歌词",
-                    "editMetadata" to "编辑元数据",
-                    "playMusic" to "播放音乐"
+                    "editLyrics" to stringResource(R.string.settings_song_action_edit_lyrics),
+                    "editMetadata" to stringResource(R.string.settings_song_action_edit_metadata),
+                    "playMusic" to stringResource(R.string.settings_song_action_play_music)
                 )
                 
                 actions.forEach { (key, displayName) ->
@@ -2554,13 +2555,13 @@ fun SongClickActionDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "自动判断歌词类型",
+                            text = stringResource(R.string.settings_auto_detect_lyrics_type),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "对于不标准的歌词，可能会判断出错",
+                            text = stringResource(R.string.settings_auto_detect_lyrics_type_summary),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2574,12 +2575,12 @@ fun SongClickActionDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2592,15 +2593,16 @@ fun LanguageDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
+    val context = LocalContext.current
     val languageOptions = listOf(
-        APP_LANGUAGE_SYSTEM to "跟随系统",
-        "zh-CN" to "简体中文",
-        "en" to "英语",
-        "ja" to "日语"
+        APP_LANGUAGE_SYSTEM to context.getString(R.string.settings_language_system),
+        "zh-CN" to context.getString(R.string.settings_language_zh_cn),
+        "en" to context.getString(R.string.settings_language_en),
+        "ja" to context.getString(R.string.settings_language_ja)
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("语言设置") },
+        title = { Text(stringResource(R.string.settings_language_title)) },
         text = {
             Column {
                 languageOptions.forEach { (tag, displayName) ->
@@ -2626,12 +2628,12 @@ fun LanguageDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2652,11 +2654,11 @@ fun ArtistSeparatorDialog(
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("艺术家分隔符") },
+        title = { Text(stringResource(R.string.ml_music_library_artist_separator)) },
         text = {
             Column {
                 Text(
-                    text = "预设选项",
+                    text = stringResource(R.string.settings_preset_options),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -2688,7 +2690,7 @@ fun ArtistSeparatorDialog(
                         if (sep == "/") {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2711,7 +2713,7 @@ fun ArtistSeparatorDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "自定义",
+                        text = stringResource(R.string.common_custom),
                         fontSize = 16.sp
                     )
                 }
@@ -2739,7 +2741,7 @@ fun ArtistSeparatorDialog(
                             decorationBox = { innerTextField ->
                                 if (currentCustomValue.isEmpty()) {
                                     Text(
-                                        text = "输入自定义分隔符",
+                                        text = stringResource(R.string.settings_custom_separator_placeholder),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -2753,12 +2755,12 @@ fun ArtistSeparatorDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2772,14 +2774,14 @@ fun VibrationIntensityDialog(
     onConfirm: () -> Unit
 ) {
     val intensities = listOf(
-        "off" to "关闭",
-        "weak" to "弱",
-        "medium" to "中等",
-        "strong" to "强"
+        "off" to stringResource(R.string.settings_vibration_off),
+        "weak" to stringResource(R.string.settings_vibration_weak),
+        "medium" to stringResource(R.string.settings_vibration_medium),
+        "strong" to stringResource(R.string.settings_vibration_strong)
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("震动反馈强度") },
+        title = { Text(stringResource(R.string.settings_vibration_intensity)) },
         text = {
             Column {
                 intensities.forEach { (key, displayName) ->
@@ -2802,7 +2804,7 @@ fun VibrationIntensityDialog(
                         if (key == "weak") {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2813,12 +2815,12 @@ fun VibrationIntensityDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2832,14 +2834,14 @@ fun MiniPlayerBackgroundDialog(
     onConfirm: () -> Unit
 ) {
     val options = buildList {
-        add(MINI_PLAYER_BACKGROUND_MODE_DEFAULT to "默认")
-        add(MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR to "封面取色")
-        add(MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR to "封面模糊")
-        add(MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR to "液态玻璃")
+        add(MINI_PLAYER_BACKGROUND_MODE_DEFAULT to stringResource(R.string.lyric_settings_default))
+        add(MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR to stringResource(R.string.settings_bg_cover_color))
+        add(MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR to stringResource(R.string.settings_bg_cover_blur))
+        add(MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR to stringResource(R.string.settings_bg_liquid_glass))
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("播放控制条背景") },
+        title = { Text(stringResource(R.string.settings_playback_bar_bg)) },
         text = {
             Column {
                 options.forEach { (value, displayName) ->
@@ -2862,7 +2864,7 @@ fun MiniPlayerBackgroundDialog(
                         if (value == DEFAULT_MINI_PLAYER_BACKGROUND_MODE) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2873,12 +2875,12 @@ fun MiniPlayerBackgroundDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -2892,13 +2894,13 @@ fun MiniPlayerLandscapeAlignmentDialog(
     onConfirm: () -> Unit
 ) {
     val options = listOf(
-        MINI_PLAYER_LANDSCAPE_ALIGNMENT_END to "居右",
-        MINI_PLAYER_LANDSCAPE_ALIGNMENT_CENTER to "居中",
-        MINI_PLAYER_LANDSCAPE_ALIGNMENT_START to "居左"
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_END to stringResource(R.string.settings_align_end),
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_CENTER to stringResource(R.string.settings_align_center),
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_START to stringResource(R.string.settings_align_start)
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("横屏、平板模式下播放条默认位置") },
+        title = { Text(stringResource(R.string.settings_landscape_playbar_position)) },
         text = {
             Column {
                 options.forEach { (value, displayName) ->
@@ -2921,7 +2923,7 @@ fun MiniPlayerLandscapeAlignmentDialog(
                         if (value == DEFAULT_MINI_PLAYER_LANDSCAPE_ALIGNMENT) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2932,21 +2934,21 @@ fun MiniPlayerLandscapeAlignmentDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
 }
 
-private fun getPlaybackControlStyleLabel(value: Int): String {
+private fun getPlaybackControlStyleLabel(context: Context, value: Int): String {
     return when (value) {
-        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 -> "样式2（无按钮背景）"
-        else -> "样式1"
+        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 -> context.getString(R.string.settings_playback_style_2)
+        else -> context.getString(R.string.settings_playback_style_1)
     }
 }
 
@@ -2958,12 +2960,12 @@ fun PlaybackControlStyleDialog(
     onConfirm: () -> Unit
 ) {
     val options = listOf(
-        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_1 to "样式1",
-        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 to "样式2（无按钮背景）"
+        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_1 to stringResource(R.string.settings_playback_style_1),
+        LyricPreviewActivity.PLAYBACK_CONTROL_STYLE_2 to stringResource(R.string.settings_playback_style_2)
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("播放控制区域样式") },
+        title = { Text(stringResource(R.string.settings_playback_control_style)) },
         text = {
             Column {
                 options.forEach { (value, displayName) ->
@@ -2986,7 +2988,7 @@ fun PlaybackControlStyleDialog(
                         if (value == LyricPreviewActivity.DEFAULT_PLAYBACK_CONTROL_STYLE) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "(默认)",
+                                text = stringResource(R.string.settings_default_bracket),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -2997,12 +2999,12 @@ fun PlaybackControlStyleDialog(
         },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )

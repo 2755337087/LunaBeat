@@ -224,4 +224,220 @@
     <string name="settings_language_zh_cn">Simplified Chinese</string>
     <string name="settings_language_en">English</string>
     <string name="settings_language_ja">Japanese</string>
+
+    <!-- Common 通用文案 -->
+    <string name="common_confirm">Confirm</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_delete">Delete</string>
+
+    <!-- SleepTimerBottomSheet 定时播放弹窗 -->
+    <string name="sleep_timer_title">Sleep Timer</string>
+    <string name="sleep_timer_quick_select">Quick Duration</string>
+    <string name="sleep_timer_minutes_format">%1$d min</string>
+    <string name="sleep_timer_custom_duration">Custom Duration</string>
+    <string name="sleep_timer_current_selection">Current selection: %1$d min</string>
+    <string name="sleep_timer_finish_current_song">Stop after current song</string>
+    <string name="sleep_timer_start_countdown">Start timer: %1$d min</string>
+    <string name="sleep_timer_running_title">Sleep Timer Running</string>
+    <string name="sleep_timer_wait_current_song_end">Waiting for current song to end</string>
+    <string name="sleep_timer_cancel">Cancel sleep timer</string>
+
+    <!-- SongInfoBottomSheet 歌曲信息弹窗 -->
+    <string name="song_info_title">Song Info</string>
+    <string name="song_info_cover_cd">Cover</string>
+    <string name="song_info_added_next">Queued as Next</string>
+    <string name="song_info_play_next">Play Next</string>
+    <string name="song_info_playback_not_ready">Playback controller is not ready. Try again later.</string>
+    <string name="song_info_view_album_artist">View Album &amp; Artists</string>
+    <string name="song_info_unfavorite">Remove from Favorites</string>
+    <string name="song_info_favorite">Add to Favorites</string>
+    <string name="song_info_sleep_timer_running">Sleep Timer Running</string>
+    <string name="song_info_sleep_timer">Sleep Timer</string>
+    <string name="song_info_edit_timing_lyrics">Edit Lyrics in Timing Editor</string>
+    <string name="song_info_edit_metadata">Edit Song Metadata</string>
+    <string name="song_info_share_file">Share File</string>
+    <string name="song_info_rename_success">Renamed</string>
+    <string name="song_info_rename_file">Rename File</string>
+    <string name="song_info_delete_file">Delete File</string>
+    <string name="song_info_input_filename">Enter file name</string>
+    <string name="song_info_delete_confirm_message">Delete this audio file? This action cannot be undone.</string>
+    <string name="song_info_deleted">Deleted</string>
+    <string name="song_info_delete_failed">Delete failed</string>
+    <string name="song_info_share_audio_chooser">Share Audio</string>
+    <string name="song_info_share_failed">Share failed</string>
+    <string name="song_info_filename_empty">File name cannot be empty</string>
+    <string name="song_info_source_missing">Source file does not exist</string>
+    <string name="song_info_filename_unchanged">File name unchanged</string>
+    <string name="song_info_target_exists">Target file already exists</string>
+    <string name="song_info_rename_failed">Rename failed</string>
+
+    <!-- ArtistSelectionBottomSheet 艺术家选择弹窗 -->
+    <string name="artist_selection_album">Album</string>
+    <string name="artist_selection_artist">Artist</string>
+
+    <!-- PermissionGuideActivity 权限引导页面 -->
+    <string name="permission_guide_welcome">Welcome</string>
+    <string name="permission_guide_intro">To use the app normally,\nplease grant the required permissions below.</string>
+    <string name="permission_guide_manage_all_files">All Files Access</string>
+    <string name="permission_guide_storage_permission">Storage Permission</string>
+    <string name="permission_guide_manage_all_files_desc">Used to read and edit lyrics data in audio files</string>
+    <string name="permission_guide_storage_permission_desc">Used to access audio files in storage</string>
+    <string name="permission_guide_audio_permission">Audio Permission</string>
+    <string name="permission_guide_audio_permission_desc">Used to scan and read audio files on your device</string>
+    <string name="permission_guide_notification_permission">Notification Permission</string>
+    <string name="permission_guide_notification_permission_desc">Used to show media notifications and support background playback controls</string>
+    <string name="permission_guide_privacy_note">Your privacy matters to us.\nThese permissions are only used for core app features.</string>
+    <string name="permission_guide_required">Required</string>
+    <string name="permission_guide_granted">Granted</string>
+    <string name="permission_guide_not_granted">Not granted</string>
+    <string name="permission_guide_go_authorize">Grant</string>
+
+    <!-- VerbatimLyricsActivity 逐字歌词获取页面 -->
+    <string name="verbatim_tab_recommended">Recommended</string>
+    <string name="verbatim_title">Get Verbatim Lyrics</string>
+    <string name="verbatim_am_config">Apple Music Lyrics Settings</string>
+    <string name="verbatim_cd_search">Search</string>
+    <string name="verbatim_search_placeholder">Song + Artist / Song / Artist</string>
+    <string name="verbatim_cd_clear">Clear</string>
+    <string name="verbatim_search_button">Search</string>
+    <string name="verbatim_cd_audio_duration">Audio duration</string>
+    <string name="verbatim_current_audio_duration">Current audio duration: %1$s</string>
+    <string name="verbatim_no_recommended_result">No recommended results match your criteria</string>
+    <string name="verbatim_no_result_for_source">No results for this source</string>
+    <string name="verbatim_searching">Searching...</string>
+    <string name="verbatim_input_format">Input format: Song + Artist / Song / Artist</string>
+    <string name="verbatim_input_example">Example: City of Stars Ryan Gosling</string>
+    <string name="verbatim_clip_label">Lyrics</string>
+    <string name="verbatim_dialog_hint_title">Hint</string>
+    <string name="verbatim_dialog_input_search_content">Please enter search content</string>
+    <string name="verbatim_dialog_copied_clipboard">Copied to clipboard</string>
+    <string name="verbatim_dialog_no_lyrics">No lyrics available</string>
+    <string name="verbatim_unknown_song">Unknown song</string>
+    <string name="verbatim_error_no_lyrics_found">No lyrics found</string>
+    <string name="verbatim_error_request_failed">Request failed. Check your network connection.</string>
+    <string name="verbatim_error_search_failed">Search failed: %1$s</string>
+    <string name="verbatim_error_fetch_lyrics_failed">Failed to fetch lyrics</string>
+    <string name="ml_music_library_lrc_verbatim_lyrics">LRC Line/Word Lyrics</string>
+
+    <!-- LyricSettingsBottomSheet 歌词设置弹窗 -->
+    <string name="lyric_settings_title">Lyrics Settings</string>
+    <string name="lyric_settings_section_display">Lyrics Display</string>
+    <string name="lyric_settings_show_translation">Show Translation</string>
+    <string name="lyric_settings_show_transliteration">Show Transliteration</string>
+    <string name="lyric_settings_display_mode">Display Mode</string>
+    <string name="lyric_settings_display_position">Display Position</string>
+    <string name="lyric_settings_playback_state">Playback State</string>
+    <string name="lyric_settings_font_size">Font Size</string>
+    <string name="lyric_settings_font_weight">Font Weight</string>
+    <string name="lyric_settings_custom_font">Custom Font</string>
+    <string name="lyric_settings_section_animation">Animation</string>
+    <string name="lyric_settings_page_background">Page Background</string>
+    <string name="lyric_settings_interlude_animation">Interlude Animation</string>
+    <string name="lyric_settings_word_lift_animation">Word Lift Animation</string>
+    <string name="lyric_settings_lyric_glow">Lyric Glow</string>
+    <string name="lyric_settings_lyric_blur">Lyric Blur</string>
+    <string name="lyric_settings_section_system">Playback &amp; System</string>
+    <string name="lyric_settings_status_bar_lyric">Status Bar Lyrics</string>
+    <string name="lyric_settings_desktop_lyric">Desktop Lyrics</string>
+    <string name="lyric_settings_keep_screen_on">Keep Screen On</string>
+    <string name="lyric_settings_auto_hide_playback_controls">Auto-hide Playback Controls</string>
+    <string name="lyric_settings_status_bar_lyricon">Status Bar Lyrics (Lyricon)</string>
+    <string name="lyric_settings_car_bluetooth_lyric">Car Bluetooth Lyrics</string>
+    <string name="lyric_settings_desktop_lyric_master_switch">Desktop Lyrics Master Switch</string>
+    <string name="lyric_settings_overlay_permission_required">Please grant overlay permission first</string>
+    <string name="lyric_settings_show_in_app">Show Lyrics In App</string>
+    <string name="lyric_settings_cd_back">Back</string>
+<string name="lyric_settings_desktop_width">Lyric width: %1$d%%</string>
+    <string name="lyric_settings_desktop_font_size">Font size: %1$dsp</string>
+    <string name="lyric_settings_desktop_font_weight">Font weight: %1$d</string>
+    <string name="lyric_settings_font_stroke">Font Stroke</string>
+    <string name="lyric_settings_use_custom_font">Use Custom Font</string>
+    <string name="lyric_settings_alignment">Alignment</string>
+    <string name="lyric_settings_align_left">Left</string>
+    <string name="lyric_settings_align_center">Center</string>
+    <string name="lyric_settings_align_right">Right</string>
+    <string name="lyric_settings_display_x_axis">Lyric X position: %1$d%%</string>
+    <string name="lyric_settings_display_y_axis">Lyric Y position: %1$d%%</string>
+    <string name="lyric_settings_lyric_color">Lyric Color</string>
+    <string name="lyric_settings_default">Default</string>
+    <string name="lyric_settings_force_word">Force Word-by-word</string>
+    <string name="lyric_settings_force_line">Force Line-by-line</string>
+    <string name="lyric_settings_current_position">Current position: %1$s</string>
+    <string name="lyric_settings_current_font_size">Current size: %1$dsp</string>
+    <string name="lyric_settings_current_font_weight">Current weight: %1$s</string>
+    <string name="lyric_settings_interlude_default_dot">Default Dot</string>
+    <string name="lyric_settings_interlude_dinosaur">Dinosaur</string>
+    <string name="lyric_settings_interlude_doge">Doge</string>
+    <string name="lyric_settings_latin_lift_whole">Lift Latin words as a whole</string>
+    <string name="lyric_settings_lift_distance">Lift distance: %1$ddp</string>
+    <string name="lyric_settings_add_ttf_font">Add TTF Font</string>
+    <string name="lyric_settings_preview_font">Preview Font</string>
+    <string name="lyric_settings_played_alpha">Played lyric opacity: %1$d%%</string>
+    <string name="lyric_settings_hidden">Hidden</string>
+    <string name="lyric_settings_upcoming_contrast">Upcoming lyric contrast: %1$d%%</string>
+    <string name="lyric_settings_low">Low</string>
+    <string name="lyric_settings_high">High</string>
+    <string name="lyric_settings_played_hidden_hint">Played lyric hiding only works during auto-scroll; manual browsing restores default display.</string>
+    <string name="lyric_settings_bg_solid">Solid Background</string>
+    <string name="lyric_settings_bg_static_blur">Static Blur Background</string>
+    <string name="lyric_settings_bg_dynamic">Dynamic Glow Background</string>
+    <string name="lyric_settings_bg_dynamic_android12">Dynamic Glow Background (Android 12+)</string>
+    <string name="lyric_settings_position_default">Default Up 3 steps</string>
+    <string name="lyric_settings_position_up">Up %1$d steps</string>
+    <string name="lyric_settings_position_zero">0 step</string>
+    <string name="lyric_settings_position_down">Down %1$d steps</string>
+    <string name="lyric_settings_weight_100">Thin 100</string>
+    <string name="lyric_settings_weight_200">Extra Light 200</string>
+    <string name="lyric_settings_weight_300">Light 300</string>
+    <string name="lyric_settings_weight_400">Regular 400</string>
+    <string name="lyric_settings_weight_500">Medium 500</string>
+    <string name="lyric_settings_weight_600">Semi Bold 600</string>
+    <string name="lyric_settings_weight_700">Bold 700</string>
+    <string name="lyric_settings_weight_800">Extra Bold 800</string>
+    <string name="lyric_settings_weight_900">Black 900</string>
+    <string name="lyric_settings_cd_delete_font">Delete font</string>
+
+    <string name="artists_double_tap_back_top">Double tap to return to top</string>
+    <string name="artists_title">Artists</string>
+    <string name="artists_sort_type">Sort By</string>
+    <string name="artists_empty">No artists yet</string>
+    <string name="artists_not_found_match">No matching artists found</string>
+    <string name="artists_not_found">Artist not found</string>
+    <string name="artists_edit_image">Edit Artist Image</string>
+    <string name="artists_album_not_found">Album not found</string>
+    <string name="artists_add_video_cover">Add Video Cover</string>
+    <string name="artists_got_it">Got it</string>
+    <string name="artists_search_hint">Search artists</string>
+
+
+
+
+    <!-- SettingsActivity 设置页面 -->
+    <string name="settings_page_title">Settings</string>
+    <string name="settings_section_software">Software</string>
+    <string name="settings_dark_mode">Dark Mode</string>
+    <string name="settings_layout_mode">Layout Mode</string>
+    <string name="settings_section_timing">Timing</string>
+    <string name="settings_seek_time">Seek Forward/Backward Time</string>
+    <string name="settings_vibration_feedback">Vibration Feedback</string>
+    <string name="settings_section_home">Home</string>
+    <string name="settings_playback_bar_bg">Playback Bar Background</string>
+    <string name="settings_playback_control_style">Playback Control Style</string>
+    <string name="settings_landscape_playbar_position">Default Playback Bar Position in Landscape/Tablet</string>
+    <string name="settings_section_library">Library</string>
+    <string name="settings_artist_split_whitelist">Artist Split Whitelist</string>
+    <string name="settings_featuring_recognition">Featuring Artist Detection</string>
+    <string name="settings_section_metadata_edit">Metadata Editing</string>
+    <string name="settings_custom_metadata_fields">Custom Metadata Fields</string>
+    <string name="settings_auto_close_after_save">Auto-close After Save</string>
+    <string name="settings_section_metadata_download">Audio Metadata Download</string>
+    <string name="settings_qm_cover_size">QM Metadata Cover Size</string>
+    <string name="settings_ne_cover_size">NE Metadata Cover Size</string>
+    <string name="settings_am_cover_size">AM Metadata Cover Size</string>
+    <string name="settings_am_default_region">AM Default Region</string>
+    <string name="settings_section_lyrics_download">Lyrics Download</string>
+    <string name="settings_default_bracket">(Default)</string>
+    <string name="settings_add">Add</string>
+    <string name="common_not_set">Not set</string>
+    <string name="common_custom">Custom</string>
 </resources>
