@@ -1,4 +1,8 @@
 # LunaBeat
+
+[简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md)
+- LunaBeat 希望像夜晚中的音乐一样，在旋律与歌词之间，带来更纯净、更沉浸的本地音乐体验。
+---
 - 自 2.0.0 版本起，LyricBox 正式更名为 LunaBeat。
 - 这不仅是一次名称更新，也代表软件从“本地歌词编辑器”迈向“歌词与音乐播放融合体验”的全新阶段。
 - 感谢大家一直以来的支持，未来 LunaBeat 将继续专注于本地音乐、动态歌词与沉浸式播放器体验的打磨。
@@ -35,8 +39,8 @@
 - 起始 / 连续 / 结束三键打轴
 - 快退 / 快进、播放 / 暂停、倍速（0.25x ~ 3x）、跳转指定时间
 - 撤销 / 重做（覆盖时间、歌词、行操作）
-- 跟随模式、定位到选中歌词
-- 单击选中，双击跳转当前歌词开始时间播放
+- 点击播放时间可进入跟随模式、定位到选中歌词
+- 单击歌词单元选中，双击跳转当前歌词开始时间播放
 
 ### 2. 导入
 - 纯文本歌词
@@ -168,8 +172,8 @@
 - [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
 - [lottie-android](https://github.com/airbnb/lottie-android)
 - [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
-
-
+- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
 ## 交流与反馈
 
 [点击加入 LunaBeat 交流 QQ 群](https://qm.qq.com/q/N0fBvuWKOY)  群号：964680520
+[点击加入 LunaBeat Telegram 群组](https://t.me/+qXs6mjKqwhw3Zjll)
