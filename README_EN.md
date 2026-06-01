@@ -196,5 +196,5 @@ Technical support:
 - [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
 ## Community and Feedback
 
-[Join the LunaBeat QQ group](https://qm.qq.com/q/N0fBvuWKOY)  Group ID: 964680520
-[Join the LunaBeat Telegram group](https://t.me/+qXs6mjKqwhw3Zjll)
+- [Join the LunaBeat QQ group](https://qm.qq.com/q/N0fBvuWKOY)  Group ID: 964680520
+- [Join the LunaBeat Telegram group](https://t.me/+qXs6mjKqwhw3Zjll)
