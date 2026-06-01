@@ -175,5 +175,5 @@
 - [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
 ## 交流与反馈
 
-[点击加入 LunaBeat 交流 QQ 群](https://qm.qq.com/q/N0fBvuWKOY)  群号：964680520
-[点击加入 LunaBeat Telegram 群组](https://t.me/+qXs6mjKqwhw3Zjll)
+- [点击加入 LunaBeat 交流 QQ 群](https://qm.qq.com/q/N0fBvuWKOY)  群号：964680520
+- [点击加入 LunaBeat Telegram 群组](https://t.me/+qXs6mjKqwhw3Zjll)
