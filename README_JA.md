@@ -173,5 +173,5 @@ Technical Support:
 - [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
 ## コミュニティとフィードバック
 
-[LunaBeat 交流 QQ グループに参加](https://qm.qq.com/q/N0fBvuWKOY)  グループ番号：964680520
-[LunaBeat Telegram グループに参加](https://t.me/+qXs6mjKqwhw3Zjll)
+- [LunaBeat 交流 QQ グループに参加](https://qm.qq.com/q/N0fBvuWKOY)  グループ番号：964680520
+- [LunaBeat Telegram グループに参加](https://t.me/+qXs6mjKqwhw3Zjll)
