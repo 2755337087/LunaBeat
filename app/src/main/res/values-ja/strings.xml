@@ -422,6 +422,19 @@
     <string name="settings_section_software">ソフト設定</string>
     <string name="settings_dark_mode">ダークモード</string>
     <string name="settings_layout_mode">レイアウトモード</string>
+    <string name="settings_clear_cache">キャッシュを削除</string>
+    <string name="settings_clear_cache_summary">曲・フォントなどのキャッシュファイルを選んで削除</string>
+    <string name="settings_clear_cache_sheet_summary">ジャケットキャッシュは自動的に保持されます。手動で削除できるキャッシュのみ表示します。</string>
+    <string name="settings_cache_scanning">キャッシュをスキャン中...</string>
+    <string name="settings_cache_empty">削除できるキャッシュファイルはありません</string>
+    <string name="settings_cache_select_all">%1$d個のファイルをすべて選択（%2$s）</string>
+    <string name="settings_cache_file_detail">%1$s · %2$s · %3$s</string>
+    <string name="settings_cache_type_audio">曲キャッシュ</string>
+    <string name="settings_cache_type_font">フォントキャッシュ</string>
+    <string name="settings_cache_type_other">その他のキャッシュ</string>
+    <string name="settings_cache_clean_selected">選択した%1$d個を削除（%2$s）</string>
+    <string name="settings_cache_cleaning">削除中...</string>
+    <string name="settings_cache_cleaned">%1$d個のキャッシュファイルを削除しました（%2$s）</string>
     <string name="settings_section_timing">タイミング設定</string>
     <string name="settings_seek_time">早送り/巻き戻し時間</string>
     <string name="settings_vibration_feedback">バイブフィードバック</string>
@@ -746,6 +759,38 @@ TTML形式の歌詞を貼り付け</string>
 
     <!-- AboutActivity 关于页面 -->
     <string name="about_title">このアプリについて</string>
+    <string name="about_unknown">不明</string>
+    <string name="about_app_icon">アプリアイコン</string>
+    <string name="about_version">バージョン：%1$s</string>
+    <string name="about_contact_me">連絡先</string>
+    <string name="about_instructions">使い方</string>
+    <string name="about_join_qq_group">QQグループに参加</string>
+    <string name="about_visit_github">GitHubを開く</string>
+    <string name="about_join_telegram_group">Telegramグループに参加</string>
+    <string name="about_check_new_version">新バージョンを確認</string>
+    <string name="about_special_thanks">謝辞</string>
+    <string name="about_donate_support">寄付で応援</string>
+    <string name="about_developer_test">開発者テスト</string>
+    <string name="about_update_checking">更新を確認中...</string>
+    <string name="about_update_check_failed">更新確認に失敗しました</string>
+    <string name="about_latest_version_toast">すでに最新です。最新バージョン：%1$s</string>
+    <string name="about_qq_group_clip_label">QQグループ番号</string>
+    <string name="about_qq_group_number">グループ番号：%1$s</string>
+    <string name="about_qq_group_dialog_message">QQでグループ番号を検索して参加してください</string>
+    <string name="about_copy_qq_group_number">グループ番号をコピー</string>
+    <string name="about_open_qq">QQを開く</string>
+    <string name="about_close">閉じる</string>
+    <string name="about_qq_group_number_copied">グループ番号をコピーしました</string>
+    <string name="about_opening_qq">QQを開いています...</string>
+    <string name="about_qq_not_installed">QQがインストールされていません。先にインストールしてください。</string>
+    <string name="about_special_thanks_technical_intro">本アプリを支えてくれた以下のプロジェクトに感謝します：</string>
+    <string name="about_special_thanks_inspiration_intro">以下のプロジェクトから着想を得ました：</string>
+    <string name="about_project_taglib_desc">音声メタデータの読み書きライブラリ</string>
+    <string name="about_project_lyricon_desc">同期歌詞プレイヤー。技術参考として利用</string>
+    <string name="about_project_songsync_desc">Android向け歌詞ダウンロードアプリ。機能参考として利用</string>
+    <string name="about_project_lddc_desc">高精度な歌詞ダウンロード・マッチングツール。機能参考として利用</string>
+    <string name="about_project_any_listen_metadata_desc">音声メタデータ検索プラグイン。機能参考として利用</string>
+    <string name="about_project_music_tag">音楽タグ</string>
 
     <!-- SongMetadataEditActivity 编辑歌曲元数据页面 -->
     <string name="metadata_edit_field_cover">ジャケット</string>

@@ -422,6 +422,19 @@
     <string name="settings_section_software">Software</string>
     <string name="settings_dark_mode">Dark Mode</string>
     <string name="settings_layout_mode">Layout Mode</string>
+    <string name="settings_clear_cache">Clear Cache</string>
+    <string name="settings_clear_cache_summary">Choose and remove cached songs, fonts, and other files</string>
+    <string name="settings_clear_cache_sheet_summary">Cover cache is kept automatically. Only manually cleanable cache files are shown.</string>
+    <string name="settings_cache_scanning">Scanning cache...</string>
+    <string name="settings_cache_empty">No cache files to clean</string>
+    <string name="settings_cache_select_all">Select all %1$d files (%2$s)</string>
+    <string name="settings_cache_file_detail">%1$s · %2$s · %3$s</string>
+    <string name="settings_cache_type_audio">Song cache</string>
+    <string name="settings_cache_type_font">Font cache</string>
+    <string name="settings_cache_type_other">Other cache</string>
+    <string name="settings_cache_clean_selected">Clean selected %1$d (%2$s)</string>
+    <string name="settings_cache_cleaning">Cleaning...</string>
+    <string name="settings_cache_cleaned">Cleaned %1$d cache files (%2$s)</string>
     <string name="settings_section_timing">Timing</string>
     <string name="settings_seek_time">Seek Forward/Backward Time</string>
     <string name="settings_vibration_feedback">Vibration Feedback</string>
@@ -746,6 +759,38 @@ Paste TTML formatted lyrics</string>
 
     <!-- AboutActivity 关于页面 -->
     <string name="about_title">About</string>
+    <string name="about_unknown">Unknown</string>
+    <string name="about_app_icon">App icon</string>
+    <string name="about_version">Version: %1$s</string>
+    <string name="about_contact_me">Contact Me</string>
+    <string name="about_instructions">Instructions</string>
+    <string name="about_join_qq_group">Join QQ Group</string>
+    <string name="about_visit_github">Visit GitHub</string>
+    <string name="about_join_telegram_group">Join Telegram Group</string>
+    <string name="about_check_new_version">Check for Updates</string>
+    <string name="about_special_thanks">Special Thanks</string>
+    <string name="about_donate_support">Donate</string>
+    <string name="about_developer_test">Developer Test</string>
+    <string name="about_update_checking">Checking for updates...</string>
+    <string name="about_update_check_failed">Update check failed</string>
+    <string name="about_latest_version_toast">Already up to date. Latest version: %1$s</string>
+    <string name="about_qq_group_clip_label">QQ group ID</string>
+    <string name="about_qq_group_number">Group ID: %1$s</string>
+    <string name="about_qq_group_dialog_message">Search this group ID in QQ to join</string>
+    <string name="about_copy_qq_group_number">Copy Group ID</string>
+    <string name="about_open_qq">Open QQ</string>
+    <string name="about_close">Close</string>
+    <string name="about_qq_group_number_copied">Group ID copied</string>
+    <string name="about_opening_qq">Opening QQ...</string>
+    <string name="about_qq_not_installed">QQ is not installed. Please install it first.</string>
+    <string name="about_special_thanks_technical_intro">Thanks to these projects for supporting this app:</string>
+    <string name="about_special_thanks_inspiration_intro">These projects provided inspiration:</string>
+    <string name="about_project_taglib_desc">Audio metadata reading and writing library</string>
+    <string name="about_project_lyricon_desc">Lyrics sync player, used as a technical reference</string>
+    <string name="about_project_songsync_desc">Android lyrics downloader, used as a feature reference</string>
+    <string name="about_project_lddc_desc">Accurate lyrics download and matching tool, used as a feature reference</string>
+    <string name="about_project_any_listen_metadata_desc">Audio metadata search plugin, used as a feature reference</string>
+    <string name="about_project_music_tag">Music Tag</string>
 
     <!-- SongMetadataEditActivity 编辑歌曲元数据页面 -->
     <string name="metadata_edit_field_cover">Cover</string>

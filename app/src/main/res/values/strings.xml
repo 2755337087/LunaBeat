@@ -422,6 +422,19 @@
     <string name="settings_section_software">软件设置</string>
     <string name="settings_dark_mode">深色模式</string>
     <string name="settings_layout_mode">布局模式</string>
+    <string name="settings_clear_cache">清理缓存</string>
+    <string name="settings_clear_cache_summary">选择并清理歌曲、字体等缓存文件</string>
+    <string name="settings_clear_cache_sheet_summary">封面缓存会自动保留，仅显示可手动清理的缓存文件。</string>
+    <string name="settings_cache_scanning">正在扫描缓存...</string>
+    <string name="settings_cache_empty">暂无可清理的缓存文件</string>
+    <string name="settings_cache_select_all">全选 %1$d 个文件（%2$s）</string>
+    <string name="settings_cache_file_detail">%1$s · %2$s · %3$s</string>
+    <string name="settings_cache_type_audio">歌曲缓存</string>
+    <string name="settings_cache_type_font">字体缓存</string>
+    <string name="settings_cache_type_other">其他缓存</string>
+    <string name="settings_cache_clean_selected">清理所选 %1$d 个（%2$s）</string>
+    <string name="settings_cache_cleaning">正在清理...</string>
+    <string name="settings_cache_cleaned">已清理 %1$d 个缓存文件（%2$s）</string>
     <string name="settings_section_timing">打轴设置</string>
     <string name="settings_seek_time">快进/快退时间</string>
     <string name="settings_vibration_feedback">震动反馈</string>
@@ -745,6 +758,38 @@
 
     <!-- AboutActivity 关于页面 -->
     <string name="about_title">关于</string>
+    <string name="about_unknown">未知</string>
+    <string name="about_app_icon">应用图标</string>
+    <string name="about_version">版本：%1$s</string>
+    <string name="about_contact_me">联系我</string>
+    <string name="about_instructions">使用说明</string>
+    <string name="about_join_qq_group">加入QQ群</string>
+    <string name="about_visit_github">访问GitHub</string>
+    <string name="about_join_telegram_group">加入 Telegram 群组</string>
+    <string name="about_check_new_version">检测新版本</string>
+    <string name="about_special_thanks">特别感谢</string>
+    <string name="about_donate_support">捐赠支持</string>
+    <string name="about_developer_test">开发者测试</string>
+    <string name="about_update_checking">正在检测更新...</string>
+    <string name="about_update_check_failed">检测失败</string>
+    <string name="about_latest_version_toast">已是最新版，最新版本 %1$s</string>
+    <string name="about_qq_group_clip_label">QQ群号</string>
+    <string name="about_qq_group_number">群号：%1$s</string>
+    <string name="about_qq_group_dialog_message">请在QQ中搜索群号加入</string>
+    <string name="about_copy_qq_group_number">复制群号</string>
+    <string name="about_open_qq">打开QQ</string>
+    <string name="about_close">关闭</string>
+    <string name="about_qq_group_number_copied">群号已复制</string>
+    <string name="about_opening_qq">正在打开QQ...</string>
+    <string name="about_qq_not_installed">未安装QQ，请先下载安装</string>
+    <string name="about_special_thanks_technical_intro">感谢以下项目为本应用提供帮助：</string>
+    <string name="about_special_thanks_inspiration_intro">以下项目提供灵感支持：</string>
+    <string name="about_project_taglib_desc">音频元数据读写库</string>
+    <string name="about_project_lyricon_desc">歌词同步播放器，提供技术参考</string>
+    <string name="about_project_songsync_desc">Android歌词下载应用，提供功能参考</string>
+    <string name="about_project_lddc_desc">精准歌词下载匹配工具，提供功能参考</string>
+    <string name="about_project_any_listen_metadata_desc">音频元数据搜索插件，提供功能参考</string>
+    <string name="about_project_music_tag">音乐标签</string>
 
     <!-- SongMetadataEditActivity 编辑歌曲元数据页面 -->
     <string name="metadata_edit_field_cover">封面</string>
