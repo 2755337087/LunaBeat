@@ -131,6 +131,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -204,6 +205,10 @@ private fun summarizeTimingLyricLinesForLog(lines: List<LyricLine>): String {
 }
 
 class LyricTimingActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     companion object {
         const val EXTRA_MEDIA_STORE_ID = "media_store_id"
         const val EXTRA_INITIAL_PLAYBACK_POSITION_MS = "initial_playback_position_ms"
@@ -916,12 +921,13 @@ class LyricTimingActivity : ComponentActivity() {
         val normalized = formatLabel.trim().lowercase()
         if (normalized.contains("ttml")) return 3
         if (normalized.contains("elrc") || normalized.contains("enhanced")) return 2
+        if (normalized.contains("拡張")) return 2
         if (normalized.contains("lrc")) return 1
         if (normalized.contains("plain") || normalized.contains("text")) return 0
-        if (normalized.contains("纯文本")) return 0
+        if (normalized.contains("纯文本") || normalized.contains("プレーンテキスト")) return 0
         if (normalized.contains("增强")) return 2
         if (normalized.contains("ttml歌词") || normalized.contains("ttml歌詞")) return 3
-        if (normalized.contains("lrc歌词") || normalized.contains("逐行") || normalized.contains("逐字")) return 1
+        if (normalized.contains("lrc歌词") || normalized.contains("lrc歌詞") || normalized.contains("逐行") || normalized.contains("逐字")) return 1
         return detectLyricsFormat(lyricsContent).coerceIn(0, 3)
     }
 
@@ -1416,7 +1422,7 @@ private fun ImportTransliterationSheetHeader(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "导入注音",
+            text = stringResource(R.string.lyric_timing_import_transliteration),
             style = MaterialTheme.typography.titleLarge
         )
         IconButton(
@@ -1433,7 +1439,7 @@ private fun ImportTransliterationSheetHeader(
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.more),
-                contentDescription = "注音菜单"
+                contentDescription = stringResource(R.string.lyric_timing_transliteration_menu)
             )
         }
     }
@@ -1443,21 +1449,21 @@ private fun ImportTransliterationSheetHeader(
         onDismissRequest = { showMenu = false },
         items = listOf(
             MenuItem(
-                title = "导入假名罗马音",
+                title = stringResource(R.string.lyric_timing_import_kana_romaji),
                 onClick = {
                     showMenu = false
                     onImportKanaRomaClick()
                 }
             ),
             MenuItem(
-                title = "删除所有注音",
+                title = stringResource(R.string.lyric_timing_delete_all_transliteration),
                 onClick = {
                     showMenu = false
                     onDeleteAllClick()
                 }
             ),
             MenuItem(
-                title = "关闭页面",
+                title = stringResource(R.string.lyric_timing_close_page),
                 onClick = {
                     showMenu = false
                     onClosePageClick()
@@ -1505,7 +1511,7 @@ private fun ImportTranslationSheetContent(
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Text(
-            text = "通过文本导入翻译",
+            text = stringResource(R.string.lyric_timing_import_translation_by_text),
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(bottom = 16.dp)
         )
@@ -1599,7 +1605,7 @@ private fun ImportTranslationSheetContent(
                             ) {
                                 if (translationInput.isEmpty()) {
                                     Text(
-                                        text = "输入翻译，一行一句",
+                                        text = stringResource(R.string.lyric_timing_translation_input_placeholder),
                                         fontSize = 14.sp,
                                         color = Color.Gray
                                     )
@@ -1617,7 +1623,7 @@ private fun ImportTranslationSheetContent(
             horizontalArrangement = Arrangement.End
         ) {
             Button(onClick = onConfirmClick) {
-                Text("确定")
+                Text(stringResource(R.string.common_confirm))
             }
         }
     }
@@ -1718,7 +1724,7 @@ private fun ImportTransliterationBottomSheet(
             ThemedTextField(
                 value = transliterationInput,
                 onValueChange = onTransliterationInputChange,
-                placeholder = "输入格式：\n歌词：注音\n注意：请输入单个字符对应的注音，一行一个。\n示例：\n你：ni\n好：hao",
+                placeholder = stringResource(R.string.lyric_timing_transliteration_input_placeholder),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(250.dp),
@@ -1739,22 +1745,22 @@ private fun ImportTransliterationBottomSheet(
                         }
                     }
                 ) {
-                    Text("粘贴")
+                    Text(stringResource(R.string.common_paste))
                 }
                 OutlinedButton(
                     onClick = { onTransliterationInputChange("") }
                 ) {
-                    Text("清空")
+                    Text(stringResource(R.string.common_clear))
                 }
                 Button(
                     onClick = {
                         val (transliterationMap, parseError) = parseTransliterationInput(transliterationInput)
                         if (parseError) {
-                            onResultStateChange(false, "解析失败，请检查格式是否正确")
+                            onResultStateChange(false, context.getString(R.string.lyric_timing_parse_failed_check_format))
                             onShowResultDialog()
                             closeSheet()
                         } else if (transliterationMap.isEmpty()) {
-                            onResultStateChange(false, "未输入任何注音")
+                            onResultStateChange(false, context.getString(R.string.lyric_timing_no_transliteration_input))
                             onShowResultDialog()
                             closeSheet()
                         } else {
@@ -1776,16 +1782,16 @@ private fun ImportTransliterationBottomSheet(
                             updateUndoRedoState()
 
                             if (matchCount == 0) {
-                                onResultStateChange(false, "未找到对应歌词")
+                                onResultStateChange(false, context.getString(R.string.lyric_timing_no_matching_lyrics))
                             } else {
-                                onResultStateChange(true, "成功对${matchCount}个字符完成注音")
+                                onResultStateChange(true, context.getString(R.string.lyric_timing_transliteration_success_count, matchCount))
                             }
                             onShowResultDialog()
                             closeSheet()
                         }
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         }
@@ -1810,6 +1816,7 @@ private fun DeleteMultipleLinesBottomSheet(
     if (!showSheet) return
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -1841,7 +1848,7 @@ private fun DeleteMultipleLinesBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             BatchEditSheetMenuHeader(
-                title = "删除多行",
+                title = stringResource(R.string.lyric_timing_delete_multiple_lines),
                 onSelectAll = { onSelectedLineIndicesChange(lyricLines.indices.toSet()) },
                 onInvertSelect = {
                     onSelectedLineIndicesChange(lyricLines.indices.toSet() - selectedLineIndices)
@@ -1850,12 +1857,12 @@ private fun DeleteMultipleLinesBottomSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "已选择 ${selectedLineIndices.size} 行",
+                text = stringResource(R.string.lyric_timing_selected_lines_count, selectedLineIndices.size),
                 fontSize = 14.sp,
                 color = Color.Gray,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-            Text("请选择要删除的行：", fontSize = 14.sp)
+            Text(stringResource(R.string.lyric_timing_select_lines_to_delete), fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn(
@@ -1928,7 +1935,7 @@ private fun DeleteMultipleLinesBottomSheet(
                                     )
                                 }
                             }
-                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, "删除多行"))
+                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, context.getString(R.string.lyric_timing_delete_multiple_lines)))
                             updateUndoRedoState()
                             val newLines = lyricLines.toMutableList()
                             sortedIndices.forEach { index ->
@@ -1943,7 +1950,7 @@ private fun DeleteMultipleLinesBottomSheet(
                     },
                     enabled = selectedLineIndices.isNotEmpty() && selectedLineIndices.size < lyricLines.size
                 ) {
-                    Text("确定删除")
+                    Text(stringResource(R.string.lyric_timing_confirm_delete))
                 }
             }
         }
@@ -2005,16 +2012,16 @@ private fun MoveLineBottomSheet(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "移动行",
+                    text = stringResource(R.string.lyric_timing_move_line),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 Text(
-                    text = "当前行：${menuLineIndex + 1} | $currentLineText",
+                    text = stringResource(R.string.lyric_timing_current_line_with_content, menuLineIndex + 1, currentLineText),
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                Text("请选择需要移动到哪一行：", fontSize = 14.sp)
+                Text(stringResource(R.string.lyric_timing_select_target_line_to_move), fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LazyColumn(
@@ -2067,7 +2074,7 @@ private fun MoveLineBottomSheet(
                             )
                             if (isCurrentLine) {
                                 Text(
-                                    text = " (当前行)",
+                                    text = stringResource(R.string.lyric_timing_current_line_tag),
                                     color = Color.White,
                                     fontSize = 12.sp
                                 )
@@ -2077,10 +2084,10 @@ private fun MoveLineBottomSheet(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("位置：", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.lyric_timing_position_label), fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 CustomRadioButtonGroup(
-                    options = listOf("上方", "下方"),
+                    options = listOf(stringResource(R.string.lyric_timing_above), stringResource(R.string.lyric_timing_below)),
                     selectedIndex = moveLinePosition,
                     onSelect = onMoveLinePositionChange
                 )
@@ -2110,7 +2117,7 @@ private fun MoveLineBottomSheet(
                         },
                         enabled = moveLineTargetIndex >= 0 && moveLineTargetIndex != menuLineIndex
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -2127,8 +2134,8 @@ private fun MoveLineBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
-            text = { Text("您已修改了移动行的选择，确定要放弃修改吗？") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_discard_move_changes_confirm)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -2136,7 +2143,7 @@ private fun MoveLineBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -2147,7 +2154,7 @@ private fun MoveLineBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -2197,6 +2204,8 @@ private fun SplitToMultipleLinesBottomSheet(
 
     if (showSheet && menuLineIndex >= 0 && menuLineIndex < lyricLines.size) {
         val currentLine = lyricLines[menuLineIndex]
+        val splitNoNewlineError = stringResource(R.string.lyric_timing_split_no_newline_error)
+        val splitNeedTwoLinesError = stringResource(R.string.lyric_timing_split_need_two_lines_error)
         androidx.compose.material3.ModalBottomSheet(
             modifier = Modifier.statusBarsPadding(),
             sheetMaxWidth = Dp.Unspecified,
@@ -2210,16 +2219,16 @@ private fun SplitToMultipleLinesBottomSheet(
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "拆分为多行",
+                    text = stringResource(R.string.lyric_timing_split_to_multiple_lines),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
-                Text("当前歌词：", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.lyric_timing_current_lyrics_label), fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 ThemedTextField(
                     value = splitText,
                     onValueChange = onSplitTextChange,
-                    placeholder = "歌词内容",
+                    placeholder = stringResource(R.string.lyric_timing_lyrics_content_placeholder),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp),
@@ -2229,7 +2238,7 @@ private fun SplitToMultipleLinesBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "提示：请通过输入换行符将歌词拆分为多行。每一行将成为新的歌词行。",
+                    text = stringResource(R.string.lyric_timing_split_multiline_hint),
                     fontSize = 12.sp,
                     color = Color.Gray
                 )
@@ -2250,13 +2259,13 @@ private fun SplitToMultipleLinesBottomSheet(
                     Button(
                         onClick = {
                             if (!splitText.contains("\n")) {
-                                splitError = "未检测到换行符，无法拆分"
+                                splitError = splitNoNewlineError
                                 return@Button
                             }
 
                             val lines = splitText.split("\n").filter { it.isNotBlank() }
                             if (lines.size < 2) {
-                                splitError = "拆分后至少需要两行有效歌词"
+                                splitError = splitNeedTwoLinesError
                                 return@Button
                             }
 
@@ -2338,7 +2347,7 @@ private fun SplitToMultipleLinesBottomSheet(
                             splitError = ""
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -2355,8 +2364,8 @@ private fun SplitToMultipleLinesBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
-            text = { Text("您已修改了歌词内容，确定要放弃修改吗？") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_discard_lyrics_changes_confirm)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -2364,7 +2373,7 @@ private fun SplitToMultipleLinesBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -2375,7 +2384,7 @@ private fun SplitToMultipleLinesBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -2464,6 +2473,7 @@ private fun BatchSegmentBottomSheet(
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    val context = LocalContext.current
 
     androidx.compose.material3.ModalBottomSheet(
         modifier = Modifier
@@ -2485,7 +2495,7 @@ private fun BatchSegmentBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             BatchEditSheetMenuHeader(
-                title = "一键分词",
+                title = stringResource(R.string.lyric_timing_batch_segment),
                 onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
                 onInvertSelect = {
                     onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
@@ -2498,7 +2508,7 @@ private fun BatchSegmentBottomSheet(
                 }
             )
             Text(
-                text = "选择需要分词的歌词行：",
+                text = stringResource(R.string.lyric_timing_select_lines_to_segment),
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -2571,7 +2581,7 @@ private fun BatchSegmentBottomSheet(
                                     )
                                 }
                             }
-                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, "一键分词"))
+                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, context.getString(R.string.lyric_timing_batch_segment)))
                             updateUndoRedoState()
                             val newLyricLines = lyricLines.mapIndexed { index, line ->
                                 if (selectedLines.contains(index)) {
@@ -2589,7 +2599,7 @@ private fun BatchSegmentBottomSheet(
                         onSelectedLinesChange(emptySet())
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         }
@@ -2617,6 +2627,7 @@ private fun MergeUnitsBottomSheet(
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    val context = LocalContext.current
     var mergeThresholdMenuAnchor by remember { mutableStateOf(MenuAnchorPosition(0f, 0f)) }
     val density = LocalDensity.current
 
@@ -2640,7 +2651,7 @@ private fun MergeUnitsBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             BatchEditSheetMenuHeader(
-                title = "一键合并歌词",
+                title = stringResource(R.string.lyric_timing_batch_merge_units),
                 onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
                 onInvertSelect = {
                     onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
@@ -2653,7 +2664,7 @@ private fun MergeUnitsBottomSheet(
                 }
             )
             Text(
-                text = "选择需要合并歌词单元的歌词行：",
+                text = stringResource(R.string.lyric_timing_select_lines_to_merge_units),
                 style = MaterialTheme.typography.bodyMedium
             )
             Row(
@@ -2661,7 +2672,7 @@ private fun MergeUnitsBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "合并阈值：±",
+                    text = stringResource(R.string.lyric_timing_merge_threshold_prefix),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2676,14 +2687,14 @@ private fun MergeUnitsBottomSheet(
                             )
                         }
                     ) {
-                        Text("$mergeThreshold 毫秒")
+                        Text(stringResource(R.string.lyric_timing_milliseconds_value, mergeThreshold))
                     }
                     CustomDropdownMenu(
                         expanded = showThresholdMenu,
                         onDismissRequest = { onShowThresholdMenuChange(false) },
                         items = listOf(10L, 30L, 50L, 70L, 100L).map { threshold ->
                             MenuItem(
-                                title = "$threshold 毫秒",
+                                title = stringResource(R.string.lyric_timing_milliseconds_value, threshold),
                                 onClick = {
                                     onMergeThresholdChange(threshold)
                                     onShowThresholdMenuChange(false)
@@ -2761,7 +2772,7 @@ private fun MergeUnitsBottomSheet(
                                     )
                                 }
                             }
-                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, "一键合并歌词"))
+                            undoRedoManager.pushBatchAction(BatchUndoAction(actions, context.getString(R.string.lyric_timing_batch_merge_units)))
                             updateUndoRedoState()
                             val newLyricLines = lyricLines.mapIndexed { index, line ->
                                 if (selectedLines.contains(index)) {
@@ -2776,7 +2787,7 @@ private fun MergeUnitsBottomSheet(
                         onSelectedLinesChange(emptySet())
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         }
@@ -2802,6 +2813,7 @@ private fun TimestampShiftBottomSheet(
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    val context = LocalContext.current
 
     androidx.compose.material3.ModalBottomSheet(
         modifier = Modifier
@@ -2823,7 +2835,7 @@ private fun TimestampShiftBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             BatchEditSheetMenuHeader(
-                title = "平移时间戳",
+                title = stringResource(R.string.lyric_timing_batch_shift_timestamp),
                 onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
                 onInvertSelect = {
                     onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
@@ -2836,7 +2848,7 @@ private fun TimestampShiftBottomSheet(
                 }
             )
             Text(
-                text = "选择需要平移时间戳的歌词行：",
+                text = stringResource(R.string.lyric_timing_select_lines_to_shift),
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -2905,7 +2917,7 @@ private fun TimestampShiftBottomSheet(
                     onValueChange = { input ->
                         onShiftValueChange(filterDigits(input))
                     },
-                    placeholder = "偏移值",
+                    placeholder = stringResource(R.string.lyric_timing_shift_value_placeholder),
                     modifier = Modifier.weight(0.6f),
                     singleLine = true
                 )
@@ -2921,7 +2933,7 @@ private fun TimestampShiftBottomSheet(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "单位：毫秒",
+                text = stringResource(R.string.lyric_timing_unit_milliseconds),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2954,7 +2966,7 @@ private fun TimestampShiftBottomSheet(
                                         }
                                     }
                                 }
-                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, context.getString(R.string.lyric_timing_batch_shift_timestamp)))
                                 updateUndoRedoState()
                                 onLyricLinesChange(LyricBatchEditUtils.shiftTimestamps(lyricLines, selectedLines, -shiftMs))
                             }
@@ -2962,7 +2974,7 @@ private fun TimestampShiftBottomSheet(
                             onSelectedLinesChange(emptySet())
                         }
                     ) {
-                        Text("提前（-）")
+                        Text(stringResource(R.string.lyric_timing_shift_earlier))
                     }
                     Button(
                         onClick = {
@@ -2987,7 +2999,7 @@ private fun TimestampShiftBottomSheet(
                                         }
                                     }
                                 }
-                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "批量平移时间戳"))
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, context.getString(R.string.lyric_timing_batch_shift_timestamp)))
                                 updateUndoRedoState()
                                 onLyricLinesChange(LyricBatchEditUtils.shiftTimestamps(lyricLines, selectedLines, shiftMs))
                             }
@@ -2995,7 +3007,7 @@ private fun TimestampShiftBottomSheet(
                             onSelectedLinesChange(emptySet())
                         }
                     ) {
-                        Text("延后（+）")
+                        Text(stringResource(R.string.lyric_timing_shift_later))
                     }
                 }
             }
@@ -3020,6 +3032,7 @@ private fun ConvertToSimplifiedBottomSheet(
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val scrollBlocker = rememberBottomSheetListScrollBlocker()
+    val context = LocalContext.current
 
     androidx.compose.material3.ModalBottomSheet(
         modifier = Modifier
@@ -3041,7 +3054,7 @@ private fun ConvertToSimplifiedBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             BatchEditSheetMenuHeader(
-                title = "转换为简体",
+                title = stringResource(R.string.lyric_timing_batch_convert_simplified),
                 onSelectAll = { onSelectedLinesChange(lyricLines.indices.toSet()) },
                 onInvertSelect = {
                     onSelectedLinesChange(lyricLines.indices.toSet() - selectedLines)
@@ -3054,7 +3067,7 @@ private fun ConvertToSimplifiedBottomSheet(
                 }
             )
             Text(
-                text = "选择需要转换为简体的歌词行：",
+                text = stringResource(R.string.lyric_timing_select_lines_to_convert_simplified),
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -3142,7 +3155,7 @@ private fun ConvertToSimplifiedBottomSheet(
                                 }
                             }
                             if (actions.isNotEmpty()) {
-                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, "转换为简体"))
+                                undoRedoManager.pushBatchAction(BatchUndoAction(actions, context.getString(R.string.lyric_timing_batch_convert_simplified)))
                                 updateUndoRedoState()
                             }
                             onLyricLinesChange(LyricBatchEditUtils.convertToSimplified(lyricLines, selectedLines))
@@ -3151,7 +3164,7 @@ private fun ConvertToSimplifiedBottomSheet(
                         onSelectedLinesChange(emptySet())
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         }
@@ -3235,7 +3248,7 @@ private fun ImportLyricsBottomSheets(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "导入歌词",
+                        text = stringResource(R.string.lyric_timing_import_lyrics),
                         style = MaterialTheme.typography.titleLarge
                     )
                     IconButton(
@@ -3250,7 +3263,7 @@ private fun ImportLyricsBottomSheets(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.more),
-                            contentDescription = "更多",
+                            contentDescription = stringResource(R.string.common_more),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -3260,14 +3273,14 @@ private fun ImportLyricsBottomSheets(
                     onDismissRequest = { lyricInputMenuExpanded = false },
                     items = listOf(
                         MenuItem(
-                            title = "导入示例",
+                            title = stringResource(R.string.lyric_timing_import_example),
                             onClick = {
                                 lyricInputMenuExpanded = false
                                 onShowImportExampleDialogChange(true)
                             }
                         ),
                         MenuItem(
-                            title = "关闭页面",
+                            title = stringResource(R.string.lyric_timing_close_page),
                             onClick = {
                                 lyricInputMenuExpanded = false
                                 if (lyricInput.isNotEmpty()) {
@@ -3285,7 +3298,7 @@ private fun ImportLyricsBottomSheets(
                 ThemedTextField(
                     value = lyricInput,
                     onValueChange = onLyricInputChange,
-                    placeholder = "一行一句歌词\n每行格式：歌词=翻译（翻译可选）",
+                    placeholder = stringResource(R.string.lyric_timing_import_plaintext_placeholder),
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 200.dp, max = 360.dp),
@@ -3297,7 +3310,7 @@ private fun ImportLyricsBottomSheets(
                 CustomCheckbox(
                     checked = useSpaceSplit,
                     onCheckedChange = onUseSpaceSplitChange,
-                    label = "使用空格分割歌词(高级)"
+                    label = stringResource(R.string.lyric_timing_use_space_split_advanced)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Box(
@@ -3306,8 +3319,8 @@ private fun ImportLyricsBottomSheets(
                         .height(60.dp)
                 ) {
                     Text(
-                        text = if (useSpaceSplit) "按空格分割歌词单元，若需要保留歌词中原有空格，需要两个空格"
-                        else "每行作为一个整体歌词单元，可通过菜单中的“一键分词”功能快速分割（推荐）",
+                        text = if (useSpaceSplit) stringResource(R.string.lyric_timing_space_split_hint_enabled)
+                        else stringResource(R.string.lyric_timing_space_split_hint_disabled),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -3327,10 +3340,10 @@ private fun ImportLyricsBottomSheets(
                             }
                         }
                     ) {
-                        Text("粘贴")
+                        Text(stringResource(R.string.common_paste))
                     }
                     OutlinedButton(onClick = { onLyricInputChange("") }) {
-                        Text("清空")
+                        Text(stringResource(R.string.common_clear))
                     }
                     Button(
                         onClick = {
@@ -3338,7 +3351,7 @@ private fun ImportLyricsBottomSheets(
                             onShowLyricInputDialogChange(false)
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -3348,8 +3361,8 @@ private fun ImportLyricsBottomSheets(
     if (showCancelLyricInputConfirm) {
         AlertDialog(
             onDismissRequest = { onShowCancelLyricInputConfirmChange(false) },
-            title = { Text("确认取消") },
-            text = { Text("输入框中有内容，确定要取消吗？") },
+            title = { Text(stringResource(R.string.lyric_timing_confirm_cancel_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_confirm_cancel_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -3359,7 +3372,7 @@ private fun ImportLyricsBottomSheets(
                         }
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -3371,7 +3384,7 @@ private fun ImportLyricsBottomSheets(
                         onPendingLyricInputDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -3405,14 +3418,14 @@ private fun ImportLyricsBottomSheets(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "导入 LRC 逐行/逐字歌词",
+                    text = stringResource(R.string.lyric_timing_import_lrc_line_word),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 ThemedTextField(
                     value = splLrcInput,
                     onValueChange = onSplLrcInputChange,
-                    placeholder = "输入LRC 逐行/逐字歌词\n例如：[00:00.000]歌词[00:00.000]",
+                    placeholder = stringResource(R.string.lyric_timing_import_lrc_placeholder),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp),
@@ -3434,10 +3447,10 @@ private fun ImportLyricsBottomSheets(
                             }
                         }
                     ) {
-                        Text("粘贴")
+                        Text(stringResource(R.string.common_paste))
                     }
                     OutlinedButton(onClick = { onSplLrcInputChange("") }) {
-                        Text("清空")
+                        Text(stringResource(R.string.common_clear))
                     }
                     Button(
                         onClick = {
@@ -3445,7 +3458,7 @@ private fun ImportLyricsBottomSheets(
                             onShowSPLLrcInputDialogChange(false)
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -3455,8 +3468,8 @@ private fun ImportLyricsBottomSheets(
     if (showCancelSpllrcInputConfirm) {
         AlertDialog(
             onDismissRequest = { onShowCancelSpllrcInputConfirmChange(false) },
-            title = { Text("确认取消") },
-            text = { Text("输入框中有内容，确定要取消吗？") },
+            title = { Text(stringResource(R.string.lyric_timing_confirm_cancel_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_confirm_cancel_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -3466,7 +3479,7 @@ private fun ImportLyricsBottomSheets(
                         }
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -3478,7 +3491,7 @@ private fun ImportLyricsBottomSheets(
                         onPendingSpllrcInputDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -3507,14 +3520,14 @@ private fun ImportLyricsBottomSheets(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "导入增强LRC/ELRC逐字歌词",
+                    text = stringResource(R.string.lyric_timing_import_elrc_word),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 ThemedTextField(
                     value = elrcInput,
                     onValueChange = onElrcInputChange,
-                    placeholder = "输入ELRC歌词\n例如：[00:44.360]v2: <00:44.360>内<00:44.840>...",
+                    placeholder = stringResource(R.string.lyric_timing_import_elrc_placeholder),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp),
@@ -3523,7 +3536,7 @@ private fun ImportLyricsBottomSheets(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "提示：解析<时间>标签，v1为左侧歌词，v2为右侧歌词",
+                    text = stringResource(R.string.lyric_timing_import_elrc_hint),
                     fontSize = 12.sp,
                     color = Color.Gray
                 )
@@ -3542,10 +3555,10 @@ private fun ImportLyricsBottomSheets(
                             }
                         }
                     ) {
-                        Text("粘贴")
+                        Text(stringResource(R.string.common_paste))
                     }
                     OutlinedButton(onClick = { onElrcInputChange("") }) {
-                        Text("清空")
+                        Text(stringResource(R.string.common_clear))
                     }
                     Button(
                         onClick = {
@@ -3554,7 +3567,7 @@ private fun ImportLyricsBottomSheets(
                             onElrcInputChange("")
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -3564,8 +3577,8 @@ private fun ImportLyricsBottomSheets(
     if (showCancelElrcInputConfirm) {
         AlertDialog(
             onDismissRequest = { onShowCancelElrcInputConfirmChange(false) },
-            title = { Text("确认取消") },
-            text = { Text("输入框中有内容，确定要取消吗？") },
+            title = { Text(stringResource(R.string.lyric_timing_confirm_cancel_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_confirm_cancel_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -3575,7 +3588,7 @@ private fun ImportLyricsBottomSheets(
                         }
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -3587,7 +3600,7 @@ private fun ImportLyricsBottomSheets(
                         onPendingElrcInputDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -3616,14 +3629,14 @@ private fun ImportLyricsBottomSheets(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "导入TTML歌词",
+                    text = stringResource(R.string.lyric_timing_import_ttml),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 ThemedTextField(
                     value = ttmlInput,
                     onValueChange = onTtmlInputChange,
-                    placeholder = "输入TTML歌词内容\n粘贴TTML格式歌词",
+                    placeholder = stringResource(R.string.lyric_timing_import_ttml_placeholder),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp),
@@ -3632,7 +3645,7 @@ private fun ImportLyricsBottomSheets(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "提示：导入时会自动删除换行符和多余空格",
+                    text = stringResource(R.string.lyric_timing_import_ttml_hint),
                     fontSize = 12.sp,
                     color = Color.Gray
                 )
@@ -3651,10 +3664,10 @@ private fun ImportLyricsBottomSheets(
                             }
                         }
                     ) {
-                        Text("粘贴")
+                        Text(stringResource(R.string.common_paste))
                     }
                     OutlinedButton(onClick = { onTtmlInputChange("") }) {
-                        Text("清空")
+                        Text(stringResource(R.string.common_clear))
                     }
                     Button(
                         onClick = {
@@ -3663,7 +3676,7 @@ private fun ImportLyricsBottomSheets(
                             onTtmlInputChange("")
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -3673,8 +3686,8 @@ private fun ImportLyricsBottomSheets(
     if (showCancelTtmlInputConfirm) {
         AlertDialog(
             onDismissRequest = { onShowCancelTtmlInputConfirmChange(false) },
-            title = { Text("确认取消") },
-            text = { Text("输入框中有内容，确定要取消吗？") },
+            title = { Text(stringResource(R.string.lyric_timing_confirm_cancel_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_confirm_cancel_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -3684,7 +3697,7 @@ private fun ImportLyricsBottomSheets(
                         }
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -3696,7 +3709,7 @@ private fun ImportLyricsBottomSheets(
                         onPendingTtmlInputDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -3785,7 +3798,7 @@ private fun SetTimestampBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "设置时间戳",
+                        text = stringResource(R.string.lyric_timing_set_timestamp),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f)
                     )
@@ -3820,7 +3833,7 @@ private fun SetTimestampBottomSheet(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.prel),
-                                    contentDescription = "上一个",
+                                    contentDescription = stringResource(R.string.common_previous),
                                     tint = if (isPlaying || prevUnitInfo == null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -3872,7 +3885,7 @@ private fun SetTimestampBottomSheet(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.nextl),
-                                    contentDescription = "下一个",
+                                    contentDescription = stringResource(R.string.common_next),
                                     tint = if (isPlaying || nextUnitInfo == null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -3894,7 +3907,7 @@ private fun SetTimestampBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "开始时间：",
+                            text = stringResource(R.string.lyric_timing_start_time_label),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(0.3f)
                         )
@@ -3911,7 +3924,7 @@ private fun SetTimestampBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "歌词内容：",
+                            text = stringResource(R.string.lyric_timing_lyrics_text_label),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(0.3f)
                         )
@@ -3934,7 +3947,7 @@ private fun SetTimestampBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "结束时间：",
+                            text = stringResource(R.string.lyric_timing_end_time_label),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(0.3f)
                         )
@@ -3950,7 +3963,7 @@ private fun SetTimestampBottomSheet(
                         CustomCheckbox(
                             checked = linkToPrevEndTime,
                             onCheckedChange = { linkToPrevEndTime = it },
-                            label = "将开始时间应用到上一单元的结束时间"
+                            label = stringResource(R.string.lyric_timing_apply_start_to_prev_end)
                         )
                     }
                     if (prevUnitInfo != null && nextUnitInfo != null) {
@@ -3960,7 +3973,7 @@ private fun SetTimestampBottomSheet(
                         CustomCheckbox(
                             checked = linkToNextStartTime,
                             onCheckedChange = { linkToNextStartTime = it },
-                            label = "将结束时间应用到下一单元的开始时间"
+                            label = stringResource(R.string.lyric_timing_apply_end_to_next_start)
                         )
                     }
 
@@ -4056,7 +4069,7 @@ private fun SetTimestampBottomSheet(
                     ThemedTextField(
                         value = editingTimeInSheet,
                         onValueChange = { editingTimeInSheet = it },
-                        placeholder = "时间 (mm:ss.SSS)",
+                        placeholder = stringResource(R.string.lyric_timing_time_format_placeholder),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -4080,7 +4093,7 @@ private fun SetTimestampBottomSheet(
                         ThemedTextField(
                             value = shiftValue,
                             onValueChange = { shiftValue = filterDigits(it) },
-                            placeholder = "偏移值",
+                            placeholder = stringResource(R.string.lyric_timing_shift_value_placeholder),
                             modifier = Modifier.weight(0.6f),
                             singleLine = true
                         )
@@ -4096,7 +4109,7 @@ private fun SetTimestampBottomSheet(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "单位：毫秒",
+                        text = stringResource(R.string.lyric_timing_unit_milliseconds),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -4111,14 +4124,14 @@ private fun SetTimestampBottomSheet(
                                 editingTimeInSheet = adjustTime(editingTimeInSheet, -shiftMs)
                             },
                             modifier = Modifier.weight(1f)
-                        ) { Text("提前（-）") }
+                        ) { Text(stringResource(R.string.lyric_timing_shift_earlier)) }
                         Button(
                             onClick = {
                                 val shiftMs = shiftValue.toLongOrNull() ?: 0L
                                 editingTimeInSheet = adjustTime(editingTimeInSheet, shiftMs)
                             },
                             modifier = Modifier.weight(1f)
-                        ) { Text("延后（+）") }
+                        ) { Text(stringResource(R.string.lyric_timing_shift_later)) }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                     Row(
@@ -4126,7 +4139,7 @@ private fun SetTimestampBottomSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                     ) {
                         TextButton(onClick = { onShowTimeEditorChange(false) }) {
-                            Text("返回")
+                            Text(stringResource(R.string.common_back))
                         }
                         Button(
                             onClick = {
@@ -4138,7 +4151,7 @@ private fun SetTimestampBottomSheet(
                                 onShowTimeEditorChange(false)
                             }
                         ) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_confirm))
                         }
                     }
                 }
@@ -4156,7 +4169,7 @@ private fun SetTimestampBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
             text = { Text("您已修改了时间，确定要放弃修改吗？") },
             confirmButton = {
                 Button(
@@ -4165,7 +4178,7 @@ private fun SetTimestampBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -4177,7 +4190,7 @@ private fun SetTimestampBottomSheet(
                         onShowTimeEditorChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -4193,8 +4206,8 @@ private fun SetTimestampBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("当前数据未保存") },
-            text = { Text("当前数据未保存，是否切换？") },
+            title = { Text(stringResource(R.string.lyric_timing_unsaved_data_title)) },
+            text = { Text(stringResource(R.string.lyric_timing_unsaved_data_switch_confirm)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -4202,7 +4215,7 @@ private fun SetTimestampBottomSheet(
                         onTargetUnitInfoChange(null)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -4277,22 +4290,22 @@ private fun SplitLyricBottomSheet(
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "拆分歌词",
+                    text = stringResource(R.string.lyric_timing_split_lyrics),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
-                Text("用空格分隔歌词单元：", fontSize = 14.sp)
+                Text(stringResource(R.string.lyric_timing_split_lyrics_by_space), fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 ThemedTextField(
                     value = splitLyricText,
                     onValueChange = { onSplitLyricTextChange(it) },
-                    placeholder = "歌词内容",
+                    placeholder = stringResource(R.string.lyric_timing_lyrics_content_placeholder),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     minLines = 2
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("提示：第一个空格为分隔符，连续多余空格保留到下一单元", fontSize = 12.sp, color = Color.Gray)
+                Text(stringResource(R.string.lyric_timing_split_lyrics_hint), fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -4304,7 +4317,7 @@ private fun SplitLyricBottomSheet(
                             onSplitLyricTextChange(segmentedWords.joinToString(" "))
                         }
                     ) {
-                        Text("一键分词", fontSize = 12.sp)
+                        Text(stringResource(R.string.lyric_timing_batch_segment), fontSize = 12.sp)
                     }
                     Button(
                         onClick = {
@@ -4436,7 +4449,7 @@ private fun SplitLyricBottomSheet(
                         },
                         enabled = splitLyricText.isNotBlank()
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -4453,7 +4466,7 @@ private fun SplitLyricBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
             text = { Text("您已修改了内容，确定要放弃修改吗？") },
             confirmButton = {
                 Button(
@@ -4462,7 +4475,7 @@ private fun SplitLyricBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -4473,7 +4486,7 @@ private fun SplitLyricBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -4551,7 +4564,7 @@ private fun AddTranslationBottomSheet(
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "添加翻译",
+                    text = stringResource(R.string.lyric_timing_add_translation),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -4577,7 +4590,7 @@ private fun AddTranslationBottomSheet(
                 }
                 Text(lineText, modifier = Modifier.padding(bottom = 8.dp))
                 Text(
-                    text = "翻译行",
+                    text = stringResource(R.string.lyric_timing_translation_line),
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
@@ -4595,7 +4608,7 @@ private fun AddTranslationBottomSheet(
                                 newRows[rowIndex] = newValue
                                 updateRows(newRows)
                             },
-                            placeholder = "请输入翻译内容",
+                            placeholder = stringResource(R.string.lyric_timing_translation_input_placeholder_simple),
                             modifier = Modifier.weight(1f)
                         )
                         if (translationRows.size > 1) {
@@ -4608,7 +4621,7 @@ private fun AddTranslationBottomSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "删除翻译行"
+                                    contentDescription = stringResource(R.string.lyric_timing_delete_translation_line)
                                 )
                             }
                         }
@@ -4650,7 +4663,7 @@ private fun AddTranslationBottomSheet(
                         },
                         enabled = hasChanges
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -4667,7 +4680,7 @@ private fun AddTranslationBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
             text = { Text("您已输入了翻译内容，确定要放弃修改吗？") },
             confirmButton = {
                 Button(
@@ -4676,7 +4689,7 @@ private fun AddTranslationBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -4687,7 +4700,7 @@ private fun AddTranslationBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -4840,7 +4853,7 @@ private fun MergeLyricBottomSheet(
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "合并歌词",
+                    text = stringResource(R.string.lyric_timing_merge_lyrics),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -4938,7 +4951,7 @@ private fun MergeLyricBottomSheet(
                         },
                         enabled = mergeLyricPreview.isNotEmpty() || mergeSelectedUnits.size >= 2
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -4955,7 +4968,7 @@ private fun MergeLyricBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
             text = { Text("您已进行了合并操作，确定要放弃修改吗？") },
             confirmButton = {
                 Button(
@@ -4964,7 +4977,7 @@ private fun MergeLyricBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -4976,7 +4989,7 @@ private fun MergeLyricBottomSheet(
                         resetState()
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -5068,7 +5081,7 @@ private fun MergeLinesBottomSheet(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "合并行",
+                    text = stringResource(R.string.lyric_timing_merge_lines),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -5138,7 +5151,7 @@ private fun MergeLinesBottomSheet(
                 CustomCheckbox(
                     checked = mergeLinesAddSpace,
                     onCheckedChange = { onMergeLinesAddSpaceChange(it) },
-                    label = "行与行之间增加空格"
+                    label = stringResource(R.string.lyric_timing_add_space_between_lines)
                 )
 
                 if (mergeLinesError.isNotEmpty()) {
@@ -5311,7 +5324,7 @@ private fun MergeLinesBottomSheet(
                             resetState()
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             }
@@ -5328,7 +5341,7 @@ private fun MergeLinesBottomSheet(
                 dismissOnBackPress = false,
                 dismissOnClickOutside = false
             ),
-            title = { Text("确认放弃修改") },
+            title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
             text = { Text("您已进行了合并操作，确定要放弃修改吗？") },
             confirmButton = {
                 Button(
@@ -5337,7 +5350,7 @@ private fun MergeLinesBottomSheet(
                         onPendingDismissChange(false)
                     }
                 ) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.common_continue_editing))
                 }
             },
             dismissButton = {
@@ -5349,7 +5362,7 @@ private fun MergeLinesBottomSheet(
                         resetState()
                     }
                 ) {
-                    Text("放弃修改")
+                    Text(stringResource(R.string.common_discard_changes))
                 }
             }
         )
@@ -5376,12 +5389,12 @@ private fun DeleteAllTransliterationConfirmDialog(
         text = { Text("确定删除当前打轴界面所有歌词行的注音内容吗？此操作可通过撤销恢复。") },
         confirmButton = {
             Button(onClick = onConfirm) {
-                Text("确定删除")
+                Text(stringResource(R.string.lyric_timing_confirm_delete))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )
@@ -5410,14 +5423,14 @@ private fun RecognizeRomajiRubyDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "此功能用于识别翻译中的罗马音注音（支持日语、韩语），并转换为 TTML 歌词标准的逐字注音。日语会兼容小假名与促音场景。识别完成后，需要将歌词保存为 TTML 格式才可保留逐字注音。",
+                    text = stringResource(R.string.lyric_timing_transliteration_recognition_description),
                     fontSize = 13.sp,
                     lineHeight = 20.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 if (translationLineOptionCount > 1) {
                     Text(
-                        text = "请选择“罗马音注音行”在翻译中的位置（对所有歌词行生效）：",
+                        text = stringResource(R.string.lyric_timing_select_romaji_translation_row),
                         fontSize = 13.sp,
                         color = Color.Gray
                     )
@@ -5436,14 +5449,14 @@ private fun RecognizeRomajiRubyDialog(
                                 onClick = { onSelectedTranslationLineIndexChange(index) }
                             )
                             Text(
-                                text = "第 ${index + 1} 行翻译",
+                                text = stringResource(R.string.lyric_timing_translation_row_index, index + 1),
                                 modifier = Modifier.padding(start = 6.dp)
                             )
                         }
                     }
                 } else {
                     Text(
-                        text = "当前仅检测到 1 行翻译，将默认使用第 1 行翻译进行注音识别。",
+                        text = stringResource(R.string.lyric_timing_only_one_translation_row_hint),
                         fontSize = 13.sp,
                         color = Color.Gray
                     )
@@ -5465,7 +5478,7 @@ private fun RecognizeRomajiRubyDialog(
                     Text("罗马音转假名（仅日语）")
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         }
@@ -6434,7 +6447,7 @@ fun LyricLineItem(
                 fontSize = 14.sp,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            val agentTypeOptions = listOf("默认", "对唱", "背景")
+            val agentTypeOptions = listOf(stringResource(R.string.lyric_timing_agent_default), stringResource(R.string.lyric_timing_agent_duet), stringResource(R.string.lyric_timing_agent_background))
             val selectedAgentIndex = when (lyricLine.agentType) {
                 LyricAgentType.LEFT -> 0
                 LyricAgentType.RIGHT -> 1
@@ -6800,7 +6813,7 @@ fun CreatorsArea(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "创作者",
+            text = stringResource(R.string.lyric_timing_creators_title),
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
@@ -6808,7 +6821,7 @@ fun CreatorsArea(
         
         if (creators.isEmpty()) {
             Text(
-                text = "暂无创作者",
+                text = stringResource(R.string.lyric_timing_creators_empty),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -6823,7 +6836,7 @@ fun CreatorsArea(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = creator.ifEmpty { "未命名创作者" },
+                        text = creator.ifEmpty { stringResource(R.string.lyric_timing_creator_unnamed) },
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -6840,7 +6853,7 @@ fun CreatorsArea(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.pencil),
-                            contentDescription = "编辑",
+                            contentDescription = stringResource(R.string.common_edit),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -6861,7 +6874,7 @@ fun CreatorsArea(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.delete),
-                            contentDescription = "删除",
+                            contentDescription = stringResource(R.string.common_delete),
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(20.dp)
                         )
@@ -6876,7 +6889,7 @@ fun CreatorsArea(
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = "新增创作者")
+            Text(text = stringResource(R.string.lyric_timing_creator_add))
         }
     }
 }
@@ -6906,7 +6919,7 @@ fun EditCreatorSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = if (creatorIndex >= 0) "编辑创作者" else "添加创作者",
+                text = if (creatorIndex >= 0) stringResource(R.string.lyric_timing_creator_edit) else stringResource(R.string.lyric_timing_creator_add_dialog),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -6914,7 +6927,7 @@ fun EditCreatorSheet(
             )
             
             Text(
-                text = "创作者名称：",
+                text = stringResource(R.string.lyric_timing_creator_name_label),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -6924,7 +6937,7 @@ fun EditCreatorSheet(
             ThemedTextField(
                 value = inputName,
                 onValueChange = { inputName = it },
-                placeholder = "请输入创作者名称",
+                placeholder = stringResource(R.string.lyric_timing_creator_name_placeholder),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -6944,7 +6957,7 @@ fun EditCreatorSheet(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
                 Button(
                     onClick = {
@@ -6953,7 +6966,7 @@ fun EditCreatorSheet(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("保存")
+                    Text(stringResource(R.string.common_save))
                 }
             }
         }
@@ -7008,7 +7021,7 @@ fun TimingControlArea(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.rewind),
-                    contentDescription = "快退${seekTimeSeconds.toInt()}秒",
+                    contentDescription = stringResource(R.string.lyric_timing_seek_backward_seconds, seekTimeSeconds.toInt()),
                     tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(15.dp)
                 )
@@ -7020,7 +7033,7 @@ fun TimingControlArea(
                     onClick = { onIsFollowModeChange(false) },
                     modifier = Modifier.weight(3.4f)
                 ) {
-                    Text(text = "退出跟随模式")
+                    Text(text = stringResource(R.string.lyric_timing_exit_follow_mode))
                 }
             } else {
                 // 正常模式显示起始、连续、结束按钮
@@ -7039,7 +7052,7 @@ fun TimingControlArea(
                     },
                     modifier = Modifier.weight(1.2f)
                 ) {
-                    Text(text = "起始", maxLines = 1, softWrap = false)
+                    Text(text = stringResource(R.string.lyric_timing_set_start), maxLines = 1, softWrap = false)
                 }
                 Button(
                     onClick = {
@@ -7075,7 +7088,7 @@ fun TimingControlArea(
                     },
                     modifier = Modifier.weight(1.2f)
                 ) {
-                    Text(text = "连续", maxLines = 1, softWrap = false)
+                    Text(text = stringResource(R.string.lyric_timing_set_continuous), maxLines = 1, softWrap = false)
                 }
                 Button(
                     onClick = {
@@ -7111,7 +7124,7 @@ fun TimingControlArea(
                     },
                     modifier = Modifier.weight(1.2f)
                 ) {
-                    Text(text = "结束", maxLines = 1, softWrap = false)
+                    Text(text = stringResource(R.string.lyric_timing_set_end), maxLines = 1, softWrap = false)
                 }
             }
 
@@ -7127,7 +7140,7 @@ fun TimingControlArea(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.fastforward),
-                    contentDescription = "快进${seekTimeSeconds.toInt()}秒",
+                    contentDescription = stringResource(R.string.lyric_timing_seek_forward_seconds, seekTimeSeconds.toInt()),
                     tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(15.dp)
                 )
@@ -7442,7 +7455,7 @@ fun LyricDisplayArea(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.baseline_my_location_24),
-                        contentDescription = "定位到选中歌词",
+                        contentDescription = stringResource(R.string.lyric_timing_locate_selected_lyric),
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
                 }
@@ -7542,21 +7555,21 @@ fun ImportButtons(
                             )
                         }
                 ) {
-                    Text(text = "导入歌词")
+                    Text(text = stringResource(R.string.lyric_timing_import_lyrics))
                 }
                 CustomDropdownMenu(
                     expanded = showImportLyricMenu,
                     onDismissRequest = { onShowImportLyricMenuChange(false) },
                     items = listOf(
-                        MenuItem(title = "通过纯文本导入", onClick = {
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_import_plain_text), onClick = {
                             onShowImportLyricMenuChange(false); onShowLyricInputDialogChange() }),
-                        MenuItem(title = "通过LRC逐行/逐字歌词导入", onClick = {
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_import_lrc), onClick = {
                             onShowImportLyricMenuChange(false); onShowSPLLrcInputDialogChange() }),
-                        MenuItem(title = "通过增强LRC/ELRC逐字歌词导入", onClick = {
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_import_elrc), onClick = {
                             onShowImportLyricMenuChange(false); onShowElrcInputDialogChange() }),
-                        MenuItem(title = "通过TTML歌词导入", onClick = {
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_import_ttml), onClick = {
                             onShowImportLyricMenuChange(false); onShowTtmlInputDialogChange() }),
-                        MenuItem(title = "获取逐字歌词", onClick = {
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_fetch_verbatim), onClick = {
                             onShowImportLyricMenuChange(false)
                             val keyword = if (sourceTitle.isNotEmpty() && sourceArtist.isNotEmpty()) "$sourceTitle $sourceArtist" else sourceTitle
                             onOpenVerbatimLyrics(keyword)
@@ -7573,7 +7586,7 @@ fun ImportButtons(
                 onClick = { onImportAudio() },
                 modifier = Modifier.fillMaxWidth(0.9f)
             ) {
-                Text(text = "导入音频")
+                Text(text = stringResource(R.string.lyric_timing_menu_import_audio))
             }
         }
     }
@@ -7777,7 +7790,7 @@ fun CreatorsSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "创作者",
+            text = stringResource(R.string.lyric_timing_creators_title),
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -7793,7 +7806,7 @@ fun CreatorsSection(
                         }
                     })
                 },
-                label = { Text("创作者 ${index + 1}") },
+                label = { Text(stringResource(R.string.lyric_timing_creator_label, index + 1)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -7805,7 +7818,7 @@ fun CreatorsSection(
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = "新增创作者")
+            Text(text = stringResource(R.string.lyric_timing_creator_add))
         }
     }
 }
@@ -7940,7 +7953,7 @@ fun CommonHeadBar(
                     ) {
                         Icon(
                             painter = painterResource(id = leadingIconResId),
-                            contentDescription = "返回",
+                            contentDescription = stringResource(R.string.common_back),
                             tint = iconColor
                         )
                     }
@@ -8013,7 +8026,7 @@ fun CommonHeadBar(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                            contentDescription = "菜单",
+                            contentDescription = stringResource(R.string.common_menu),
                             tint = iconColor
                         )
                     }
@@ -8085,7 +8098,7 @@ private fun BatchEditSheetMenuHeader(
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.more),
-                contentDescription = "更多",
+                contentDescription = stringResource(R.string.common_more),
                 tint = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -8095,9 +8108,9 @@ private fun BatchEditSheetMenuHeader(
         expanded = showMenu,
         onDismissRequest = { showMenu = false },
         items = listOf(
-            MenuItem(title = "全选", onClick = onSelectAll),
-            MenuItem(title = "反选", onClick = onInvertSelect),
-            MenuItem(title = "关闭页面", onClick = onClosePage)
+            MenuItem(title = stringResource(R.string.common_select_all), onClick = onSelectAll),
+            MenuItem(title = stringResource(R.string.common_invert_select), onClick = onInvertSelect),
+            MenuItem(title = stringResource(R.string.lyric_timing_close_page), onClick = onClosePage)
         ),
         anchorPosition = menuAnchor ?: MenuAnchorPosition(0f, 0f),
         menuWidth = 200f
@@ -8169,7 +8182,7 @@ fun EditControlPanel(
     ) {
         // 修改歌词区域
         Text(
-            text = "修改歌词",
+            text = stringResource(R.string.lyric_timing_edit_lyrics_section),
             fontSize = 12.sp,
             color = Color.Gray,
             modifier = Modifier.padding(bottom = 4.dp)
@@ -8187,7 +8200,7 @@ fun EditControlPanel(
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("编辑", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_edit), fontSize = 14.sp)
                 }
             }
             Button(
@@ -8195,7 +8208,7 @@ fun EditControlPanel(
                 modifier = Modifier.height(36.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
-                Text("新增", fontSize = 14.sp)
+                Text(stringResource(R.string.common_add), fontSize = 14.sp)
             }
             if (!isBlankLineMenu) {
                 Button(
@@ -8203,21 +8216,21 @@ fun EditControlPanel(
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("拆分", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_split), fontSize = 14.sp)
                 }
                 Button(
                     onClick = onMergeLyric,
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("合并", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_merge), fontSize = 14.sp)
                 }
                 Button(
                     onClick = onSetTimestamp,
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("设置时间", fontSize = 14.sp)
+                    Text(stringResource(R.string.lyric_timing_set_time), fontSize = 14.sp)
                 }
                 Button(
                     onClick = onDeleteLyric,
@@ -8227,7 +8240,7 @@ fun EditControlPanel(
                         containerColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("删除", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_delete), fontSize = 14.sp)
                 }
             }
         }
@@ -8236,7 +8249,7 @@ fun EditControlPanel(
         
         // 修改行区域
         Text(
-            text = "修改行",
+            text = stringResource(R.string.lyric_timing_edit_lines_section),
             fontSize = 12.sp,
             color = Color.Gray,
             modifier = Modifier.padding(bottom = 4.dp)
@@ -8253,7 +8266,7 @@ fun EditControlPanel(
                 modifier = Modifier.height(36.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
-                Text("新增", fontSize = 14.sp)
+                Text(stringResource(R.string.common_add), fontSize = 14.sp)
             }
             if (!isBlankLineMenu) {
                 Button(
@@ -8261,21 +8274,21 @@ fun EditControlPanel(
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("拆分", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_split), fontSize = 14.sp)
                 }
                 Button(
                     onClick = onMergeLine,
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("合并", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_merge), fontSize = 14.sp)
                 }
                 Button(
                     onClick = onMoveLine,
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("移动", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_move), fontSize = 14.sp)
                 }
             }
             if (!isBlankLineMenu && showAddTranslation) {
@@ -8284,7 +8297,7 @@ fun EditControlPanel(
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("添加翻译", fontSize = 14.sp)
+                    Text(stringResource(R.string.lyric_timing_add_translation), fontSize = 14.sp)
                 }
             }
             if (!isBlankLineMenu && showEditTranslation) {
@@ -8293,7 +8306,7 @@ fun EditControlPanel(
                     modifier = Modifier.height(36.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {
-                    Text("修改翻译", fontSize = 14.sp)
+                    Text(stringResource(R.string.lyric_timing_edit_translation), fontSize = 14.sp)
                 }
             }
             Button(
@@ -8304,7 +8317,7 @@ fun EditControlPanel(
                     containerColor = MaterialTheme.colorScheme.error
                 )
             ) {
-                Text("删除", fontSize = 14.sp)
+                Text(stringResource(R.string.common_delete), fontSize = 14.sp)
             }
         }
     }
@@ -8407,7 +8420,7 @@ fun EnhancedLrcSaveDialog(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "保存为增强LRC歌词",
+                    text = stringResource(R.string.lyric_timing_save_as_enhanced_lrc),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -8429,7 +8442,7 @@ fun EnhancedLrcSaveDialog(
                 CustomCheckbox(
                     checked = showDuet,
                     onCheckedChange = onShowDuetChange,
-                    label = "显示对唱标识（v1/v2）"
+                    label = stringResource(R.string.lyric_timing_show_duet_tags)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
@@ -8445,7 +8458,7 @@ fun EnhancedLrcSaveDialog(
                             onCopied()
                         }
                     ) {
-                        Text("复制")
+                        Text(stringResource(R.string.common_copy))
                     }
                 }
             }
@@ -8487,12 +8500,12 @@ fun EmbedEnhancedLrcDialog(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "嵌入增强LRC歌词",
+                    text = stringResource(R.string.lyric_timing_embed_enhanced_lrc),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 Text(
-                    text = "确认嵌入到 '$displayTitle' 吗？",
+                    text = stringResource(R.string.lyric_timing_confirm_embed_to_target, displayTitle),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -8515,7 +8528,7 @@ fun EmbedEnhancedLrcDialog(
                 CustomCheckbox(
                     checked = showDuet,
                     onCheckedChange = onShowDuetChange,
-                    label = "显示对唱标识（v1/v2）"
+                    label = stringResource(R.string.lyric_timing_show_duet_tags)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
@@ -8530,14 +8543,14 @@ fun EmbedEnhancedLrcDialog(
                             onCopied()
                         }
                     ) {
-                        Text("复制")
+                        Text(stringResource(R.string.common_copy))
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
                             onDismiss()
                             if (sourceAudioPath.isEmpty()) {
-                                onEmbedResult(false, "音频路径为空，无法嵌入歌词", false, null)
+                                onEmbedResult(false, context.getString(R.string.lyric_timing_audio_path_empty_embed_failed), false, null)
                                 return@Button
                             }
                             kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
@@ -8552,7 +8565,7 @@ fun EmbedEnhancedLrcDialog(
                                 withContext(Dispatchers.Main) {
                                     onEmbedResult(
                                         result.success,
-                                        if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage,
+                                        if (result.success) context.getString(R.string.lyric_timing_embed_success) else result.errorMessage,
                                         result.needPermission,
                                         result.recoverableIntentSender
                                     )
@@ -8560,7 +8573,7 @@ fun EmbedEnhancedLrcDialog(
                             }
                         }
                     ) {
-                        Text("确认嵌入")
+                        Text(stringResource(R.string.lyric_timing_confirm_embed))
                     }
                 }
             }
@@ -8598,7 +8611,7 @@ fun LineLyricSaveDialog(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "保存为LRC逐行歌词",
+                    text = stringResource(R.string.lyric_timing_save_as_lrc_line),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -8620,7 +8633,7 @@ fun LineLyricSaveDialog(
                 CustomCheckbox(
                     checked = showLineEndTime,
                     onCheckedChange = onShowLineEndTimeChange,
-                    label = "显示行结束时间戳"
+                    label = stringResource(R.string.lyric_timing_show_line_end_timestamp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
@@ -8636,7 +8649,7 @@ fun LineLyricSaveDialog(
                             onCopied()
                         }
                     ) {
-                        Text("复制")
+                        Text(stringResource(R.string.common_copy))
                     }
                 }
             }
@@ -8668,7 +8681,7 @@ fun TtmlSaveDialog(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "保存为TTML歌词",
+                    text = stringResource(R.string.lyric_timing_save_as_ttml),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -8700,7 +8713,7 @@ fun TtmlSaveDialog(
                             onCopied()
                         }
                     ) {
-                        Text("复制")
+                        Text(stringResource(R.string.common_copy))
                     }
                 }
             }
@@ -8732,7 +8745,7 @@ fun WordLyricSaveDialog(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "保存为LRC逐字歌词",
+                    text = stringResource(R.string.lyric_timing_save_as_lrc_word),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -8764,7 +8777,7 @@ fun WordLyricSaveDialog(
                             onCopied()
                         }
                     ) {
-                        Text("复制")
+                        Text(stringResource(R.string.common_copy))
                     }
                 }
             }
@@ -8778,7 +8791,7 @@ fun SimpleAlertDialog(
     onDismiss: () -> Unit,
     title: String,
     text: String,
-    confirmButtonText: String = "确定"
+    confirmButtonText: String? = null
 ) {
     if (showDialog) {
         AlertDialog(
@@ -8787,7 +8800,7 @@ fun SimpleAlertDialog(
             text = { Text(text) },
             confirmButton = {
                 Button(onClick = onDismiss) {
-                    Text(confirmButtonText)
+                    Text(confirmButtonText ?: stringResource(R.string.common_confirm))
                 }
             }
         )
@@ -8813,12 +8826,12 @@ fun ConfirmDialog(
             text = { Text(text) },
             confirmButton = {
                 Button(onClick = onConfirm) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = onCancel) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -8860,7 +8873,7 @@ fun UndoRedoFloatingButton(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.undo),
-                    contentDescription = "撤销",
+                    contentDescription = stringResource(R.string.lyric_timing_undo),
                     tint = if (canUndo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                     modifier = Modifier.size(22.dp)
                 )
@@ -8872,7 +8885,7 @@ fun UndoRedoFloatingButton(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.redo),
-                    contentDescription = "重做",
+                    contentDescription = stringResource(R.string.lyric_timing_redo),
                     tint = if (canRedo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                     modifier = Modifier.size(22.dp)
                 )
@@ -8889,25 +8902,25 @@ fun ImportExampleDialog(
     if (showDialog) {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("导入示例") },
+            title = { Text(stringResource(R.string.lyric_timing_import_example)) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "基本格式：",
+                        text = stringResource(R.string.lyric_timing_import_example_basic),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "一行一句歌词，等号(=)后可添加翻译",
+                        text = stringResource(R.string.lyric_timing_import_example_basic_desc),
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Text(
-                        text = "示例1：勾选使用空格分割",
+                        text = stringResource(R.string.lyric_timing_import_example_case1),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -8919,14 +8932,14 @@ fun ImportExampleDialog(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "分割结果：|欢迎|使用|_Lyric|Box|",
+                        text = stringResource(R.string.lyric_timing_import_example_case1_result),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Text(
-                        text = "示例2：未勾选使用空格分割",
+                        text = stringResource(R.string.lyric_timing_import_example_case2),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -8938,14 +8951,14 @@ fun ImportExampleDialog(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "分割结果：|欢迎使用_LunaBeat|",
+                        text = stringResource(R.string.lyric_timing_import_example_case2_result),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Text(
-                        text = "示例3：带翻译",
+                        text = stringResource(R.string.lyric_timing_import_example_case3),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -8957,20 +8970,20 @@ fun ImportExampleDialog(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "等号(=)后为翻译内容",
+                        text = stringResource(R.string.lyric_timing_import_example_case3_desc),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Text(
-                        text = "提示：",
+                        text = stringResource(R.string.common_hint_colon),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "导入后可使用菜单中的\"一键分词\"功能进行分词",
+                        text = stringResource(R.string.lyric_timing_import_example_tip_segment),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -8978,7 +8991,7 @@ fun ImportExampleDialog(
             },
             confirmButton = {
                 Button(onClick = onDismiss) {
-                    Text("知道了")
+                    Text(stringResource(R.string.common_got_it))
                 }
             }
         )
@@ -9985,6 +9998,7 @@ fun LyricTimingScreen(
 
     @Composable
     fun ScreenContent() {
+    val noTranslationCannotRecognizeMessage = stringResource(R.string.lyric_timing_no_translation_cannot_recognize)
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
         // Headbar
@@ -10002,14 +10016,14 @@ fun LyricTimingScreen(
                 val menuItems = if (isFromMusicLibrary) {
                     listOf(
                         MenuItem(
-                            title = "导入歌词",
+                            title = stringResource(R.string.lyric_timing_import_lyrics),
                             subItems = listOf(
-                                MenuItem(title = "通过纯文本导入", onClick = { showLyricInputDialog = true }),
-                                MenuItem(title = "通过LRC逐行/逐字歌词导入", onClick = { showSPLLrcInputDialog = true }),
-                                MenuItem(title = "通过增强LRC/ELRC逐字歌词导入", onClick = { showElrcInputDialog = true }),
-                                MenuItem(title = "通过TTML歌词导入", onClick = { showTtmlInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_plain_text), onClick = { showLyricInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_lrc), onClick = { showSPLLrcInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_elrc), onClick = { showElrcInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_ttml), onClick = { showTtmlInputDialog = true }),
                                 MenuItem(
-                                    title = "通过文本导入翻译",
+                                    title = stringResource(R.string.lyric_timing_import_translation_by_text),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10020,7 +10034,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "通过文本导入注音",
+                                    title = stringResource(R.string.lyric_timing_import_transliteration_by_text),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10030,18 +10044,18 @@ fun LyricTimingScreen(
                                         }
                                     }
                                 ),
-                                MenuItem(title = "获取逐字歌词", onClick = {
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_fetch_verbatim), onClick = {
                                     val keyword = if (sourceTitle.isNotEmpty() && sourceArtist.isNotEmpty()) "$sourceTitle $sourceArtist" else sourceTitle
                                     onOpenVerbatimLyrics(keyword)
                                 })
                             )
                         ),
-                        MenuItem(title = "导入音频", onClick = { onImportAudio() }),
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_import_audio), onClick = { onImportAudio() }),
                         MenuItem(
-                            title = "批量操作",
+                            title = stringResource(R.string.lyric_timing_menu_batch_actions),
                             subItems = listOf(
                                 MenuItem(
-                                    title = "一键分词",
+                                    title = stringResource(R.string.lyric_timing_batch_segment),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10052,7 +10066,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "一键合并歌词",
+                                    title = stringResource(R.string.lyric_timing_batch_merge_units),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10063,7 +10077,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "平移时间戳",
+                                    title = stringResource(R.string.lyric_timing_batch_shift_timestamp),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10075,7 +10089,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "转换为简体",
+                                    title = stringResource(R.string.lyric_timing_batch_convert_simplified),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10086,7 +10100,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "识别注音",
+                                    title = stringResource(R.string.lyric_timing_recognize_transliteration),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10096,7 +10110,7 @@ fun LyricTimingScreen(
                                             } ?: 0
                                             if (maxTranslationLines <= 0) {
                                                 transliterationResultSuccess = false
-                                                transliterationResultMessage = "当前歌词没有翻译行，无法识别。"
+                                                transliterationResultMessage = noTranslationCannotRecognizeMessage
                                                 showTransliterationResultDialog = true
                                             } else {
                                                 romajiTranslationLineOptionCount = maxTranslationLines
@@ -10108,7 +10122,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "删除空行",
+                                    title = stringResource(R.string.lyric_timing_delete_empty_lines),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10124,7 +10138,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "格式化时间轴",
+                                    title = stringResource(R.string.lyric_timing_format_timeline),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10136,10 +10150,10 @@ fun LyricTimingScreen(
                             )
                         ),
                         MenuItem(
-                            title = "嵌入歌词",
+                            title = stringResource(R.string.lyric_timing_embed_lyrics),
                             subItems = listOf(
                                 MenuItem(
-                                    title = "嵌入LRC逐字歌词",
+                                    title = stringResource(R.string.lyric_timing_embed_lrc_word),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10149,7 +10163,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "嵌入LRC逐行歌词",
+                                    title = stringResource(R.string.lyric_timing_embed_lrc_line),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10159,7 +10173,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "嵌入增强LRC歌词",
+                                    title = stringResource(R.string.lyric_timing_embed_enhanced_lrc),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10169,7 +10183,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "嵌入TTML歌词",
+                                    title = stringResource(R.string.lyric_timing_embed_ttml),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10179,7 +10193,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "保存TTML歌词到同目录文件夹",
+                                    title = stringResource(R.string.lyric_timing_save_ttml_to_same_dir),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10191,7 +10205,7 @@ fun LyricTimingScreen(
                             )
                         ),
                         MenuItem(
-                            title = "预览歌词",
+                            title = stringResource(R.string.lyric_timing_preview_lyrics),
                             onClick = {
                                 if (lyricLines.isEmpty()) {
                                     showNoLyricsDialog = true
@@ -10221,14 +10235,14 @@ fun LyricTimingScreen(
                 } else {
                     listOf(
                         MenuItem(
-                            title = "导入歌词",
+                            title = stringResource(R.string.lyric_timing_import_lyrics),
                             subItems = listOf(
-                                MenuItem(title = "通过纯文本导入", onClick = { showLyricInputDialog = true }),
-                                MenuItem(title = "通过LRC逐行/逐字歌词导入", onClick = { showSPLLrcInputDialog = true }),
-                                MenuItem(title = "通过增强LRC/ELRC逐字歌词导入", onClick = { showElrcInputDialog = true }),
-                                MenuItem(title = "通过TTML歌词导入", onClick = { showTtmlInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_plain_text), onClick = { showLyricInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_lrc), onClick = { showSPLLrcInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_elrc), onClick = { showElrcInputDialog = true }),
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_import_ttml), onClick = { showTtmlInputDialog = true }),
                                 MenuItem(
-                                    title = "通过文本导入翻译",
+                                    title = stringResource(R.string.lyric_timing_import_translation_by_text),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10239,7 +10253,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "通过文本导入注音",
+                                    title = stringResource(R.string.lyric_timing_import_transliteration_by_text),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10249,18 +10263,18 @@ fun LyricTimingScreen(
                                         }
                                     }
                                 ),
-                                MenuItem(title = "获取逐字歌词", onClick = {
+                                MenuItem(title = stringResource(R.string.lyric_timing_menu_fetch_verbatim), onClick = {
                                     val keyword = if (sourceTitle.isNotEmpty() && sourceArtist.isNotEmpty()) "$sourceTitle $sourceArtist" else sourceTitle
                                     onOpenVerbatimLyrics(keyword)
                                 })
                             )
                         ),
-                        MenuItem(title = "导入音频", onClick = { onImportAudio() }),
+                        MenuItem(title = stringResource(R.string.lyric_timing_menu_import_audio), onClick = { onImportAudio() }),
                         MenuItem(
-                            title = "批量操作",
+                            title = stringResource(R.string.lyric_timing_menu_batch_actions),
                             subItems = listOf(
                                 MenuItem(
-                                    title = "一键分词",
+                                    title = stringResource(R.string.lyric_timing_batch_segment),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10271,7 +10285,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "一键合并歌词",
+                                    title = stringResource(R.string.lyric_timing_batch_merge_units),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10282,7 +10296,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "平移时间戳",
+                                    title = stringResource(R.string.lyric_timing_batch_shift_timestamp),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10294,7 +10308,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "转换为简体",
+                                    title = stringResource(R.string.lyric_timing_batch_convert_simplified),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10305,7 +10319,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "识别注音",
+                                    title = stringResource(R.string.lyric_timing_recognize_transliteration),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10315,7 +10329,7 @@ fun LyricTimingScreen(
                                             } ?: 0
                                             if (maxTranslationLines <= 0) {
                                                 transliterationResultSuccess = false
-                                                transliterationResultMessage = "当前歌词没有翻译行，无法识别。"
+                                                transliterationResultMessage = noTranslationCannotRecognizeMessage
                                                 showTransliterationResultDialog = true
                                             } else {
                                                 romajiTranslationLineOptionCount = maxTranslationLines
@@ -10327,7 +10341,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "删除空行",
+                                    title = stringResource(R.string.lyric_timing_delete_empty_lines),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10343,7 +10357,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "格式化时间轴",
+                                    title = stringResource(R.string.lyric_timing_format_timeline),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10355,10 +10369,10 @@ fun LyricTimingScreen(
                             )
                         ),
                         MenuItem(
-                            title = "保存歌词",
+                            title = stringResource(R.string.lyric_timing_save_lyrics),
                             subItems = listOf(
                                 MenuItem(
-                                    title = "保存为LRC逐字歌词",
+                                    title = stringResource(R.string.lyric_timing_save_as_lrc_word),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10370,7 +10384,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "保存为LRC逐行歌词",
+                                    title = stringResource(R.string.lyric_timing_save_as_lrc_line),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10381,7 +10395,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "保存为增强LRC歌词",
+                                    title = stringResource(R.string.lyric_timing_save_as_enhanced_lrc),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10391,7 +10405,7 @@ fun LyricTimingScreen(
                                     }
                                 ),
                                 MenuItem(
-                                    title = "保存为TTML歌词",
+                                    title = stringResource(R.string.lyric_timing_save_as_ttml),
                                     onClick = {
                                         if (lyricLines.isEmpty()) {
                                             showNoLyricsDialog = true
@@ -10405,7 +10419,7 @@ fun LyricTimingScreen(
                             )
                         ),
                         MenuItem(
-                            title = "预览歌词",
+                            title = stringResource(R.string.lyric_timing_preview_lyrics),
                             onClick = {
                                 if (lyricLines.isEmpty()) {
                                     showNoLyricsDialog = true
@@ -10778,24 +10792,24 @@ fun LyricTimingScreen(
         SimpleAlertDialog(
             showDialog = showNoLyricsDialog,
             onDismiss = { showNoLyricsDialog = false },
-            title = "提示",
-            text = "请先导入歌词"
+            title = stringResource(R.string.common_hint),
+            text = stringResource(R.string.lyric_timing_please_import_lyrics_first),
         )
         
         // 无空行提示对话框
         SimpleAlertDialog(
             showDialog = showNoEmptyLinesDialog,
             onDismiss = { showNoEmptyLinesDialog = false },
-            title = "提示",
-            text = "暂无空行可删除"
+            title = stringResource(R.string.common_hint),
+            text = stringResource(R.string.lyric_timing_no_empty_lines),
         )
         
         // 未导入音频提示对话框
         SimpleAlertDialog(
             showDialog = showNoAudioDialog,
             onDismiss = { showNoAudioDialog = false },
-            title = "提示",
-            text = "请先导入音频文件"
+            title = stringResource(R.string.common_hint),
+            text = stringResource(R.string.lyric_timing_please_import_audio_first),
         )
         
         // 返回确认对话框
@@ -10806,8 +10820,8 @@ fun LyricTimingScreen(
                 onBack(lyricLines)
             },
             onCancel = { onConfirmDialogChange(false) },
-            title = "确认返回",
-            text = "确定要返回吗？当前编辑的歌词可能会丢失。"
+            title = stringResource(R.string.lyric_timing_confirm_back_title),
+            text = stringResource(R.string.lyric_timing_confirm_back_message),
         )
         
         // 逐字歌词覆盖确认对话框
@@ -10832,8 +10846,8 @@ fun LyricTimingScreen(
                     onShowVerbatimLyricsOverwriteDialogChange(false)
                     onPendingVerbatimLyricsContentChange("")
                 },
-                title = "确认覆盖",
-                text = "当前已存在歌词，是否覆盖？"
+                title = stringResource(R.string.lyric_timing_confirm_overwrite_title),
+                text = stringResource(R.string.lyric_timing_confirm_overwrite_message),
             )
         }
         
@@ -10841,7 +10855,7 @@ fun LyricTimingScreen(
         SimpleAlertDialog(
             showDialog = showTitlePathDialog,
             onDismiss = { showTitlePathDialog = false },
-            title = "文件路径",
+            title = stringResource(R.string.lyric_timing_file_path_title),
             text = sourceAudioPath
         )
         
@@ -10867,12 +10881,12 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "嵌入LRC逐字歌词",
+                        text = stringResource(R.string.lyric_timing_embed_lrc_word),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "确认嵌入到 '$displayTitle' 吗？",
+                        text = stringResource(R.string.lyric_timing_confirm_embed_to_target, displayTitle),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -10904,7 +10918,7 @@ fun LyricTimingScreen(
                                 showCopiedDialog = true
                             }
                         ) {
-                            Text("复制")
+                            Text(stringResource(R.string.common_copy))
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
@@ -10912,7 +10926,7 @@ fun LyricTimingScreen(
                                 showEmbedLrcWordDialog = false
                                 if (sourceAudioPath.isEmpty()) {
                                     embedResultSuccess = false
-                                    embedResultMessage = "音频路径为空，无法嵌入歌词"
+                                    embedResultMessage = context.getString(R.string.lyric_timing_audio_path_empty_embed_failed)
                                     showEmbedResultDialog = true
                                     return@Button
                                 }
@@ -10930,7 +10944,7 @@ fun LyricTimingScreen(
                                         if (result.success) {
                                             notifyTimingSourceLyricsUpdated(sourceAudioPath)
                                         }
-                                        embedResultMessage = if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage
+                                        embedResultMessage = if (result.success) context.getString(R.string.lyric_timing_embed_success) else result.errorMessage
                                         needStoragePermission = result.needPermission
                                         pendingRecoverableEmbedIntentSender = result.recoverableIntentSender
                                         pendingRecoverableEmbedLyricsContent = if (result.success) null else lrcContent
@@ -10939,7 +10953,7 @@ fun LyricTimingScreen(
                                 }
                             }
                         ) {
-                            Text("确认嵌入")
+                            Text(stringResource(R.string.lyric_timing_confirm_embed))
                         }
                     }
                 }
@@ -10968,12 +10982,12 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "嵌入LRC逐行歌词",
+                        text = stringResource(R.string.lyric_timing_embed_lrc_line),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "确认嵌入到 '$displayTitle' 吗？",
+                        text = stringResource(R.string.lyric_timing_confirm_embed_to_target, displayTitle),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -10996,7 +11010,7 @@ fun LyricTimingScreen(
                     CustomCheckbox(
                         checked = showLineEndTime,
                         onCheckedChange = { showLineEndTime = it },
-                        label = "显示行结束时间戳"
+                        label = stringResource(R.string.lyric_timing_show_line_end_timestamp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
@@ -11011,7 +11025,7 @@ fun LyricTimingScreen(
                                 showCopiedDialog = true
                             }
                         ) {
-                            Text("复制")
+                            Text(stringResource(R.string.common_copy))
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
@@ -11019,7 +11033,7 @@ fun LyricTimingScreen(
                                 showEmbedLrcLineDialog = false
                                 if (sourceAudioPath.isEmpty()) {
                                     embedResultSuccess = false
-                                    embedResultMessage = "音频路径为空，无法嵌入歌词"
+                                    embedResultMessage = context.getString(R.string.lyric_timing_audio_path_empty_embed_failed)
                                     showEmbedResultDialog = true
                                     return@Button
                                 }
@@ -11037,7 +11051,7 @@ fun LyricTimingScreen(
                                         if (result.success) {
                                             notifyTimingSourceLyricsUpdated(sourceAudioPath)
                                         }
-                                        embedResultMessage = if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage
+                                        embedResultMessage = if (result.success) context.getString(R.string.lyric_timing_embed_success) else result.errorMessage
                                         needStoragePermission = result.needPermission
                                         pendingRecoverableEmbedIntentSender = result.recoverableIntentSender
                                         pendingRecoverableEmbedLyricsContent = if (result.success) null else lineLrcContent
@@ -11046,7 +11060,7 @@ fun LyricTimingScreen(
                                 }
                             }
                         ) {
-                            Text("确认嵌入")
+                            Text(stringResource(R.string.lyric_timing_confirm_embed))
                         }
                     }
                 }
@@ -11075,12 +11089,12 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "嵌入TTML歌词",
+                        text = stringResource(R.string.lyric_timing_embed_ttml),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "确认嵌入到 '$displayTitle' 吗？",
+                        text = stringResource(R.string.lyric_timing_confirm_embed_to_target, displayTitle),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -11112,7 +11126,7 @@ fun LyricTimingScreen(
                                 showCopiedDialog = true
                             }
                         ) {
-                            Text("复制")
+                            Text(stringResource(R.string.common_copy))
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
@@ -11120,7 +11134,7 @@ fun LyricTimingScreen(
                                 showEmbedTtmlDialog = false
                                 if (sourceAudioPath.isEmpty()) {
                                     embedResultSuccess = false
-                                    embedResultMessage = "音频路径为空，无法嵌入歌词"
+                                    embedResultMessage = context.getString(R.string.lyric_timing_audio_path_empty_embed_failed)
                                     showEmbedResultDialog = true
                                     return@Button
                                 }
@@ -11138,7 +11152,7 @@ fun LyricTimingScreen(
                                         if (result.success) {
                                             notifyTimingSourceLyricsUpdated(sourceAudioPath)
                                         }
-                                        embedResultMessage = if (result.success) "歌词已成功嵌入到音频文件" else result.errorMessage
+                                        embedResultMessage = if (result.success) context.getString(R.string.lyric_timing_embed_success) else result.errorMessage
                                         needStoragePermission = result.needPermission
                                         pendingRecoverableEmbedIntentSender = result.recoverableIntentSender
                                         pendingRecoverableEmbedLyricsContent = if (result.success) null else ttmlContent
@@ -11147,7 +11161,7 @@ fun LyricTimingScreen(
                                 }
                             }
                         ) {
-                            Text("确认嵌入")
+                            Text(stringResource(R.string.lyric_timing_confirm_embed))
                         }
                     }
                 }
@@ -11178,12 +11192,16 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "保存TTML歌词",
+                        text = stringResource(R.string.lyric_timing_save_ttml_title),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "确认保存为 '$ttmlFileName' 到 '${audioFile.parent?.substringAfterLast("/") ?: ""}' 目录吗？",
+                        text = stringResource(
+                            R.string.lyric_timing_confirm_save_ttml_to_dir,
+                            ttmlFileName,
+                            audioFile.parent?.substringAfterLast("/") ?: ""
+                        ),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -11224,13 +11242,13 @@ fun LyricTimingScreen(
                                             notifyTimingSourceLyricsUpdated(sourceAudioPath)
                                         }
                                         ttmlSaveSuccessMessage = if (result.redirectedToFallbackDir) {
-                                            "原目录写入失败，已改为保存到：${result.savedPath}"
+                                            context.getString(R.string.lyric_timing_save_redirected_to, result.savedPath)
                                         } else {
-                                            "歌词文件已成功保存：${result.savedPath.ifBlank { sourceAudioPath }}"
+                                            context.getString(R.string.lyric_timing_save_file_success_with_path, result.savedPath.ifBlank { sourceAudioPath })
                                         }
                                         showSaveSuccessDialog = true
                                     } else {
-                                        ttmlSaveErrorMessage = result.errorMessage.ifBlank { "歌词文件保存失败，请检查存储权限或重试" }
+                                        ttmlSaveErrorMessage = result.errorMessage.ifBlank { context.getString(R.string.lyric_timing_save_file_failed_retry) }
                                         needStoragePermission = result.needPermission
                                         pendingTtmlRecoverableIntentSender = result.recoverableIntentSender
                                         pendingTtmlContentForRetry = ttmlContent
@@ -11239,7 +11257,7 @@ fun LyricTimingScreen(
                                 }
                             }
                         ) {
-                            Text("确认保存")
+                            Text(stringResource(R.string.lyric_timing_confirm_save))
                         }
                     }
                 }
@@ -11265,13 +11283,13 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "跳转到指定时间",
+                        text = stringResource(R.string.lyric_timing_jump_to_time),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     
                     Text(
-                        text = "当前时间: ${formatTime(currentTime)}",
+                        text = stringResource(R.string.lyric_timing_current_time_with_value, formatTime(currentTime)),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 16.dp)
@@ -11289,7 +11307,7 @@ fun LyricTimingScreen(
                                     inputTimeMinutes = it
                                 }
                             },
-                            placeholder = "分",
+                            placeholder = stringResource(R.string.lyric_timing_time_minute_placeholder),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -11305,7 +11323,7 @@ fun LyricTimingScreen(
                                     inputTimeSeconds = it
                                 }
                             },
-                            placeholder = "秒",
+                            placeholder = stringResource(R.string.lyric_timing_time_second_placeholder),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -11321,7 +11339,7 @@ fun LyricTimingScreen(
                                     inputTimeMilliseconds = it
                                 }
                             },
-                            placeholder = "毫秒",
+                            placeholder = stringResource(R.string.lyric_timing_time_millisecond_placeholder),
                             modifier = Modifier.weight(1.2f),
                             singleLine = true
                         )
@@ -11346,7 +11364,7 @@ fun LyricTimingScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("进入播放跟随模式")
+                                Text(stringResource(R.string.lyric_timing_enter_follow_mode))
                             }
                         }
                         
@@ -11368,7 +11386,7 @@ fun LyricTimingScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("跳转到歌曲开头")
+                            Text(stringResource(R.string.lyric_timing_jump_song_start))
                         }
                         
                         // 跳转到歌曲结尾按钮
@@ -11389,7 +11407,7 @@ fun LyricTimingScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("跳转到歌曲结尾")
+                            Text(stringResource(R.string.lyric_timing_jump_song_end))
                         }
                     }
                     
@@ -11440,7 +11458,7 @@ fun LyricTimingScreen(
                                 }
                             }
                         ) {
-                            Text("确定并播放")
+                            Text(stringResource(R.string.lyric_timing_confirm_and_play))
                         }
                     }
                 }
@@ -11451,14 +11469,14 @@ fun LyricTimingScreen(
         if (showConvertDialog) {
             AlertDialog(
                 onDismissRequest = { },
-                title = { Text("音频转码") },
+                title = { Text(stringResource(R.string.lyric_timing_audio_transcoding_title)) },
                 text = {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "检测到不支持的音频格式，正在转码...",
+                            text = stringResource(R.string.lyric_timing_audio_transcoding_running),
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center
                         )
@@ -11498,7 +11516,7 @@ fun LyricTimingScreen(
                         if (!embedResultSuccess && !needStoragePermission) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "可能的原因：\n• 文件格式不支持写入歌词\n• 文件被其他应用占用",
+                                text = stringResource(R.string.lyric_timing_embed_failure_reasons),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -11510,7 +11528,7 @@ fun LyricTimingScreen(
                         Button(onClick = {
                             launchRecoverableEmbedPermissionIfNeeded()
                         }) {
-                            Text("授予写入权限")
+                            Text(stringResource(R.string.lyric_timing_grant_write_permission))
                         }
                     } else if (needStoragePermission) {
                         Button(onClick = {
@@ -11521,7 +11539,7 @@ fun LyricTimingScreen(
                         }
                     } else {
                         Button(onClick = { showEmbedResultDialog = false }) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_confirm))
                         }
                     }
                 },
@@ -11531,7 +11549,7 @@ fun LyricTimingScreen(
                         pendingRecoverableEmbedIntentSender = null
                         pendingRecoverableEmbedLyricsContent = null
                     }) {
-                        Text("取消")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )
@@ -11541,8 +11559,8 @@ fun LyricTimingScreen(
         if (showFormatTimelineConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showFormatTimelineConfirmDialog = false },
-                title = { Text("确认格式化时间轴") },
-                text = { Text("确定要格式化时间轴吗？这将按时间戳重新排序歌词，并自动合并相同时间戳的翻译。") },
+                title = { Text(stringResource(R.string.lyric_timing_confirm_format_timeline_title)) },
+                text = { Text(stringResource(R.string.lyric_timing_confirm_format_timeline_message)) },
                 confirmButton = {
                     Button(onClick = {
                         showFormatTimelineConfirmDialog = false
@@ -11562,12 +11580,12 @@ fun LyricTimingScreen(
                         formatTimelineResultMessage = "时间轴格式化成功！共处理 ${newLines.size} 行歌词。"
                         showFormatTimelineResultDialog = true
                     }) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showFormatTimelineConfirmDialog = false }) {
-                        Text("取消")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )
@@ -11591,7 +11609,7 @@ fun LyricTimingScreen(
                 },
                 confirmButton = {
                     Button(onClick = { showFormatTimelineResultDialog = false }) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             )
@@ -11683,17 +11701,17 @@ fun LyricTimingScreen(
                                         )
                                     }
                             ) {
-                                Text(text = "导入歌词")
+                                Text(text = stringResource(R.string.lyric_timing_import_lyrics))
                             }
                             CustomDropdownMenu(
                                 expanded = showImportLyricMenu,
                                 onDismissRequest = { showImportLyricMenu = false },
                                 items = listOf(
-                                    MenuItem(title = "通过纯文本导入", onClick = { showLyricInputDialog = true }),
-                                    MenuItem(title = "通过LRC逐行/逐字歌词导入", onClick = { showSPLLrcInputDialog = true }),
-                                    MenuItem(title = "通过增强LRC/ELRC逐字歌词导入", onClick = { showElrcInputDialog = true }),
-                                    MenuItem(title = "通过TTML歌词导入", onClick = { showTtmlInputDialog = true }),
-                                    MenuItem(title = "获取逐字歌词", onClick = {
+                                    MenuItem(title = stringResource(R.string.lyric_timing_menu_import_plain_text), onClick = { showLyricInputDialog = true }),
+                                    MenuItem(title = stringResource(R.string.lyric_timing_menu_import_lrc), onClick = { showSPLLrcInputDialog = true }),
+                                    MenuItem(title = stringResource(R.string.lyric_timing_menu_import_elrc), onClick = { showElrcInputDialog = true }),
+                                    MenuItem(title = stringResource(R.string.lyric_timing_menu_import_ttml), onClick = { showTtmlInputDialog = true }),
+                                    MenuItem(title = stringResource(R.string.lyric_timing_menu_fetch_verbatim), onClick = {
                                         showImportLyricMenu = false
                                         val keyword = if (sourceTitle.isNotEmpty() && sourceArtist.isNotEmpty()) "$sourceTitle $sourceArtist" else sourceTitle
                                         onOpenVerbatimLyrics(keyword)
@@ -11710,7 +11728,7 @@ fun LyricTimingScreen(
                             onClick = { onImportAudio() },
                             modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
-                            Text(text = "导入音频")
+                            Text(text = stringResource(R.string.lyric_timing_menu_import_audio))
                         }
                     }
                 }
@@ -11837,7 +11855,7 @@ fun LyricTimingScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.rewind),
-                            contentDescription = "快退${seekTimeSeconds.toInt()}秒",
+                            contentDescription = stringResource(R.string.lyric_timing_seek_backward_seconds, seekTimeSeconds.toInt()),
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(15.dp)
                         )
@@ -11849,7 +11867,7 @@ fun LyricTimingScreen(
                             onClick = { isFollowMode = false },
                             modifier = Modifier.weight(3.4f)
                         ) {
-                            Text(text = "退出跟随模式")
+                            Text(text = stringResource(R.string.lyric_timing_exit_follow_mode))
                         }
                     } else {
                         // 正常模式显示起始、连续、结束按钮
@@ -11879,7 +11897,7 @@ fun LyricTimingScreen(
                             },
                             modifier = Modifier.weight(1.2f)
                         ) {
-                            Text(text = "起始", maxLines = 1, softWrap = false)
+                            Text(text = stringResource(R.string.lyric_timing_set_start), maxLines = 1, softWrap = false)
                         }
                         Button(
                             onClick = {
@@ -11931,7 +11949,7 @@ fun LyricTimingScreen(
                             },
                             modifier = Modifier.weight(1.2f)
                         ) {
-                            Text(text = "连续", maxLines = 1, softWrap = false)
+                            Text(text = stringResource(R.string.lyric_timing_set_continuous), maxLines = 1, softWrap = false)
                         }
                         Button(
                             onClick = {
@@ -11967,7 +11985,7 @@ fun LyricTimingScreen(
                             },
                             modifier = Modifier.weight(1.2f)
                         ) {
-                            Text(text = "结束", maxLines = 1, softWrap = false)
+                            Text(text = stringResource(R.string.lyric_timing_set_end), maxLines = 1, softWrap = false)
                         }
                     }
 
@@ -11983,7 +12001,7 @@ fun LyricTimingScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.fastforward),
-                            contentDescription = "快进${seekTimeSeconds.toInt()}秒",
+                            contentDescription = stringResource(R.string.lyric_timing_seek_forward_seconds, seekTimeSeconds.toInt()),
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(15.dp)
                         )
@@ -12143,13 +12161,13 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "播放速度设置",
+                        text = stringResource(R.string.lyric_timing_playback_speed_settings),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     
                     Text(
-                        text = "当前速度: ${String.format("%.2f", tempSpeed).trimEnd('0').trimEnd('.')}X",
+                        text = stringResource(R.string.lyric_timing_current_speed_with_value, String.format("%.2f", tempSpeed).trimEnd('0').trimEnd('.')),
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     
@@ -12178,7 +12196,7 @@ fun LyricTimingScreen(
                         TextButton(
                             onClick = { showSpeedDialog = false }
                         ) {
-                            Text("取消")
+                            Text(stringResource(R.string.common_cancel))
                         }
                         Button(
                             onClick = {
@@ -12187,7 +12205,7 @@ fun LyricTimingScreen(
                                 showSpeedDialog = false
                             }
                         ) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_confirm))
                         }
                     }
                 }
@@ -12204,7 +12222,7 @@ fun LyricTimingScreen(
         SimpleAlertDialog(
             showDialog = showSaveSuccessDialog,
             onDismiss = { showSaveSuccessDialog = false },
-            title = "保存成功",
+            title = stringResource(R.string.lyric_timing_save_success_title),
             text = ttmlSaveSuccessMessage
         )
         
@@ -12215,7 +12233,7 @@ fun LyricTimingScreen(
                 pendingTtmlRecoverableIntentSender = null
                 pendingTtmlContentForRetry = null
             },
-            title = "保存失败",
+            title = stringResource(R.string.lyric_timing_save_failed_title),
             text = ttmlSaveErrorMessage
         )
 
@@ -12252,7 +12270,7 @@ fun LyricTimingScreen(
                         pendingTtmlRecoverableIntentSender = null
                         pendingTtmlContentForRetry = null
                     }) {
-                        Text("取消")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )
@@ -12261,8 +12279,8 @@ fun LyricTimingScreen(
         SimpleAlertDialog(
             showDialog = showCopiedDialog,
             onDismiss = { showCopiedDialog = false },
-            title = "已复制",
-            text = "内容已复制到剪贴板"
+            title = stringResource(R.string.lyric_timing_copied_title),
+            text = stringResource(R.string.lyric_timing_copied_message),
         )
         
 
@@ -12343,7 +12361,7 @@ fun LyricTimingScreen(
                         .animateContentSize(animationSpec = tween(300))
                 ) {
                     Text(
-                        text = "编辑歌词",
+                        text = stringResource(R.string.lyric_timing_edit_lyrics),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
@@ -12384,7 +12402,7 @@ fun LyricTimingScreen(
                             }
                             editUnitText = newText
                         },
-                        placeholder = "歌词内容",
+                        placeholder = stringResource(R.string.lyric_timing_lyrics_content_placeholder),
                         modifier = Modifier.fillMaxWidth()
                     )
                     
@@ -12392,7 +12410,7 @@ fun LyricTimingScreen(
                     
                     // 编辑注音
                     Text(
-                        text = "编辑注音",
+                        text = stringResource(R.string.lyric_timing_edit_transliteration),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
@@ -12406,7 +12424,7 @@ fun LyricTimingScreen(
                     // 单字符注音编辑（如果有CJK字符）
                     if (cjkCount > 0) {
                         Text(
-                            text = "单字符注音",
+                            text = stringResource(R.string.lyric_timing_single_char_transliteration),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.Gray,
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -12442,7 +12460,7 @@ fun LyricTimingScreen(
                                                 }
                                                 editUnitCharTransliterations = newMap
                                             },
-                                            placeholder = "注音",
+                                            placeholder = stringResource(R.string.lyric_timing_transliteration_placeholder),
                                             modifier = Modifier.weight(1f),
                                             singleLine = true
                                         )
@@ -12457,7 +12475,7 @@ fun LyricTimingScreen(
                     // 只在有未分配的整体注音时才显示整体注音编辑
                     if (hasUnassignedTransliteration || (editUnitTransliteration.isNotEmpty() && cjkCount == 0)) {
                         Text(
-                            text = "整体注音",
+                            text = stringResource(R.string.lyric_timing_whole_transliteration),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.Gray,
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -12465,7 +12483,7 @@ fun LyricTimingScreen(
                         ThemedTextField(
                             value = editUnitTransliteration,
                             onValueChange = { editUnitTransliteration = it },
-                            placeholder = "整体注音",
+                            placeholder = stringResource(R.string.lyric_timing_whole_transliteration_placeholder),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -12590,8 +12608,8 @@ fun LyricTimingScreen(
                     dismissOnBackPress = false,
                     dismissOnClickOutside = false
                 ),
-                title = { Text("确认放弃修改") },
-                text = { Text("您已修改了歌词内容，确定要放弃修改吗？") },
+                title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
+                text = { Text(stringResource(R.string.lyric_timing_discard_lyrics_changes_confirm)) },
                 confirmButton = {
                     Button(
                         onClick = { 
@@ -12599,7 +12617,7 @@ fun LyricTimingScreen(
                             pendingDismiss = false
                         }
                     ) {
-                        Text("继续编辑")
+                        Text(stringResource(R.string.common_continue_editing))
                     }
                 },
                 dismissButton = {
@@ -12610,7 +12628,7 @@ fun LyricTimingScreen(
                             pendingDismiss = false
                         }
                     ) {
-                        Text("放弃修改")
+                        Text(stringResource(R.string.common_discard_changes))
                     }
                 }
             )
@@ -12637,7 +12655,7 @@ fun LyricTimingScreen(
                             // 继续编辑，不切换
                         }
                     ) {
-                        Text("继续编辑")
+                        Text(stringResource(R.string.common_continue_editing))
                     }
                 },
                 dismissButton = {
@@ -12691,14 +12709,14 @@ fun LyricTimingScreen(
                         .navigationBarsPadding()
                 ) {
                     Text(
-                        text = "新增歌词",
+                        text = stringResource(R.string.lyric_timing_add_lyrics),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     ThemedTextField(
                         value = addLyricText,
                         onValueChange = { addLyricText = it },
-                        placeholder = "歌词内容（必填）",
+                        placeholder = stringResource(R.string.lyric_timing_lyrics_required_placeholder),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -12750,7 +12768,7 @@ fun LyricTimingScreen(
                             },
                             enabled = addLyricText.isNotBlank()
                         ) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_confirm))
                         }
                     }
                 }
@@ -12766,7 +12784,7 @@ fun LyricTimingScreen(
                     dismissOnBackPress = false,
                     dismissOnClickOutside = false
                 ),
-                title = { Text("确认放弃修改") },
+                title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
                 text = { Text("您已修改了内容，确定要放弃修改吗？") },
                 confirmButton = {
                     Button(
@@ -12775,7 +12793,7 @@ fun LyricTimingScreen(
                             pendingAddLyricDismiss = false
                         }
                     ) {
-                        Text("继续编辑")
+                        Text(stringResource(R.string.common_continue_editing))
                     }
                 },
                 dismissButton = {
@@ -12786,7 +12804,7 @@ fun LyricTimingScreen(
                             pendingAddLyricDismiss = false
                         }
                     ) {
-                        Text("放弃修改")
+                        Text(stringResource(R.string.common_discard_changes))
                     }
                 }
             )
@@ -12827,14 +12845,14 @@ fun LyricTimingScreen(
                         )
                 ) {
                     Text(
-                        text = "新增行",
+                        text = stringResource(R.string.lyric_timing_add_line),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     ThemedTextField(
                         value = addLineText,
                         onValueChange = { addLineText = it },
-                        placeholder = "歌词内容",
+                        placeholder = stringResource(R.string.lyric_timing_lyrics_content_placeholder),
                         singleLine = false,
                         minLines = 1,
                         maxLines = 10,
@@ -12918,7 +12936,7 @@ fun LyricTimingScreen(
                             },
                             enabled = true
                         ) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_confirm))
                         }
                     }
                 }
@@ -12934,7 +12952,7 @@ fun LyricTimingScreen(
                     dismissOnBackPress = false,
                     dismissOnClickOutside = false
                 ),
-                title = { Text("确认放弃修改") },
+                title = { Text(stringResource(R.string.common_confirm_discard_changes_title)) },
                 text = { Text("您已修改了内容，确定要放弃修改吗？") },
                 confirmButton = {
                     Button(
@@ -12943,7 +12961,7 @@ fun LyricTimingScreen(
                             pendingAddLineDismiss = false
                         }
                     ) {
-                        Text("继续编辑")
+                        Text(stringResource(R.string.common_continue_editing))
                     }
                 },
                 dismissButton = {
@@ -12954,7 +12972,7 @@ fun LyricTimingScreen(
                             pendingAddLineDismiss = false
                         }
                     ) {
-                        Text("放弃修改")
+                        Text(stringResource(R.string.common_discard_changes))
                     }
                 }
             )
@@ -13059,12 +13077,12 @@ fun LyricTimingScreen(
                             showDeleteUnitConfirmDialog = false
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDeleteUnitConfirmDialog = false }) {
-                        Text("取消")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )
@@ -13099,13 +13117,13 @@ fun LyricTimingScreen(
                             showDeleteLineConfirmDialog = false
                         }
                     ) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 },
                 dismissButton = {
                     Row {
                         TextButton(onClick = { showDeleteLineConfirmDialog = false }) {
-                            Text("取消")
+                            Text(stringResource(R.string.common_cancel))
                         }
                         TextButton(
                             onClick = {
@@ -13139,12 +13157,12 @@ fun LyricTimingScreen(
                             showDeleteEmptyLinesDialog = false
                         }
                     ) {
-                        Text("确定删除")
+                        Text(stringResource(R.string.lyric_timing_confirm_delete))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDeleteEmptyLinesDialog = false }) {
-                        Text("取消")
+                        Text(stringResource(R.string.common_cancel))
                     }
                 }
             )
@@ -13162,7 +13180,7 @@ fun LyricTimingScreen(
                 text = { Text("删除了${deletedEmptyLinesCount}行空行") },
                 confirmButton = {
                     Button(onClick = { showDeleteEmptyLinesSuccessDialog = false }) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             )
@@ -15451,7 +15469,7 @@ fun LyricPreviewOverlay(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "暂无歌词",
+                    text = stringResource(R.string.lyric_timing_no_lyrics_text),
                     color = if (isDarkTheme) Color.Gray else Color.DarkGray,
                     fontSize = 16.sp
                 )
@@ -15497,7 +15515,7 @@ fun LyricPreviewOverlay(
             ) {
                 Icon(
                     Icons.Default.FormatSize,
-                    contentDescription = "字体大小",
+                    contentDescription = stringResource(R.string.lyric_timing_font_size),
                     tint = if (isDarkTheme) Color.White else Color.Black
                 )
             }
@@ -15525,7 +15543,7 @@ fun LyricPreviewOverlay(
             ) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "退出预览",
+                    contentDescription = stringResource(R.string.lyric_timing_exit_preview),
                     tint = if (isDarkTheme) Color.White else Color.Black
                 )
             }
@@ -15551,7 +15569,7 @@ fun LyricPreviewOverlay(
                         showFontSizeDialog = false
                         prefs.edit().putFloat("preview_font_size", fontSize.value).apply()
                     }) {
-                        Text("确定")
+                        Text(stringResource(R.string.common_confirm))
                     }
                 }
             )
@@ -15695,7 +15713,7 @@ fun PreviewLyricLineView(
             
             if (line.isDuet) {
                 Text(
-                    text = "对唱 ",
+                    text = stringResource(R.string.lyric_timing_duet_prefix),
                     color = textColor,
                     fontSize = fontSize * 0.6f,
                     fontWeight = FontWeight.Light

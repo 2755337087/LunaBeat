@@ -78,7 +78,7 @@ class MusicLibrarySettingsActivity : ComponentActivity() {
     ) { permissions ->
         val allGranted = permissions.values.all { it }
         if (!allGranted) {
-            Toast.makeText(this, "需要存储权限才能扫描音频文件", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.ml_settings_storage_permission_required), Toast.LENGTH_LONG).show()
         }
     }
     
@@ -101,7 +101,7 @@ class MusicLibrarySettingsActivity : ComponentActivity() {
                 onFolderSelected?.invoke(path)
                 onExcludeFolderSelected?.invoke(path)
             } else {
-                Toast.makeText(this, "无法获取文件夹路径", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ml_settings_unable_get_folder_path), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -267,7 +267,7 @@ fun MusicLibrarySettingsScreen(
     
     Column(modifier = modifier.fillMaxSize()) {
         CommonHeadBar(
-            title = "目录设置",
+            title = stringResource(R.string.ml_settings_title),
             showBack = true,
             showMenu = false,
             onBackClick = onBack
@@ -280,7 +280,7 @@ fun MusicLibrarySettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             Text(
-                text = "音频目录",
+                text = stringResource(R.string.ml_settings_audio_directory),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -289,7 +289,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "设置读取音频文件的目录",
+                text = stringResource(R.string.ml_settings_audio_directory_desc),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -297,7 +297,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "扫描来源",
+                text = stringResource(R.string.ml_settings_scan_source),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
@@ -314,9 +314,9 @@ fun MusicLibrarySettingsScreen(
 
             Text(
                 text = if (useNativeMediaLibrary) {
-                    "首次进入会读取安卓原生媒体库，后续进入自动增量更新。"
+                    stringResource(R.string.ml_settings_scan_source_native_desc)
                 } else {
-                    "关闭后按目录扫描，新增或修改文件需要刷新。"
+                    stringResource(R.string.ml_settings_scan_source_folder_desc)
                 },
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -342,16 +342,18 @@ fun MusicLibrarySettingsScreen(
             ) {
                 Icon(
                     painter = painterResource(id = com.example.LyricBox.R.drawable.add),
-                    contentDescription = "添加目录",
+                    contentDescription = stringResource(R.string.ml_settings_add_directory),
                     modifier = Modifier.padding(end = 8.dp).size(16.dp)
                 )
-                Text("添加目录")
+                Text(stringResource(R.string.ml_settings_add_directory))
             }
             
             Spacer(modifier = Modifier.height(24.dp))
+            val pathEmptyMessage = stringResource(R.string.ml_settings_path_empty)
+            val directoryExistsMessage = stringResource(R.string.ml_settings_directory_already_added)
             
             Text(
-                text = "排序设置",
+                text = stringResource(R.string.ml_settings_sort_settings),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -360,7 +362,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "选择音频列表的排序方式",
+                text = stringResource(R.string.ml_settings_sort_settings_desc),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -368,7 +370,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(12.dp))
             
             Text(
-                text = "排序依据",
+                text = stringResource(R.string.ml_settings_sort_type),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
@@ -385,7 +387,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "排序顺序",
+                text = stringResource(R.string.ml_settings_sort_order),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
@@ -402,7 +404,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
             
             Text(
-                text = "过滤设置",
+                text = stringResource(R.string.ml_settings_filter_settings),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -411,7 +413,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(12.dp))
             
             FilterCheckboxItem(
-                text = "过滤60秒以下的音频文件",
+                text = stringResource(R.string.ml_settings_filter_short_audio),
                 checked = excludeShortAudio,
                 onCheckedChange = { excludeShortAudio = it }
             )
@@ -419,7 +421,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "过滤目录",
+                text = stringResource(R.string.ml_settings_exclude_directories),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
@@ -428,7 +430,7 @@ fun MusicLibrarySettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "音乐库列表不会显示这些目录中的歌曲",
+                text = stringResource(R.string.ml_settings_exclude_directories_desc),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -455,10 +457,10 @@ fun MusicLibrarySettingsScreen(
             ) {
                 Icon(
                     painter = painterResource(id = com.example.LyricBox.R.drawable.add),
-                    contentDescription = "添加目录",
+                    contentDescription = stringResource(R.string.ml_settings_add_directory),
                     modifier = Modifier.padding(end = 8.dp).size(16.dp)
                 )
-                Text("添加目录")
+                Text(stringResource(R.string.ml_settings_add_directory))
             }
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -486,7 +488,7 @@ fun MusicLibrarySettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = useNativeMediaLibrary || folderList.isNotEmpty()
             ) {
-                Text("确认")
+                Text(stringResource(R.string.common_confirm))
             }
         }
     }
@@ -526,8 +528,8 @@ fun MusicLibrarySettingsScreen(
                 showDeleteConfirmDialog = false
                 folderToDelete = null
             },
-            title = { Text("确认删除") },
-            text = { Text("确定要删除此目录吗？\n$folderToDelete") },
+            title = { Text(stringResource(R.string.common_confirm_delete)) },
+            text = { Text(stringResource(R.string.ml_settings_confirm_delete_directory, folderToDelete.orEmpty())) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -539,7 +541,7 @@ fun MusicLibrarySettingsScreen(
                         folderToDelete = null
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
@@ -547,7 +549,7 @@ fun MusicLibrarySettingsScreen(
                     showDeleteConfirmDialog = false
                     folderToDelete = null
                 }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -559,8 +561,8 @@ fun MusicLibrarySettingsScreen(
                 showDeleteExcludeConfirmDialog = false
                 excludeFolderToDelete = null
             },
-            title = { Text("确认删除") },
-            text = { Text("确定要删除此过滤目录吗？\n$excludeFolderToDelete") },
+            title = { Text(stringResource(R.string.common_confirm_delete)) },
+            text = { Text(stringResource(R.string.ml_settings_confirm_delete_exclude_directory, excludeFolderToDelete.orEmpty())) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -575,7 +577,7 @@ fun MusicLibrarySettingsScreen(
                         excludeFolderToDelete = null
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
@@ -583,7 +585,7 @@ fun MusicLibrarySettingsScreen(
                     showDeleteExcludeConfirmDialog = false
                     excludeFolderToDelete = null
                 }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -725,13 +727,13 @@ fun NativeMediaLibrarySwitchItem(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "使用安卓原生媒体库",
+                text = stringResource(R.string.ml_settings_use_native_media_library),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "默认开启，读取系统媒体库并自动增量同步",
+                text = stringResource(R.string.ml_settings_use_native_media_library_desc),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -760,7 +762,7 @@ fun FolderItem(
     ) {
         Icon(
             painter = painterResource(id = R.drawable.baseline_folder_open_24),
-            contentDescription = "目录",
+            contentDescription = stringResource(R.string.ml_settings_directory_cd),
             tint = MaterialTheme.colorScheme.primary
         )
         
@@ -786,7 +788,7 @@ fun FolderItem(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.delete),
-                    contentDescription = "删除",
+                    contentDescription = stringResource(R.string.common_delete),
                     tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(20.dp)
                 )
@@ -832,7 +834,7 @@ fun AddFolderDialog(
                 .verticalScroll(rememberScrollState())
         ) {
             Text(
-                text = "添加音频目录",
+                text = stringResource(R.string.ml_settings_add_audio_directory),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -840,7 +842,7 @@ fun AddFolderDialog(
             )
             
             Text(
-                text = "选择或输入音频文件目录路径：",
+                text = stringResource(R.string.ml_settings_add_audio_directory_desc),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -857,10 +859,10 @@ fun AddFolderDialog(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.baseline_folder_open_24),
-                    contentDescription = "选择文件夹",
+                    contentDescription = stringResource(R.string.ml_settings_pick_folder),
                     modifier = Modifier.padding(end = 8.dp).size(18.dp)
                 )
-                Text("使用系统文件选择器")
+                Text(stringResource(R.string.ml_settings_use_system_picker))
             }
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -896,7 +898,7 @@ fun AddFolderDialog(
                     decorationBox = { innerTextField ->
                         if (inputPath.isEmpty()) {
                             Text(
-                                text = "请输入目录",
+                                text = stringResource(R.string.ml_settings_input_directory),
                                 color = if (showError) 
                                     MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.5f) 
                                 else 
@@ -920,7 +922,7 @@ fun AddFolderDialog(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "常用目录：",
+                text = stringResource(R.string.ml_settings_common_directories),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -942,6 +944,8 @@ fun AddFolderDialog(
             }
             
             Spacer(modifier = Modifier.height(24.dp))
+            val pathEmptyMessage = stringResource(R.string.ml_settings_path_empty)
+            val directoryExistsMessage = stringResource(R.string.ml_settings_directory_already_added)
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -951,19 +955,19 @@ fun AddFolderDialog(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
                 Button(
                     onClick = {
                         val trimmedPath = inputPath.trim()
                         if (trimmedPath.isEmpty()) {
-                            errorMessage = "路径不能为空"
+                            errorMessage = pathEmptyMessage
                             showError = true
                             return@Button
                         }
                         
                         if (existingFolders.contains(trimmedPath)) {
-                            errorMessage = "该目录已添加"
+                            errorMessage = directoryExistsMessage
                             showError = true
                             return@Button
                         }
@@ -972,7 +976,7 @@ fun AddFolderDialog(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("添加")
+                    Text(stringResource(R.string.common_add))
                 }
             }
         }
@@ -1020,7 +1024,7 @@ fun AddExcludeFolderDialog(
                 .verticalScroll(rememberScrollState())
         ) {
             Text(
-                text = "添加过滤目录",
+                text = stringResource(R.string.ml_settings_add_exclude_directory),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -1028,7 +1032,7 @@ fun AddExcludeFolderDialog(
             )
             
             Text(
-                text = "选择或输入要过滤的目录路径：",
+                text = stringResource(R.string.ml_settings_add_exclude_directory_desc),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1045,10 +1049,10 @@ fun AddExcludeFolderDialog(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.baseline_folder_open_24),
-                    contentDescription = "选择文件夹",
+                    contentDescription = stringResource(R.string.ml_settings_pick_folder),
                     modifier = Modifier.padding(end = 8.dp).size(18.dp)
                 )
-                Text("使用系统文件选择器")
+                Text(stringResource(R.string.ml_settings_use_system_picker))
             }
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -1084,7 +1088,7 @@ fun AddExcludeFolderDialog(
                     decorationBox = { innerTextField ->
                         if (inputPath.isEmpty()) {
                             Text(
-                                text = "请输入目录",
+                                text = stringResource(R.string.ml_settings_input_directory),
                                 color = if (showError) 
                                     MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.5f) 
                                 else 
@@ -1109,7 +1113,7 @@ fun AddExcludeFolderDialog(
             
             if (suggestedPaths.isNotEmpty()) {
                 Text(
-                    text = "建议目录：",
+                    text = stringResource(R.string.ml_settings_suggested_directories),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -1139,23 +1143,25 @@ fun AddExcludeFolderDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val pathEmptyMessage = stringResource(R.string.ml_settings_path_empty)
+                val directoryExistsMessage = stringResource(R.string.ml_settings_directory_already_added)
                 OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
                 Button(
                     onClick = {
                         val trimmedPath = inputPath.trim()
                         if (trimmedPath.isEmpty()) {
-                            errorMessage = "路径不能为空"
+                            errorMessage = pathEmptyMessage
                             showError = true
                             return@Button
                         }
                         
                         if (existingExcludeFolders.contains(trimmedPath)) {
-                            errorMessage = "该目录已添加"
+                            errorMessage = directoryExistsMessage
                             showError = true
                             return@Button
                         }
@@ -1164,7 +1170,7 @@ fun AddExcludeFolderDialog(
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("添加")
+                    Text(stringResource(R.string.common_add))
                 }
             }
         }

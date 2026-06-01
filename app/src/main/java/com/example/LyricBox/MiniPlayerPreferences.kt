@@ -43,20 +43,20 @@ fun normalizeMiniPlayerLandscapeAlignment(alignment: Int): Int {
     }
 }
 
-fun getMiniPlayerBackgroundModeLabel(mode: Int): String {
+fun getMiniPlayerBackgroundModeLabel(context: Context, mode: Int): String {
     return when (normalizeMiniPlayerBackgroundMode(mode)) {
-        MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR -> "封面取色"
-        MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR -> "封面模糊"
-        MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR -> "液态玻璃"
-        else -> "默认"
+        MINI_PLAYER_BACKGROUND_MODE_COVER_COLOR -> context.getString(R.string.settings_bg_cover_color)
+        MINI_PLAYER_BACKGROUND_MODE_COVER_BLUR -> context.getString(R.string.settings_bg_cover_blur)
+        MINI_PLAYER_BACKGROUND_MODE_REALTIME_BLUR -> context.getString(R.string.settings_bg_liquid_glass)
+        else -> context.getString(R.string.lyric_settings_default)
     }
 }
 
-fun getMiniPlayerLandscapeAlignmentLabel(alignment: Int): String {
+fun getMiniPlayerLandscapeAlignmentLabel(context: Context, alignment: Int): String {
     return when (normalizeMiniPlayerLandscapeAlignment(alignment)) {
-        MINI_PLAYER_LANDSCAPE_ALIGNMENT_CENTER -> "居中"
-        MINI_PLAYER_LANDSCAPE_ALIGNMENT_START -> "居左"
-        else -> "居右"
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_CENTER -> context.getString(R.string.settings_align_center)
+        MINI_PLAYER_LANDSCAPE_ALIGNMENT_START -> context.getString(R.string.settings_align_start)
+        else -> context.getString(R.string.settings_align_end)
     }
 }
 

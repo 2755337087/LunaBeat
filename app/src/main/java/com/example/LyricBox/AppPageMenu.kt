@@ -3,13 +3,14 @@ package com.example.LyricBox
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import androidx.annotation.StringRes
 import com.example.LyricBox.ui.components.MenuItem
 
-enum class AppPageDestination(val title: String) {
-    LYRIC_TIMING("歌词打轴"),
-    MUSIC_LIBRARY("音乐库"),
-    SETTINGS("设置"),
-    ABOUT("关于")
+enum class AppPageDestination(@StringRes val titleRes: Int) {
+    LYRIC_TIMING(R.string.app_page_lyric_timing),
+    MUSIC_LIBRARY(R.string.app_page_music_library),
+    SETTINGS(R.string.app_page_settings),
+    ABOUT(R.string.app_page_about)
 }
 
 fun buildPageSwitchMenuItems(
@@ -20,7 +21,12 @@ fun buildPageSwitchMenuItems(
     return AppPageDestination.values()
         .filter { destination -> includeCurrentPage || destination != currentPage }
         .map { destination ->
-        val title = if (destination == currentPage) "${destination.title}（当前）" else destination.title
+        val baseTitle = context.getString(destination.titleRes)
+        val title = if (destination == currentPage) {
+            context.getString(R.string.app_page_current_suffix_format, baseTitle)
+        } else {
+            baseTitle
+        }
         MenuItem(
             title = title,
             onClick = {

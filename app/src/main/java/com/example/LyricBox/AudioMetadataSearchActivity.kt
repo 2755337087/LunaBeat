@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +74,10 @@ class AudioMetadataSearchActivity : ComponentActivity() {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -237,7 +242,7 @@ fun AudioMetadataSearchScreen(
         .build()
     }
     
-    val tabTitles = listOf("推荐结果", "QM", "NE", "AM")
+    val tabTitles = listOf(stringResource(R.string.audio_metadata_search_recommended_results), "QM", "NE", "AM")
     val tabSources = listOf(null, Source.QM, Source.NE, Source.ITUNES)
     var selectedTabIndex by remember { mutableStateOf(0) }
     
@@ -438,7 +443,7 @@ fun AudioMetadataSearchScreen(
             if (qmDone && neDone && itunesDone) {
                 isSearching = false
                 if (!hasResults) {
-                    searchError = "未找到结果"
+                    searchError = context.getString(R.string.audio_metadata_search_no_results)
                 } else {
                     onSearchResultsLoaded?.invoke(allSongs)
                 }
@@ -622,7 +627,7 @@ fun AudioMetadataSearchScreen(
     } else {
         Column(modifier = modifier.fillMaxSize()) {
             CommonHeadBar(
-                title = "搜索音频元数据",
+                title = stringResource(R.string.metadata_edit_search_metadata),
                 showBack = true,
                 showMenu = true,
                 onBackClick = onBack,
@@ -633,7 +638,7 @@ fun AudioMetadataSearchScreen(
                         onDismissRequest = { showHeadbarMenu = false },
                         items = listOf(
                             MenuItem(
-                                title = "AM默认地区",
+                                title = stringResource(R.string.settings_am_default_region),
                                 onClick = {
                                     tempAMRegion = currentAMRegion
                                     showAMRegionDialog = true
@@ -667,7 +672,9 @@ fun AudioMetadataSearchScreen(
                             value = searchInput,
                             onValueChange = { searchInput = it },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
+                            singleLine = false,
+                            minLines = 1,
+                            maxLines = 3,
                             enabled = !isSearching,
                             textStyle = androidx.compose.ui.text.TextStyle(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -680,7 +687,7 @@ fun AudioMetadataSearchScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Search,
-                                        contentDescription = "搜索",
+                                        contentDescription = stringResource(R.string.common_search),
                                         modifier = Modifier.size(20.dp),
                                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                     )
@@ -688,7 +695,7 @@ fun AudioMetadataSearchScreen(
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (searchInput.isEmpty()) {
                                             Text(
-                                                text = "歌曲名 歌手 / 歌曲名 / 歌手",
+                                                text = stringResource(R.string.audio_metadata_search_input_placeholder),
                                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                                 fontSize = 16.sp
                                             )
@@ -702,7 +709,7 @@ fun AudioMetadataSearchScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Close,
-                                                contentDescription = "清除",
+                                                contentDescription = stringResource(R.string.audio_metadata_search_clear),
                                                 tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -729,7 +736,7 @@ fun AudioMetadataSearchScreen(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
-                            Text("搜索")
+                            Text(stringResource(R.string.common_search))
                         }
                     }
                 }
@@ -822,7 +829,7 @@ fun AudioMetadataSearchScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "该来源暂无结果",
+                                        text = stringResource(R.string.audio_metadata_search_no_results_for_source),
                                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                                     )
                                 }
@@ -844,7 +851,7 @@ fun AudioMetadataSearchScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "正在搜索中...",
+                            text = stringResource(R.string.audio_metadata_search_searching),
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                             fontSize = 14.sp
                         )
@@ -857,13 +864,13 @@ fun AudioMetadataSearchScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "输入格式：歌曲名 歌手 / 歌曲名 / 歌手",
+                            text = stringResource(R.string.audio_metadata_search_input_format_full),
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "示例：成都 赵雷",
+                            text = stringResource(R.string.audio_metadata_search_example),
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                             fontSize = 14.sp
                         )
@@ -932,7 +939,7 @@ fun MetadataSourceGroupCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 
                 Text(
-                    text = "(${group.songs.size}首)",
+                    text = stringResource(R.string.audio_metadata_search_song_count_parenthesized, group.songs.size),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -941,7 +948,11 @@ fun MetadataSourceGroupCard(
                 
                 Icon(
                     imageVector = if (group.isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (group.isExpanded) "收起" else "展开",
+                    contentDescription = if (group.isExpanded) {
+                        stringResource(R.string.audio_metadata_search_collapse)
+                    } else {
+                        stringResource(R.string.audio_metadata_search_expand)
+                    },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1028,7 +1039,7 @@ fun MetadataResultItem(
                     if (coverBitmap != null) {
                         Image(
                             bitmap = coverBitmap!!.asImageBitmap(),
-                            contentDescription = "封面",
+                            contentDescription = stringResource(R.string.song_info_cover_cd),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -1040,7 +1051,7 @@ fun MetadataResultItem(
                     } else {
                         Icon(
                             imageVector = androidx.compose.material.icons.Icons.Default.MusicNote,
-                            contentDescription = "音乐",
+                            contentDescription = stringResource(R.string.audio_metadata_search_music_cd),
                             modifier = Modifier.size(24.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1068,7 +1079,7 @@ fun MetadataResultItem(
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = song.title ?: "未知歌曲",
+                    text = song.title ?: stringResource(R.string.audio_metadata_search_unknown_song),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -1088,7 +1099,7 @@ fun MetadataResultItem(
                 song.album?.let {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "专辑: $it",
+                        text = stringResource(R.string.audio_metadata_search_album_value, it),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         maxLines = 1,
@@ -1097,9 +1108,12 @@ fun MetadataResultItem(
                 }
                 
                 val extraInfo = mutableListOf<String>()
-                song.year?.let { extraInfo.add("年份: $it") }
-                song.discNumber?.let { extraInfo.add("碟: $it") }
-                song.trackNumber?.let { extraInfo.add("曲: $it") }
+                val yearLabel = stringResource(R.string.audio_metadata_search_year_value)
+                val discLabel = stringResource(R.string.audio_metadata_search_disc_value)
+                val trackLabel = stringResource(R.string.audio_metadata_search_track_value)
+                song.year?.let { extraInfo.add(String.format(yearLabel, it)) }
+                song.discNumber?.let { extraInfo.add(String.format(discLabel, it)) }
+                song.trackNumber?.let { extraInfo.add(String.format(trackLabel, it)) }
                 
                 if (extraInfo.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(2.dp))
@@ -1202,7 +1216,7 @@ fun MetadataBottomSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = songResult.songInfo.title ?: "未知歌曲",
+                        text = songResult.songInfo.title ?: stringResource(R.string.audio_metadata_search_unknown_song),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1222,7 +1236,13 @@ fun MetadataBottomSheet(
                     }
                     saveFields(selectedFields)
                 }) {
-                    Text(if (selectedFields.size == fieldNames.size) "取消全选" else "全选")
+                    Text(
+                        if (selectedFields.size == fieldNames.size) {
+                            stringResource(R.string.audio_metadata_search_deselect_all)
+                        } else {
+                            stringResource(R.string.common_select_all)
+                        }
+                    )
                 }
             }
             
@@ -1238,7 +1258,7 @@ fun MetadataBottomSheet(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("正在加载元数据...")
+                        Text(stringResource(R.string.audio_metadata_search_loading_metadata))
                     }
                 }
             } else if (metadata != null) {
@@ -1264,7 +1284,7 @@ fun MetadataBottomSheet(
                                 ) {
                                     Image(
                                         bitmap = metadata.coverBitmap.asImageBitmap(),
-                                        contentDescription = "封面",
+                                        contentDescription = stringResource(R.string.song_info_cover_cd),
                                         contentScale = ContentScale.Fit,
                                         modifier = Modifier.fillMaxSize()
                                     )
@@ -1304,7 +1324,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("标题", metadata.title, "title" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_title), metadata.title, "title" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "title"
                             } else {
@@ -1315,7 +1335,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("艺术家", metadata.artist, "artist" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_artist), metadata.artist, "artist" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "artist"
                             } else {
@@ -1326,7 +1346,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("专辑", metadata.album, "album" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_album), metadata.album, "album" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "album"
                             } else {
@@ -1337,7 +1357,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("年份", metadata.year, "year" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_year), metadata.year, "year" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "year"
                             } else {
@@ -1348,7 +1368,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("音轨号", metadata.trackNumber, "trackNumber" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_track), metadata.trackNumber, "trackNumber" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "trackNumber"
                             } else {
@@ -1359,7 +1379,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("碟号", metadata.discNumber, "discNumber" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_disc), metadata.discNumber, "discNumber" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "discNumber"
                             } else {
@@ -1370,7 +1390,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("风格", metadata.genre, "genre" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_genre), metadata.genre, "genre" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "genre"
                             } else {
@@ -1381,7 +1401,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("专辑艺术家", metadata.albumArtist, "albumArtist" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_album_artist), metadata.albumArtist, "albumArtist" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "albumArtist"
                             } else {
@@ -1392,7 +1412,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("作曲", metadata.composer, "composer" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_composer), metadata.composer, "composer" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "composer"
                             } else {
@@ -1403,7 +1423,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("作词", metadata.lyricist, "lyricist" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_lyricist), metadata.lyricist, "lyricist" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "lyricist"
                             } else {
@@ -1414,7 +1434,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("注释", metadata.comment, "comment" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_comment), metadata.comment, "comment" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "comment"
                             } else {
@@ -1425,7 +1445,7 @@ fun MetadataBottomSheet(
                     }
                     
                     item {
-                        MetadataDisplayField("版权信息", metadata.copyright, "copyright" in selectedFields) { checked ->
+                        MetadataDisplayField(stringResource(R.string.metadata_edit_field_copyright), metadata.copyright, "copyright" in selectedFields) { checked ->
                             selectedFields = if (checked) {
                                 selectedFields + "copyright"
                             } else {
@@ -1446,7 +1466,7 @@ fun MetadataBottomSheet(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("暂无元数据")
+                    Text(stringResource(R.string.audio_metadata_search_no_metadata))
                 }
             }
             
@@ -1460,7 +1480,7 @@ fun MetadataBottomSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
                 
                 Button(
@@ -1468,7 +1488,7 @@ fun MetadataBottomSheet(
                     modifier = Modifier.weight(1f),
                     enabled = !isLoading && metadata != null && selectedFields.isNotEmpty()
                 ) {
-                    Text("导入")
+                    Text(stringResource(R.string.audio_metadata_search_import))
                 }
             }
             
@@ -1501,7 +1521,7 @@ fun MetadataDisplayField(label: String, value: String?, isChecked: Boolean, onCh
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = value ?: "无",
+                    text = value ?: stringResource(R.string.audio_metadata_search_none),
                     fontSize = 14.sp,
                     color = if (value != null) 
                         MaterialTheme.colorScheme.onPrimaryContainer 
@@ -1681,7 +1701,7 @@ fun CoverOnlySearchScreen(
             if (qmDone && neDone && itunesDone) {
                 isSearching = false
                 if (!hasResults) {
-                    searchError = "未找到结果"
+                    searchError = context.getString(R.string.audio_metadata_search_no_results)
                 } else {
                     onCacheCovers(allSongs)
                 }
@@ -1807,7 +1827,7 @@ fun CoverOnlySearchScreen(
     
     Column(modifier = modifier.fillMaxSize()) {
         CommonHeadBar(
-            title = "搜索封面",
+            title = stringResource(R.string.metadata_edit_cd_search_cover),
             showBack = true,
             showMenu = false,
             onBackClick = onBack
@@ -1835,7 +1855,9 @@ fun CoverOnlySearchScreen(
                         value = searchInput,
                         onValueChange = { searchInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
+                        singleLine = false,
+                        minLines = 1,
+                        maxLines = 3,
                         enabled = !isSearching,
                         textStyle = androidx.compose.ui.text.TextStyle(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1848,7 +1870,7 @@ fun CoverOnlySearchScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "搜索",
+                                    contentDescription = stringResource(R.string.common_search),
                                     modifier = Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
@@ -1856,7 +1878,7 @@ fun CoverOnlySearchScreen(
                                 Box(modifier = Modifier.weight(1f)) {
                                     if (searchInput.isEmpty()) {
                                         Text(
-                                            text = "歌曲名 歌手",
+                                            text = stringResource(R.string.audio_metadata_search_cover_input_placeholder),
                                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                             fontSize = 16.sp
                                         )
@@ -1870,7 +1892,7 @@ fun CoverOnlySearchScreen(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Close,
-                                            contentDescription = "清除",
+                                            contentDescription = stringResource(R.string.audio_metadata_search_clear),
                                             tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                             modifier = Modifier.size(16.dp)
                                         )
@@ -1893,7 +1915,7 @@ fun CoverOnlySearchScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     } else {
-                        Text("搜索")
+                        Text(stringResource(R.string.common_search))
                     }
                 }
             }
@@ -1945,7 +1967,7 @@ fun CoverOnlySearchScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "正在搜索中...",
+                        text = stringResource(R.string.audio_metadata_search_searching),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
@@ -1958,13 +1980,13 @@ fun CoverOnlySearchScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "输入格式：歌曲名 歌手",
+                        text = stringResource(R.string.audio_metadata_search_input_format_simple),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "示例：成都 赵雷",
+                        text = stringResource(R.string.audio_metadata_search_example),
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
@@ -2048,7 +2070,7 @@ fun CoverGridItem(
                 if (coverBitmap != null) {
                     Image(
                         bitmap = coverBitmap!!.asImageBitmap(),
-                        contentDescription = "封面",
+                        contentDescription = stringResource(R.string.song_info_cover_cd),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -2060,7 +2082,7 @@ fun CoverGridItem(
                 } else {
                     Icon(
                         imageVector = androidx.compose.material.icons.Icons.Default.MusicNote,
-                        contentDescription = "音乐",
+                        contentDescription = stringResource(R.string.audio_metadata_search_music_cd),
                         modifier = Modifier.size(32.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2179,7 +2201,7 @@ fun CoverPreviewDialog(
                 Spacer(modifier = Modifier.size(48.dp))
                 
                 Text(
-                    text = "封面预览",
+                    text = stringResource(R.string.audio_metadata_search_cover_preview),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -2190,7 +2212,7 @@ fun CoverPreviewDialog(
                 ) {
                     androidx.compose.foundation.Image(
                         painter = painterResource(id = R.drawable.save),
-                        contentDescription = "保存",
+                        contentDescription = stringResource(R.string.common_save),
                         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
                             if (!isLoading && songResult.coverBitmap != null) 
                                 MaterialTheme.colorScheme.primary 
@@ -2217,7 +2239,7 @@ fun CoverPreviewDialog(
                 } else if (songResult.coverBitmap != null) {
                     Image(
                         bitmap = songResult.coverBitmap!!.asImageBitmap(),
-                        contentDescription = "封面",
+                        contentDescription = stringResource(R.string.song_info_cover_cd),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -2249,7 +2271,7 @@ fun CoverPreviewDialog(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isLoading && songResult.coverBitmap != null
             ) {
-                Text("应用此封面")
+                Text(stringResource(R.string.audio_metadata_search_apply_cover))
             }
             
             Spacer(modifier = Modifier.height(24.dp))
@@ -2259,11 +2281,11 @@ fun CoverPreviewDialog(
     if (showSaveSuccessDialog) {
         AlertDialog(
             onDismissRequest = { showSaveSuccessDialog = false },
-            title = { Text("保存成功") },
-            text = { Text("封面已成功保存到相册/LyricBox目录") },
+            title = { Text(stringResource(R.string.audio_metadata_search_cover_saved_title)) },
+            text = { Text(stringResource(R.string.audio_metadata_search_cover_saved_message)) },
             confirmButton = {
                 Button(onClick = { showSaveSuccessDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         )

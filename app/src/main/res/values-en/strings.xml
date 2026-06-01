@@ -1,4 +1,9 @@
 <resources>
+    <!-- Common 通用文案 -->
+    <string name="app_name">LunaBeat</string>
+    <string name="app_name_edit_metadata">LunaBeat (Edit Metadata)</string>
+    <string name="app_name_edit_lyrics">LunaBeat (Lyric Timing)</string>
+
     <!-- Strings from MusicLibraryActivity page -->
     <string name="ml_music_library_notice_title">Notice</string>
     <string name="ml_music_library_notice_snooze_today">Do not show again today</string>
@@ -82,8 +87,8 @@
     <string name="ml_music_library_selected_audio_count">%1$d audio files selected</string>
     <string name="ml_music_library_lyrics_match_sources">Lyrics Match Sources</string>
     <string name="ml_music_library_lyrics_type">Lyrics Type</string>
-    <string name="ml_music_library_verbatim_lyrics">Verbatim Lyrics</string>
-    <string name="ml_music_library_line_lyrics">Line Lyrics</string>
+    <string name="ml_music_library_verbatim_lyrics">Word-Level Lyrics</string>
+    <string name="ml_music_library_line_lyrics">Line-Level Lyrics</string>
     <string name="ml_music_library_match_mode">Match Mode</string>
     <string name="ml_music_library_lyric_match_mode_desc">Supplement: fill empty lyrics only | Overwrite: replace all lyrics</string>
     <string name="ml_music_library_mode_supplement">Supplement</string>
@@ -294,7 +299,7 @@
 
     <!-- VerbatimLyricsActivity 逐字歌词获取页面 -->
     <string name="verbatim_tab_recommended">Recommended</string>
-    <string name="verbatim_title">Get Verbatim Lyrics</string>
+    <string name="verbatim_title">Get Word-Level Lyrics</string>
     <string name="verbatim_am_config">Apple Music Lyrics Settings</string>
     <string name="verbatim_cd_search">Search</string>
     <string name="verbatim_search_placeholder">Song + Artist / Song / Artist</string>
@@ -317,7 +322,7 @@
     <string name="verbatim_error_request_failed">Request failed. Check your network connection.</string>
     <string name="verbatim_error_search_failed">Search failed: %1$s</string>
     <string name="verbatim_error_fetch_lyrics_failed">Failed to fetch lyrics</string>
-    <string name="ml_music_library_lrc_verbatim_lyrics">LRC Line/Word Lyrics</string>
+    <string name="ml_music_library_lrc_verbatim_lyrics">LRC Word-Level Lyrics</string>
 
     <!-- LyricSettingsBottomSheet 歌词设置弹窗 -->
     <string name="lyric_settings_title">Lyrics Settings</string>
@@ -438,6 +443,574 @@
     <string name="settings_section_lyrics_download">Lyrics Download</string>
     <string name="settings_default_bracket">(Default)</string>
     <string name="settings_add">Add</string>
+    <string name="settings_font_import_failed">Failed to import font</string>
+    <string name="settings_seconds_value">%1$d sec</string>
+    <string name="settings_current_seek_time">Current setting: %1$d sec</string>
+    <string name="settings_one_second">1 sec</string>
+    <string name="settings_five_seconds">5 sec</string>
+    <string name="settings_ten_seconds">10 sec</string>
+    <string name="settings_vibration_off">Off</string>
+    <string name="settings_vibration_weak">Weak</string>
+    <string name="settings_vibration_medium">Medium</string>
+    <string name="settings_vibration_strong">Strong</string>
+    <string name="settings_vibration_intensity">Vibration Intensity</string>
+    <string name="settings_library_directory_summary">Configure folders and sorting</string>
+    <string name="settings_auto_scan_library">Auto-scan on entering library</string>
+    <string name="settings_auto_scan_library_summary">Automatically scans new files when entering the library</string>
+    <string name="settings_song_action_edit_lyrics">Edit Lyrics</string>
+    <string name="settings_song_action_edit_metadata">Edit Metadata</string>
+    <string name="settings_song_action_play_music">Play Music</string>
+    <string name="settings_lyric_settings_summary">Display, animation, playback and system</string>
+    <string name="settings_not_added">Not added</string>
+    <string name="settings_artist_count_added">%1$d artists added</string>
+    <string name="settings_not_enabled">Not enabled</string>
+    <string name="settings_custom_metadata_fields_summary">Configure which custom metadata fields are shown</string>
+    <string name="settings_auto_close_after_save_summary">Close the editor automatically after successful save, without success dialog</string>
+    <string name="settings_layout_mode_current_profile">%1$s (Current: %2$s)</string>
+    <string name="settings_add_artist_label">Add Artist</string>
+    <string name="settings_add_artist_placeholder">One artist per line</string>
+    <string name="settings_add_artist_empty_error">Please enter artists to add</string>
+    <string name="settings_add_artist_no_new_error">No new artists to add</string>
+    <string name="settings_add_artist_success">Added %1$d artists</string>
+    <string name="settings_current_whitelist">Current Whitelist</string>
+    <string name="settings_no_artist">No artists</string>
+    <string name="settings_featuring_summary">When these keywords are matched, featuring artists will be parsed from title</string>
+    <string name="settings_default_keywords">Default Keywords</string>
+    <string name="settings_custom_keywords">Custom Keywords</string>
+    <string name="settings_add_keyword_label">Add Keyword</string>
+    <string name="settings_add_keyword_placeholder">One keyword per line</string>
+    <string name="settings_add_keyword_empty_error">Please enter keywords to add</string>
+    <string name="settings_add_keyword_no_new_error">No new keywords to add</string>
+    <string name="settings_add_keyword_success">Added %1$d keywords</string>
+    <string name="settings_no_custom_keyword">No custom keywords</string>
+    <string name="settings_custom_fill_in">Custom Input</string>
+    <string name="settings_am_user_token_placeholder">Enter your Media-User-Token</string>
+    <string name="settings_country_code_placeholder">Country code (e.g. cn, us, jp)</string>
+    <string name="settings_auto_detect_lyrics_type">Auto-detect Lyrics Type</string>
+    <string name="settings_auto_detect_lyrics_type_summary">May be inaccurate for non-standard lyrics</string>
+    <string name="settings_preset_options">Preset Options</string>
+    <string name="settings_custom_separator_placeholder">Enter custom separator</string>
+    <string name="settings_bg_cover_color">Cover Color</string>
+    <string name="settings_bg_cover_blur">Cover Blur</string>
+    <string name="settings_bg_liquid_glass">Liquid Glass</string>
+    <string name="settings_dark_mode_follow_system">Follow system</string>
+    <string name="settings_dark_mode_light">Light</string>
+    <string name="settings_dark_mode_dark">Dark</string>
+    <string name="settings_layout_mode_auto">Auto</string>
+    <string name="settings_layout_mode_watch">Watch</string>
+    <string name="settings_layout_mode_phone">Phone</string>
+    <string name="settings_layout_mode_tablet">Tablet</string>
+    <string name="settings_align_end">Right</string>
+    <string name="settings_align_center">Center</string>
+    <string name="settings_align_start">Left</string>
+    <string name="settings_playback_style_1">Style 1</string>
+    <string name="settings_playback_style_2">Style 2 (No button background)</string>
     <string name="common_not_set">Not set</string>
     <string name="common_custom">Custom</string>
+
+
+    <!-- SongMetadataEditActivity 元数据编辑页面 -->
+    <string name="common_hint">Hint</string>
+    <string name="common_continue_editing">Continue Editing</string>
+    <string name="common_discard_changes">Discard Changes</string>
+    <string name="common_reset">Reset</string>
+    <string name="common_save">Save</string>
+    <string name="common_loading">Loading...</string>
+    <string name="common_unknown_error">Unknown error</string>
+    <string name="metadata_edit_unsaved_discard_confirm">There are unsaved changes. Discard them?</string>
+    <string name="metadata_edit_crop_cover_title">Crop Cover</string>
+    <string name="metadata_edit_lyrics_format_ttml">TTML Lyrics</string>
+    <string name="metadata_edit_lyrics_format_enhanced_lrc">Enhanced LRC/ELRC Lyrics</string>
+    <string name="metadata_edit_lyrics_format_lrc">LRC Line/Word Lyrics</string>
+    <string name="metadata_edit_lyrics_format_plain_text">Plain Text Lyrics</string>
+    <string name="metadata_edit_lyrics_empty_error">Lyrics are empty. This action cannot be performed.</string>
+    <string name="metadata_edit_plain_text_timing_error">Current lyrics are plain text, so timing tools are unavailable.</string>
+    <string name="metadata_edit_lyrics_parse_failed">Failed to parse lyrics. This action cannot be performed.</string>
+    <string name="metadata_edit_lyrics_parse_failed_with_reason">Failed to parse lyrics: %1</string>
+    <string name="metadata_edit_title_batch">Batch Edit (Selected: %1)</string>
+    <string name="metadata_edit_title_single">Edit Song Metadata</string>
+    <string name="metadata_edit_search_metadata">Search Metadata</string>
+    <string name="metadata_edit_field_title">Title</string>
+    <string name="metadata_edit_field_artist">Artist</string>
+    <string name="metadata_edit_field_album">Album</string>
+    <string name="metadata_edit_field_year">Year</string>
+    <string name="metadata_edit_field_track">Track No.</string>
+    <string name="metadata_edit_field_disc">Disc No.</string>
+    <string name="metadata_edit_field_genre">Genre</string>
+    <string name="metadata_edit_field_album_artist">Album Artist</string>
+    <string name="metadata_edit_field_composer">Composer</string>
+    <string name="metadata_edit_field_lyricist">Lyricist</string>
+    <string name="metadata_edit_field_comment">Comment</string>
+    <string name="metadata_edit_field_copyright">Copyright</string>
+    <string name="metadata_edit_field_lyrics">Lyrics</string>
+
+    <string name="common_undo">Undo</string>
+    <string name="common_redo">Redo</string>
+    <string name="common_operation_success">Operation successful</string>
+    <string name="common_exit">Exit</string>
+
+    <string name="metadata_edit_cd_cover">Cover</string>
+    <string name="metadata_edit_cd_add_cover">Add Cover</string>
+    <string name="metadata_edit_cd_has_video_cover">Has Video Cover</string>
+    <string name="metadata_edit_cd_search_cover">Search Cover</string>
+    <string name="metadata_edit_menu_open_timing">Edit in Timing Screen</string>
+    <string name="metadata_edit_menu_fetch_lyrics">Fetch Lyrics</string>
+    <string name="metadata_edit_menu_shift_timestamp">Shift Timestamps</string>
+    <string name="metadata_edit_menu_convert_simplified">Convert to Simplified Chinese</string>
+    <string name="metadata_edit_menu_remove_empty_lines">Remove Empty Lines</string>
+    <string name="metadata_edit_menu_format_timestamp">Format Timestamps</string>
+    <string name="metadata_edit_menu_convert_lyrics_format">Convert Lyrics Format</string>
+    <string name="metadata_edit_accompaniment_added_title">Accompaniment Added</string>
+    <string name="metadata_edit_accompaniment_copied_message">Accompaniment copied to: %1
+Delete the original file?</string>
+    <string name="metadata_edit_keep_file">Keep</string>
+    <string name="metadata_edit_delete_source_failed">Failed to delete original file</string>
+    <string name="metadata_edit_leave_with_unsaved_confirm">There are unsaved changes on this page. Continuing will discard them. Continue?</string>
+    <string name="metadata_edit_continue_navigate">Continue</string>
+    <string name="metadata_edit_shift_timestamp_hint">Enter milliseconds to shift. Positive delays, negative advances.</string>
+    <string name="metadata_edit_shift_timestamp_placeholder">Enter milliseconds</string>
+    <string name="metadata_edit_shift_timestamp_invalid">Please enter a valid millisecond value</string>
+    <string name="metadata_edit_current_song_path_not_found">Current song path not found</string>
+    <string name="metadata_edit_current_song_file_not_found">Current song file does not exist</string>
+    <string name="metadata_edit_accompaniment_create_or_write_failed">Unable to create or write accompaniment file</string>
+    <string name="metadata_edit_accompaniment_dir_create_failed_need_auth">Unable to create accompaniment folder. Please grant access to Music directory.</string>
+    <string name="metadata_edit_accompaniment_dir_auth_expired">Accompaniment directory permission expired. Please authorize again.</string>
+    <string name="metadata_edit_music_dir_access_failed">Cannot access Music directory. Please authorize again.</string>
+    <string name="metadata_edit_sing_dir_access_failed">Cannot access .sing directory. Please authorize again.</string>
+    <string name="metadata_edit_accompaniment_create_in_tree_failed">Failed to create accompaniment file in authorized directory</string>
+    <string name="metadata_edit_accompaniment_write_failed">Failed to write accompaniment file</string>
+    <string name="metadata_edit_no_directory_permission_reauth">No directory access permission. Please authorize again.</string>
+    <string name="metadata_edit_no_directory_permission">No directory access permission</string>
+    <string name="metadata_edit_add_accompaniment_failed">Failed to add accompaniment</string>
+    <string name="metadata_edit_no_accompaniment_to_remove">No accompaniment file to remove</string>
+    <string name="metadata_edit_delete_accompaniment_failed">Failed to delete accompaniment file</string>
+    <string name="metadata_edit_delete_accompaniment_need_confirm">User confirmation is required to delete accompaniment file</string>
+    <string name="metadata_edit_delete_accompaniment_no_permission">No permission to delete accompaniment file</string>
+    <string name="metadata_edit_remove_accompaniment_failed">Failed to remove accompaniment</string>
+    <string name="metadata_edit_source_path_invalid">Original file path is invalid</string>
+    <string name="metadata_edit_delete_source_unsupported">Deleting this source type is not supported</string>
+    <string name="metadata_edit_delete_source_need_confirm">User confirmation is required to delete original file</string>
+    <string name="metadata_edit_delete_source_no_permission">No permission to delete original file</string>
+
+    <string name="common_confirm_remove">Confirm Removal</string>
+    <string name="common_permission_required">Permission Required</string>
+    <string name="common_grant_permission">Grant Permission</string>
+    <string name="common_error">Error</string>
+    <string name="common_cancel_operation">Cancel Operation</string>
+    <string name="common_select">Select</string>
+    <string name="common_more">More</string>
+    <string name="common_clear">Clear</string>
+
+    <string name="metadata_edit_remove_image_confirm">Remove image cover?</string>
+    <string name="metadata_edit_remove_video_confirm">Remove video cover?</string>
+    <string name="metadata_edit_remove_accompaniment_confirm">Remove accompaniment file?</string>
+    <string name="metadata_edit_auth_prompt_title">Authorization Required</string>
+    <string name="metadata_edit_auth_prompt_message">Please grant access to the /Music/ directory. After authorization, tap "Add Accompaniment" again.</string>
+    <string name="metadata_edit_go_authorize">Authorize</string>
+    <string name="metadata_edit_auth_result_title">Authorization Result</string>
+    <string name="metadata_edit_copying">Copying...</string>
+    <string name="metadata_edit_all_files_permission_required">"All files access" permission is required to save files. Tap "Grant Permission".</string>
+    <string name="metadata_edit_batch_update_success">Batch update completed</string>
+    <string name="metadata_edit_accompaniment">Accompaniment</string>
+    <string name="metadata_edit_add_accompaniment">Add Accompaniment</string>
+    <string name="metadata_edit_remove_accompaniment">Remove Accompaniment</string>
+    <string name="metadata_edit_auth_failed_not_granted">Authorization failed: /Music/ directory permission not granted.</string>
+    <string name="metadata_edit_auth_failed_select_music">Authorization failed: please select the /Music/ directory.</string>
+    <string name="metadata_edit_auth_failed_save_permission">Authorization failed: unable to persist /Music/ directory permission.</string>
+    <string name="metadata_edit_auth_success_retry_add">Authorization successful. Please tap "Add Accompaniment" again.</string>
+
+    <string name="common_close">Close</string>
+    <string name="common_search">Search</string>
+    <string name="common_view">View</string>
+
+    <string name="metadata_edit_cover_source_title">Choose Cover Source</string>
+    <string name="metadata_edit_cover_source_system">Choose from system files</string>
+    <string name="metadata_edit_cover_source_library">Choose from song covers</string>
+    <string name="metadata_edit_select_song_cover">Choose Song Cover</string>
+    <string name="metadata_edit_cover_search_placeholder">Search songs, artists, or albums...</string>
+    <string name="metadata_edit_no_matched_songs">No matching songs found</string>
+    <string name="metadata_edit_no_songs_in_library">No songs in library</string>
+    <string name="metadata_edit_detecting_lyrics">Detecting lyrics...</string>
+    <string name="metadata_edit_detected_lyrics_select_source">Lyrics detected. Please choose a source:</string>
+    <string name="metadata_edit_embedded_lyrics">Embedded Lyrics</string>
+    <string name="metadata_edit_click_to_preview_lyrics">Tap to preview lyrics</string>
+    <string name="metadata_edit_embedded_lyrics_preview">Embedded Lyrics Preview</string>
+    <string name="metadata_edit_external_ttml_file">External TTML File</string>
+    <string name="metadata_edit_external_ttml_preview">External TTML Preview</string>
+    <string name="metadata_edit_select_lyrics_format">Please choose a lyrics format:</string>
+    <string name="metadata_edit_format_recommended">%1 (Recommended)</string>
+    <string name="metadata_edit_no_lyrics_detected">No lyrics detected</string>
+    <string name="metadata_edit_start_edit_lyrics">Start Editing Lyrics</string>
+    <string name="metadata_edit_crop_image">Crop Image</string>
+    <string name="metadata_edit_save_to_album">Save to Album</string>
+    <string name="metadata_edit_cover_preview">Cover Preview</string>
+    <string name="metadata_edit_video_file_not_found">Video file not found</string>
+
+    <string name="common_paste">Paste</string>
+    <string name="common_confirm_discard_changes_title">Confirm Discard Changes</string>
+
+    <!-- LyricTimingActivity 打轴页面 -->
+    <string name="lyric_timing_import_transliteration">Import Transliteration</string>
+    <string name="lyric_timing_transliteration_menu">Transliteration Menu</string>
+    <string name="lyric_timing_import_kana_romaji">Import Kana/Romaji</string>
+    <string name="lyric_timing_delete_all_transliteration">Delete All Transliteration</string>
+    <string name="lyric_timing_close_page">Close Page</string>
+    <string name="lyric_timing_import_translation_by_text">Import Translation by Text</string>
+    <string name="lyric_timing_translation_input_placeholder">Enter translations, one line per lyric line</string>
+    <string name="lyric_timing_transliteration_input_placeholder">Input format:
+Lyrics: Transliteration
+Note: Enter transliteration for one character per line.
+Example:
+你: ni
+好: hao</string>
+    <string name="lyric_timing_parse_failed_check_format">Parsing failed. Please check the format.</string>
+    <string name="lyric_timing_no_transliteration_input">No transliteration input</string>
+    <string name="lyric_timing_no_matching_lyrics">No matching lyrics found</string>
+    <string name="lyric_timing_transliteration_success_count">Successfully applied transliteration to %1$d characters</string>
+    <string name="lyric_timing_delete_multiple_lines">Delete Multiple Lines</string>
+    <string name="lyric_timing_selected_lines_count">%1$d lines selected</string>
+    <string name="lyric_timing_select_lines_to_delete">Select lines to delete:</string>
+    <string name="lyric_timing_confirm_delete">Confirm Delete</string>
+    <string name="lyric_timing_move_line">Move Line</string>
+    <string name="lyric_timing_current_line_with_content">Current line: %1$d | %2$s</string>
+    <string name="lyric_timing_select_target_line_to_move">Choose the target line:</string>
+    <string name="lyric_timing_current_line_tag"> (Current)</string>
+    <string name="lyric_timing_position_label">Position:</string>
+    <string name="lyric_timing_above">Above</string>
+    <string name="lyric_timing_below">Below</string>
+    <string name="lyric_timing_discard_move_changes_confirm">You changed the move-line selection. Discard changes?</string>
+    <string name="lyric_timing_split_to_multiple_lines">Split into Multiple Lines</string>
+    <string name="lyric_timing_current_lyrics_label">Current lyrics:</string>
+    <string name="lyric_timing_lyrics_content_placeholder">Lyrics content</string>
+    <string name="lyric_timing_split_multiline_hint">Tip: Use line breaks to split lyrics into multiple lines. Each line becomes a new lyric line.</string>
+    <string name="lyric_timing_split_no_newline_error">No line break detected. Cannot split.</string>
+    <string name="lyric_timing_split_need_two_lines_error">At least two valid lyric lines are required after splitting.</string>
+    <string name="lyric_timing_discard_lyrics_changes_confirm">You changed the lyrics content. Discard changes?</string>
+
+    <string name="lyric_timing_import_lyrics">Import Lyrics</string>
+    <string name="lyric_timing_import_example">Import Example</string>
+    <string name="lyric_timing_import_plaintext_placeholder">One lyric line per row
+Format per row: lyrics=translation (translation optional)</string>
+    <string name="lyric_timing_use_space_split_advanced">Split lyrics by spaces (Advanced)</string>
+    <string name="lyric_timing_space_split_hint_enabled">Split lyric units by spaces. To keep original spaces in lyrics, use double spaces.</string>
+    <string name="lyric_timing_space_split_hint_disabled">Each row is treated as one lyric unit. You can quickly split with "One-click Word Split" in the menu (Recommended).</string>
+    <string name="lyric_timing_confirm_cancel_title">Confirm Cancel</string>
+    <string name="lyric_timing_confirm_cancel_message">There is content in the input box. Are you sure you want to cancel?</string>
+    <string name="lyric_timing_import_lrc_line_word">Import LRC Line/Word Lyrics</string>
+    <string name="lyric_timing_import_lrc_placeholder">Enter LRC line/word lyrics
+Example: [00:00.000]lyrics[00:00.000]</string>
+    <string name="lyric_timing_import_elrc_word">Import Enhanced LRC/ELRC Word Lyrics</string>
+    <string name="lyric_timing_import_elrc_placeholder">Enter ELRC lyrics
+Example: [00:44.360]v2: &lt;00:44.360&gt;内&lt;00:44.840&gt;...</string>
+    <string name="lyric_timing_import_elrc_hint">Tip: parse &lt;time&gt; tags. v1 is left lyrics, v2 is right lyrics.</string>
+    <string name="lyric_timing_import_ttml">Import TTML Lyrics</string>
+    <string name="lyric_timing_import_ttml_placeholder">Enter TTML lyrics
+Paste TTML formatted lyrics</string>
+    <string name="lyric_timing_import_ttml_hint">Tip: line breaks and extra spaces are removed automatically on import.</string>
+
+    <!-- VerbatimLyricsActivity 逐字歌词获取页面 -->
+    <string name="verbatim_loading_lyrics">Fetching lyrics...</string>
+    <string name="verbatim_load_failed">Load failed</string>
+    <string name="verbatim_keep_translation">Keep translation</string>
+    <string name="verbatim_convert_simplified">Convert to Simplified</string>
+    <string name="verbatim_keep_lyrics_only">Lyrics only</string>
+    <string name="verbatim_show_translation">Show translation</string>
+    <string name="verbatim_show_roma">Show romaji</string>
+    <string name="verbatim_line_by_line">Line-Level Lyrics</string>
+    <string name="verbatim_show_line_end_timestamp">Show line end timestamps</string>
+    <string name="verbatim_copy">Copy</string>
+    <string name="verbatim_import">Import</string>
+
+    <!-- ArtistsActivity 艺术家页面 -->
+    <string name="artists_sort_name">Artist name</string>
+    <string name="artists_sort_song_count">Song count</string>
+    <string name="artists_sort_album_count">Album count</string>
+    <string name="artists_tab_songs">Songs</string>
+    <string name="artists_tab_albums">Albums</string>
+    <string name="artists_song_count">%1$d songs</string>
+    <string name="artists_song_album_count">%1$d songs · %2$d albums</string>
+    <string name="artists_song_count_with_duration">%1$d songs · %2$s</string>
+
+    <!-- SettingsActivity 设置页面 -->
+    <string name="settings_am_source_builtin">Built-in</string>
+    <string name="settings_am_source_contributor">Contributor config</string>
+    <string name="settings_am_token_title">APPLE_MUSIC_MEDIA_USER_TOKEN</string>
+    <string name="settings_am_region_hk_sc">HK - Hong Kong (to Simplified)</string>
+    <string name="settings_am_region_hk">HK - Hong Kong</string>
+    <string name="settings_am_region_tw_sc">TW - Taiwan (to Simplified)</string>
+    <string name="settings_am_region_tw">TW - Taiwan</string>
+    <string name="settings_am_region_cn">CN - China</string>
+    <string name="settings_am_region_jp">JP - Japan</string>
+    <string name="settings_am_region_kr">KR - Korea</string>
+    <string name="settings_am_region_us">US - United States</string>
+
+    <!-- AboutActivity 关于页面 -->
+    <string name="about_title">About</string>
+
+    <!-- SongMetadataEditActivity 编辑歌曲元数据页面 -->
+    <string name="metadata_edit_field_cover">Cover</string>
+    <string name="metadata_edit_cover_modified">Cover (Modified)</string>
+    <string name="metadata_edit_select_image_cover">Select Image Cover</string>
+    <string name="metadata_edit_select_video_cover">Select Video Cover</string>
+    <string name="metadata_edit_remove_image_cover">Remove Image Cover</string>
+    <string name="metadata_edit_remove_video_cover">Remove Video Cover</string>
+    <string name="metadata_edit_image_cover">Image Cover</string>
+    <string name="metadata_edit_video_cover">Video Cover</string>
+
+    <!-- LyricPreviewActivity 预览页面 -->
+    <string name="lyric_preview_now_playing">Now Playing</string>
+    <string name="lyric_preview_now_playing_with_comment">Now Playing: %1$s</string>
+    <string name="lyric_preview_next_track_with_title">Up Next: %1$s</string>
+    <string name="lyric_preview_creator_prefix">Creators：</string>
+
+    <!-- LyricTimingActivity 打轴页面 -->
+    <string name="lyric_timing_creators_title">Creators</string>
+    <string name="lyric_timing_creators_empty">No creators</string>
+    <string name="lyric_timing_creator_unnamed">Unnamed creator</string>
+    <string name="lyric_timing_creator_add">Add Creator</string>
+    <string name="lyric_timing_creator_add_dialog">Add Creator</string>
+    <string name="lyric_timing_creator_edit">Edit Creator</string>
+    <string name="lyric_timing_creator_name_label">Creator name:</string>
+    <string name="lyric_timing_creator_name_placeholder">Enter creator name</string>
+    <string name="lyric_timing_creator_label">Creator %1$d</string>
+    <string name="lyric_timing_seek_backward_seconds">Rewind %1$d s</string>
+    <string name="lyric_timing_seek_forward_seconds">Forward %1$d s</string>
+    <string name="lyric_timing_exit_follow_mode">Exit follow mode</string>
+    <string name="lyric_timing_set_start">Start</string>
+    <string name="lyric_timing_set_continuous">Continue</string>
+    <string name="lyric_timing_set_end">End</string>
+    <string name="lyric_timing_locate_selected_lyric">Locate selected lyric</string>
+    <string name="lyric_timing_menu_import_plain_text">Import via plain text</string>
+    <string name="lyric_timing_menu_import_lrc">Import via LRC line/word lyrics</string>
+    <string name="lyric_timing_menu_import_elrc">Import via enhanced LRC/ELRC word lyrics</string>
+    <string name="lyric_timing_menu_import_ttml">Import via TTML lyrics</string>
+    <string name="lyric_timing_menu_fetch_verbatim">Fetch Word-Level Lyrics</string>
+    <string name="lyric_timing_menu_import_audio">Import audio</string>
+    <string name="lyric_timing_import_transliteration_by_text">Import transliteration by text</string>
+    <string name="lyric_timing_menu_batch_actions">Batch actions</string>
+    <string name="lyric_timing_batch_segment">One-click word split</string>
+    <string name="lyric_timing_batch_merge_units">One-click merge lyrics</string>
+    <string name="lyric_timing_batch_shift_timestamp">Shift timestamps</string>
+    <string name="lyric_timing_batch_convert_simplified">Convert to Simplified Chinese</string>
+    <string name="lyric_timing_recognize_transliteration">Recognize transliteration</string>
+    <string name="lyric_timing_no_translation_cannot_recognize">No translation lines in current lyrics. Cannot recognize.</string>
+    <string name="lyric_timing_delete_empty_lines">Delete empty lines</string>
+    <string name="lyric_timing_format_timeline">Format timeline</string>
+    <string name="lyric_timing_embed_lyrics">Embed lyrics</string>
+    <string name="lyric_timing_embed_lrc_word">Embed LRC word-level lyrics</string>
+    <string name="lyric_timing_embed_lrc_line">Embed LRC line-level lyrics</string>
+    <string name="lyric_timing_embed_enhanced_lrc">Embed enhanced LRC lyrics</string>
+    <string name="lyric_timing_embed_ttml">Embed TTML lyrics</string>
+    <string name="lyric_timing_save_ttml_to_same_dir">Save TTML lyrics to the same folder</string>
+    <string name="lyric_timing_preview_lyrics">Preview lyrics</string>
+    <string name="lyric_timing_save_lyrics">Save lyrics</string>
+    <string name="lyric_timing_save_as_lrc_word">Save as LRC word-level lyrics</string>
+    <string name="lyric_timing_save_as_lrc_line">Save as LRC line-level lyrics</string>
+    <string name="lyric_timing_save_as_enhanced_lrc">Save as enhanced LRC lyrics</string>
+    <string name="lyric_timing_save_as_ttml">Save as TTML lyrics</string>
+    <string name="lyric_timing_agent_default">Default</string>
+    <string name="lyric_timing_agent_duet">Duet</string>
+    <string name="lyric_timing_agent_background">Background</string>
+    <string name="lyric_timing_set_timestamp">Set timestamp</string>
+    <string name="lyric_timing_start_time_label">Start time:</string>
+    <string name="lyric_timing_lyrics_text_label">Lyrics text:</string>
+    <string name="lyric_timing_end_time_label">End time:</string>
+    <string name="lyric_timing_apply_start_to_prev_end">Apply start time to previous unit end time</string>
+    <string name="lyric_timing_apply_end_to_next_start">Apply end time to next unit start time</string>
+    <string name="lyric_timing_shift_earlier">Earlier (-)</string>
+    <string name="lyric_timing_shift_later">Later (+)</string>
+    <string name="lyric_timing_unsaved_data_title">Current data not saved</string>
+    <string name="lyric_timing_unsaved_data_switch_confirm">Current data is not saved. Switch anyway?</string>
+    <string name="lyric_timing_split_lyrics">Split lyrics</string>
+    <string name="lyric_timing_split_lyrics_by_space">Split lyric units by space:</string>
+    <string name="lyric_timing_split_lyrics_hint">Tip: the first space is a separator; consecutive extra spaces are kept in the next unit.</string>
+    <string name="lyric_timing_confirm_back_title">Confirm back</string>
+    <string name="lyric_timing_please_import_lyrics_first">Please import lyrics first</string>
+    <string name="lyric_timing_no_empty_lines">No empty lines to delete</string>
+    <string name="lyric_timing_please_import_audio_first">Please import an audio file first</string>
+    <string name="lyric_timing_confirm_back_message">Go back now? Unsaved lyrics edits may be lost.</string>
+    <string name="lyric_timing_confirm_overwrite_title">Confirm overwrite</string>
+    <string name="lyric_timing_confirm_overwrite_message">Lyrics already exist. Overwrite?</string>
+    <string name="lyric_timing_file_path_title">File path</string>
+    <string name="lyric_timing_jump_to_time">Jump to specific time</string>
+    <string name="lyric_timing_playback_speed_settings">Playback speed settings</string>
+    <string name="lyric_timing_save_success_title">Saved</string>
+    <string name="lyric_timing_save_failed_title">Save failed</string>
+    <string name="lyric_timing_copied_title">Copied</string>
+    <string name="lyric_timing_copied_message">Copied to clipboard</string>
+    <string name="lyric_timing_edit_lyrics">Edit lyrics</string>
+    <string name="lyric_timing_edit_transliteration">Edit transliteration</string>
+    <string name="lyric_timing_single_char_transliteration">Per-character transliteration</string>
+    <string name="lyric_timing_whole_transliteration">Whole-unit transliteration</string>
+    <string name="lyric_timing_transliteration_placeholder">Transliteration</string>
+    <string name="lyric_timing_whole_transliteration_placeholder">Whole-unit transliteration</string>
+    <string name="lyric_timing_unsaved_title">Unsaved</string>
+    <string name="lyric_timing_unsaved_switch_message">Changes are not saved. Switch anyway?</string>
+    <string name="lyric_timing_add_lyrics">Add lyrics</string>
+    <string name="lyric_timing_add_line">Add line</string>
+    <string name="lyric_timing_lyrics_required_placeholder">Lyrics content (required)</string>
+    <string name="lyric_timing_confirm_delete_current_unit">Delete the current lyric unit?</string>
+    <string name="lyric_timing_confirm_delete_current_line">Delete the current lyric line?</string>
+    <string name="lyric_timing_detected_empty_lines_title">Empty lines detected</string>
+    <string name="lyric_timing_detected_empty_lines_message">Empty lyric lines were found. Tap confirm to delete all empty lines.</string>
+    <string name="lyric_timing_delete_success_title">Deleted</string>
+    <string name="lyric_timing_duet_prefix">Duet </string>
+    <string name="lyric_timing_start_recognition">Start recognition</string>
+    <string name="lyric_timing_romaji_to_kana_jp_only">Romaji to Kana (Japanese only)</string>
+    <string name="lyric_timing_import_example_basic">Basic format:</string>
+    <string name="lyric_timing_import_example_basic_desc">One lyric line per row. Add translation after (=).</string>
+    <string name="lyric_timing_import_example_case1">Example 1: split by spaces enabled</string>
+    <string name="lyric_timing_import_example_case1_result">Result: |欢迎|使用|_Lyric|Box|</string>
+    <string name="lyric_timing_import_example_case2">Example 2: split by spaces disabled</string>
+    <string name="lyric_timing_import_example_case2_result">Result: |欢迎使用_LunaBeat|</string>
+    <string name="lyric_timing_import_example_case3">Example 3: with translation</string>
+    <string name="lyric_timing_import_example_case3_desc">Text after (=) is translation</string>
+    <string name="lyric_timing_import_example_tip_segment">After import, you can use \"One-click word split\" in the menu.</string>
+    <string name="lyric_timing_time_minute_placeholder">Min</string>
+    <string name="lyric_timing_time_second_placeholder">Sec</string>
+    <string name="lyric_timing_time_millisecond_placeholder">Ms</string>
+    <string name="lyric_timing_enter_follow_mode">Enter playback follow mode</string>
+    <string name="lyric_timing_jump_song_start">Jump to song start</string>
+    <string name="lyric_timing_jump_song_end">Jump to song end</string>
+    <string name="lyric_timing_confirm_and_play">Confirm and play</string>
+    <string name="lyric_timing_audio_transcoding_title">Audio transcoding</string>
+    <string name="lyric_timing_audio_transcoding_running">Unsupported audio format detected, transcoding...</string>
+    <string name="lyric_timing_grant_write_permission">Grant write permission</string>
+    <string name="lyric_timing_confirm_format_timeline_title">Confirm timeline formatting</string>
+    <string name="lyric_timing_confirm_format_timeline_message">Format the timeline? Lyrics will be sorted by timestamp and translations with the same timestamp will be merged automatically.</string>
+
+    <!-- Common 通用文案 -->
+    <string name="common_edit">Edit</string>
+    <string name="common_select_all">Select all</string>
+    <string name="common_invert_select">Invert selection</string>
+    <string name="common_previous">Previous</string>
+    <string name="common_next">Next</string>
+    <string name="common_back">Back</string>
+    <string name="common_switch">Switch</string>
+    <string name="common_confirm_delete">Confirm delete</string>
+    <string name="common_menu">Menu</string>
+    <string name="common_copy">Copy</string>
+    <string name="common_got_it">Got it</string>
+    <string name="common_hint_colon">Tip:</string>
+    <string name="common_add">Add</string>
+    <string name="common_split">Split</string>
+    <string name="common_merge">Merge</string>
+    <string name="common_move">Move</string>
+
+    <string name="lyric_timing_show_duet_tags">Show duet tags (v1/v2)</string>
+    <string name="lyric_timing_show_line_end_timestamp">Show line end timestamps</string>
+    <string name="lyric_timing_confirm_embed_to_target">Embed into %1$s?</string>
+    <string name="lyric_timing_audio_path_empty_embed_failed">Audio path is empty. Cannot embed lyrics.</string>
+    <string name="lyric_timing_embed_success">Lyrics were embedded into the audio file.</string>
+    <string name="lyric_timing_confirm_embed">Embed</string>
+    <string name="lyric_timing_save_ttml_title">Save TTML Lyrics</string>
+    <string name="lyric_timing_confirm_save_ttml_to_dir">Save %1$s to %2$s?</string>
+    <string name="lyric_timing_save_redirected_to">Original folder write failed. Saved to: %1$s</string>
+    <string name="lyric_timing_save_file_success_with_path">Lyrics file saved: %1$s</string>
+    <string name="lyric_timing_save_file_failed_retry">Failed to save lyrics file. Check storage permission and try again.</string>
+    <string name="lyric_timing_confirm_save">Save</string>
+    <string name="lyric_timing_select_lines_to_segment">Select lines to split into words:</string>
+    <string name="lyric_timing_select_lines_to_merge_units">Select lines whose lyric units should be merged:</string>
+    <string name="lyric_timing_merge_threshold_prefix">Merge threshold: ±</string>
+    <string name="lyric_timing_milliseconds_value">%1$d ms</string>
+    <string name="lyric_timing_select_lines_to_shift">Select lines to shift timestamps:</string>
+    <string name="lyric_timing_shift_value_placeholder">Offset value</string>
+    <string name="lyric_timing_unit_milliseconds">Unit: milliseconds</string>
+    <string name="lyric_timing_select_lines_to_convert_simplified">Select lines to convert to Simplified Chinese:</string>
+    <string name="lyric_timing_undo">Undo</string>
+    <string name="lyric_timing_redo">Redo</string>
+    <string name="lyric_timing_time_format_placeholder">Time (mm:ss.SSS)</string>
+    <string name="lyric_timing_add_translation">Add Translation</string>
+    <string name="lyric_timing_translation_line">Translation Line</string>
+    <string name="lyric_timing_translation_input_placeholder_simple">Enter translation text</string>
+    <string name="lyric_timing_delete_translation_line">Delete translation line</string>
+    <string name="lyric_timing_merge_lyrics">Merge Lyrics</string>
+    <string name="lyric_timing_merge_lines">Merge Lines</string>
+    <string name="lyric_timing_add_space_between_lines">Add spaces between lines</string>
+    <string name="lyric_timing_edit_lyrics_section">Edit Lyrics</string>
+    <string name="lyric_timing_edit_lines_section">Edit Lines</string>
+    <string name="lyric_timing_current_time_with_value">Current time: %1$s</string>
+    <string name="lyric_timing_current_speed_with_value">Current speed: %1$sX</string>
+    <string name="lyric_timing_no_lyrics_text">No lyrics</string>
+    <string name="lyric_timing_font_size">Font Size</string>
+    <string name="lyric_timing_exit_preview">Exit Preview</string>
+    <string name="lyric_timing_transliteration_recognition_description">This feature detects romaji transliteration in translations (Japanese/Korean supported) and converts it to TTML-compliant per-character transliteration. Japanese small kana and gemination are handled. Save as TTML to preserve per-character transliteration.</string>
+    <string name="lyric_timing_select_romaji_translation_row">Select which translation row contains romaji transliteration (applies to all lyric lines):</string>
+    <string name="lyric_timing_translation_row_index">Translation row %1$d</string>
+    <string name="lyric_timing_only_one_translation_row_hint">Only one translation row was detected. Row 1 will be used by default.</string>
+    <string name="lyric_timing_embed_failure_reasons">Possible reasons:\n• The file format does not support lyric writing\n• The file is in use by another app</string>
+    <string name="lyric_timing_set_time">Set Time</string>
+    <string name="lyric_timing_edit_translation">Edit Translation</string>
+
+    <!-- AudioMetadataSearchActivity 搜索音频元数据页面 -->
+    <string name="audio_metadata_search_recommended_results">Recommended</string>
+    <string name="audio_metadata_search_no_results">No results found</string>
+    <string name="audio_metadata_search_input_placeholder">Song Artist / Song / Artist</string>
+    <string name="audio_metadata_search_cover_input_placeholder">Song Artist</string>
+    <string name="audio_metadata_search_clear">Clear</string>
+    <string name="audio_metadata_search_no_results_for_source">No results from this source</string>
+    <string name="audio_metadata_search_searching">Searching...</string>
+    <string name="audio_metadata_search_input_format_full">Format: Song Artist / Song / Artist</string>
+    <string name="audio_metadata_search_input_format_simple">Format: Song Artist</string>
+    <string name="audio_metadata_search_example">Example: Chengdu Zhao Lei</string>
+    <string name="audio_metadata_search_song_count_parenthesized">(%1$d songs)</string>
+    <string name="audio_metadata_search_collapse">Collapse</string>
+    <string name="audio_metadata_search_expand">Expand</string>
+    <string name="audio_metadata_search_music_cd">Music</string>
+    <string name="audio_metadata_search_unknown_song">Unknown song</string>
+    <string name="audio_metadata_search_album_value">Album: %1$s</string>
+    <string name="audio_metadata_search_year_value">Year: %1$s</string>
+    <string name="audio_metadata_search_disc_value">Disc: %1$s</string>
+    <string name="audio_metadata_search_track_value">Track: %1$s</string>
+    <string name="audio_metadata_search_deselect_all">Deselect all</string>
+    <string name="audio_metadata_search_loading_metadata">Loading metadata...</string>
+    <string name="audio_metadata_search_no_metadata">No metadata</string>
+    <string name="audio_metadata_search_import">Import</string>
+    <string name="audio_metadata_search_none">None</string>
+    <string name="audio_metadata_search_cover_preview">Cover Preview</string>
+    <string name="audio_metadata_search_apply_cover">Use This Cover</string>
+    <string name="audio_metadata_search_cover_saved_title">Saved</string>
+    <string name="audio_metadata_search_cover_saved_message">Cover saved to Photos/LyricBox</string>
+
+    <!-- AppPageMenu 页面切换菜单 -->
+    <string name="app_page_lyric_timing">Lyric Timing</string>
+    <string name="app_page_music_library">Music Library</string>
+    <string name="app_page_settings">Settings</string>
+    <string name="app_page_about">About</string>
+    <string name="app_page_current_suffix_format">%1$s (Current)</string>
+
+    <!-- MusicLibrarySettingsActivity 音乐库目录设置页面 -->
+    <string name="ml_settings_storage_permission_required">Storage permission is required to scan audio files.</string>
+    <string name="ml_settings_unable_get_folder_path">Unable to get folder path.</string>
+    <string name="ml_settings_title">Directory Settings</string>
+    <string name="ml_settings_audio_directory">Audio Directories</string>
+    <string name="ml_settings_audio_directory_desc">Set directories used to read audio files.</string>
+    <string name="ml_settings_scan_source">Scan Source</string>
+    <string name="ml_settings_scan_source_native_desc">On first launch, load Android media library; later launches update incrementally.</string>
+    <string name="ml_settings_scan_source_folder_desc">When disabled, directory scanning is used. New/modified files require refresh.</string>
+    <string name="ml_settings_add_directory">Add Directory</string>
+    <string name="ml_settings_sort_settings">Sort Settings</string>
+    <string name="ml_settings_sort_settings_desc">Choose how the audio list is sorted.</string>
+    <string name="ml_settings_sort_type">Sort By</string>
+    <string name="ml_settings_sort_order">Sort Order</string>
+    <string name="ml_settings_filter_settings">Filter Settings</string>
+    <string name="ml_settings_filter_short_audio">Filter audio files shorter than 60 seconds</string>
+    <string name="ml_settings_exclude_directories">Excluded Directories</string>
+    <string name="ml_settings_exclude_directories_desc">Songs from these directories will not be shown in the library.</string>
+    <string name="ml_settings_confirm_delete_directory">Delete this directory?\n%1$s</string>
+    <string name="ml_settings_confirm_delete_exclude_directory">Delete this excluded directory?\n%1$s</string>
+    <string name="ml_settings_use_native_media_library">Use Android Native Media Library</string>
+    <string name="ml_settings_use_native_media_library_desc">Enabled by default. Reads system media library with auto incremental sync.</string>
+    <string name="ml_settings_directory_cd">Directory</string>
+    <string name="ml_settings_add_audio_directory">Add Audio Directory</string>
+    <string name="ml_settings_add_audio_directory_desc">Select or enter an audio directory path:</string>
+    <string name="ml_settings_pick_folder">Pick Folder</string>
+    <string name="ml_settings_use_system_picker">Use system file picker</string>
+    <string name="ml_settings_input_directory">Enter directory</string>
+    <string name="ml_settings_common_directories">Common directories:</string>
+    <string name="ml_settings_path_empty">Path cannot be empty</string>
+    <string name="ml_settings_directory_already_added">Directory already added</string>
+    <string name="ml_settings_add_exclude_directory">Add Excluded Directory</string>
+    <string name="ml_settings_add_exclude_directory_desc">Select or enter a directory path to exclude:</string>
+    <string name="ml_settings_suggested_directories">Suggested directories:</string>
 </resources>

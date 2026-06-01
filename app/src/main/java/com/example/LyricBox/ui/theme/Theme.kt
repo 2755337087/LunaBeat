@@ -41,10 +41,10 @@ fun getDarkModeFromSettings(context: Context): Boolean? {
     }
 }
 
-enum class DarkModeType(val displayName: String) {
-    FOLLOW_SYSTEM("跟随系统"),
-    LIGHT("浅色"),
-    DARK("深色")
+enum class DarkModeType {
+    FOLLOW_SYSTEM,
+    LIGHT,
+    DARK
 }
 
 @Composable

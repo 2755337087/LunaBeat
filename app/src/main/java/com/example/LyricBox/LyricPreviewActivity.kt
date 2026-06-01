@@ -77,6 +77,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -1213,6 +1214,10 @@ class WordLiftAnimator {
 // ==================== Activity ====================
 
 class LyricPreviewActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     private var mediaPlayer: ExoPlayer? = null
     private var companionPlayer: ExoPlayer? = null
     private var sharedPlaybackController: MusicPlaybackController? = null
@@ -3203,7 +3208,7 @@ fun LyricPreviewScreen(
     sourceAudioPath: String,
     sourceMediaStoreId: Long = -1L,
     initialCoverBitmap: Bitmap? = null,
-    initialArtistText: String = "未知艺术家",
+    initialArtistText: String = "",
     lyricLines: List<NewPreviewLyricLine>,
     isLyricLoading: Boolean = false,
     metadataRefreshToken: Int = 0,
@@ -3466,7 +3471,7 @@ fun LyricPreviewScreen(
         mutableStateOf(
             PreviewAudioMetadata(
                 title = title,
-                artist = initialArtistText.ifBlank { "未知艺术家" },
+                artist = initialArtistText.ifBlank { context.getString(R.string.ml_music_library_unknown_artist) },
                 album = "",
                 comment = "",
                 coverBitmap = initialCoverBitmap
@@ -3937,12 +3942,12 @@ fun LyricPreviewScreen(
     }
     val playbackComment = resolveNowPlayingCommentText(metadata.comment)
     val nowPlayingTopText = if (!playbackComment.isNullOrBlank()) {
-        "正在播放：$playbackComment"
+        stringResource(R.string.lyric_preview_now_playing_with_comment, playbackComment)
     } else {
-        "正在播放"
+        stringResource(R.string.lyric_preview_now_playing)
     }
     val portraitTopTitleText = if (showPortraitNextTrackHint && portraitNextTrackTitle.isNotBlank()) {
-        "下一首：$portraitNextTrackTitle"
+        stringResource(R.string.lyric_preview_next_track_with_title, portraitNextTrackTitle)
     } else {
         nowPlayingTopText
     }
@@ -4183,7 +4188,7 @@ fun LyricPreviewScreen(
         val fallbackCover = initialCoverBitmap
         val resolvedCover = loaded.coverBitmap ?: fallbackCover
         metadata = loaded.copy(
-            artist = loaded.artist.ifBlank { requestArtist.ifBlank { "未知艺术家" } },
+            artist = loaded.artist.ifBlank { requestArtist.ifBlank { context.getString(R.string.ml_music_library_unknown_artist) } },
             coverBitmap = resolvedCover
         )
         metadataSourceKey = requestKey
@@ -5634,7 +5639,7 @@ fun LyricPreviewScreen(
                                         words = listOf(
                                             NewPreviewLyricWord(
                                                 text = buildString {
-                                                    append("创作者：")
+                                                    append(stringResource(R.string.lyric_preview_creator_prefix))
                                                     append(creators.joinToString("、"))
                                                 },
                                                 begin = Long.MAX_VALUE / 4,
@@ -5737,7 +5742,7 @@ fun LyricPreviewScreen(
                     onDismissRequest = { menuExpanded = false },
                     items = listOf(
                         MenuItem(
-                            title = "歌词设置",
+                            title = stringResource(R.string.lyric_settings_title),
                             onClick = {
                                 menuExpanded = false
                                 showLyricSettingsSheet = true
@@ -5756,7 +5761,7 @@ fun LyricPreviewScreen(
                     if (enableSongInfoSheet) {
                         add(
                             MenuItem(
-                                title = "歌曲信息",
+                                title = stringResource(R.string.song_info_title),
                                 onClick = {
                                     playbackControlsMenuExpanded = false
                                     showSongInfoSheet = true
@@ -5766,7 +5771,7 @@ fun LyricPreviewScreen(
                     }
                     add(
                         MenuItem(
-                            title = "歌词设置",
+                            title = stringResource(R.string.lyric_settings_title),
                             onClick = {
                                 playbackControlsMenuExpanded = false
                                 showLyricSettingsSheet = true
@@ -5880,7 +5885,7 @@ fun LyricPreviewScreen(
                         trackTitle = metadata.title,
                         trackArtist = metadata.artist,
                         showTrackInfo = showTrackInfoInPanel,
-                        onTrackInfoClick = if (showTrackInfoInPanel) {
+                        onTrackInfoClick = if (showTrackInfoInPanel && enableSongInfoSheet) {
                             { showArtistInfoSheet() }
                         } else {
                             null
@@ -5900,9 +5905,9 @@ fun LyricPreviewScreen(
                         },
                         trackInfoMenuContent = playbackControlsMenuContent,
                         playbackMode = playbackController?.playbackMode,
-                        onPlaybackModeClick = playbackController?.let { controller ->
+                        onPlaybackModeClick = if (enableSongInfoSheet) playbackController?.let { controller ->
                             { controller.cyclePlaybackMode() }
-                        },
+                        } else null,
                         onLyricDisplayClick = {
                             registerPortraitControlsInteraction()
                             if (usePortraitPlaybackLayout) {
@@ -5922,9 +5927,9 @@ fun LyricPreviewScreen(
                             }
                         },
                         lyricDisplaySelected = lyricDisplaySelected,
-                        onShowPlaylistClick = playbackController?.let {
+                        onShowPlaylistClick = if (enableSongInfoSheet) playbackController?.let {
                             { showPlaylistSheet = true }
-                        },
+                        } else null,
                         stabilizeTrackInfoSlot = false,
                         sharedTransitionScope = sharedUiTransitionScope,
                         enableSharedTrackInfoTransition = false,
@@ -8897,7 +8902,7 @@ fun PlaybackControls(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     AutoMarqueeText(
-                        text = trackArtist.ifBlank { "未知艺术家" },
+                        text = trackArtist.ifBlank { stringResource(R.string.ml_music_library_unknown_artist) },
                         style = TextStyle(
                             fontSize = 15.sp,
                             color = panelTextColor.copy(alpha = 0.78f)
@@ -9231,7 +9236,11 @@ fun PlaybackControls(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.previous_style2),
-                        contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒",
+                        contentDescription = if (onSkipNextClick != null) {
+                            stringResource(R.string.ml_music_library_next_track)
+                        } else {
+                            stringResource(R.string.lyric_timing_seek_forward_seconds, seekTimeSeconds.toInt())
+                        },
                         tint = controlAccentColor,
                         modifier = Modifier
                             .size(sideIconSize)
@@ -9264,7 +9273,11 @@ fun PlaybackControls(
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = if (onSkipPreviousClick != null) "上一首" else "后退${seekTimeSeconds}秒"
+                        contentDescription = if (onSkipPreviousClick != null) {
+                            stringResource(R.string.ml_music_library_previous_track)
+                        } else {
+                            stringResource(R.string.lyric_timing_seek_backward_seconds, seekTimeSeconds.toInt())
+                        }
                     )
                 }
                 ToggleButton(
@@ -9280,7 +9293,11 @@ fun PlaybackControls(
                         painter = painterResource(
                             id = if (isPlaying) R.drawable.baseline_pause_24 else R.drawable.baseline_play_arrow_24
                         ),
-                        contentDescription = if (isPlaying) "暂停" else "播放"
+                        contentDescription = if (isPlaying) {
+                            stringResource(R.string.ml_music_library_pause)
+                        } else {
+                            stringResource(R.string.ml_music_library_play)
+                        }
                     )
                 }
                 ToggleButton(
@@ -9303,7 +9320,11 @@ fun PlaybackControls(
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
-                        contentDescription = if (onSkipNextClick != null) "下一首" else "前进${seekTimeSeconds}秒"
+                        contentDescription = if (onSkipNextClick != null) {
+                            stringResource(R.string.ml_music_library_next_track)
+                        } else {
+                            stringResource(R.string.lyric_timing_seek_forward_seconds, seekTimeSeconds.toInt())
+                        }
                     )
                 }
             }
@@ -10413,7 +10434,7 @@ suspend fun loadAudioMetadata(
                 includeCover = true
             )
             val title = metadata.title.takeIf { it.isNotBlank() } ?: fallbackTitle
-            val artist = metadata.artist.takeIf { it.isNotBlank() } ?: "未知艺术家"
+            val artist = metadata.artist.takeIf { it.isNotBlank() } ?: context.getString(R.string.ml_music_library_unknown_artist)
             val album = metadata.album
             val comment = metadata.comment
             val coverBitmap = metadata.cover?.let { bytes ->
@@ -10423,7 +10444,7 @@ suspend fun loadAudioMetadata(
             PreviewAudioMetadata(title, artist, album, comment, coverBitmap)
         } catch (e: Exception) {
             Log.e("LyricPreview", "Failed to load metadata", e)
-            PreviewAudioMetadata(fallbackTitle, "未知艺术家", "", "", null)
+            PreviewAudioMetadata(fallbackTitle, context.getString(R.string.ml_music_library_unknown_artist), "", "", null)
         }
     }
 }

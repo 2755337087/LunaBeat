@@ -140,6 +140,10 @@ import java.io.File
 import java.util.Locale
 
 class ArtistsActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
+
     companion object {
         const val EXTRA_ARTIST_NAME = "artist_name"
     }
@@ -174,10 +178,15 @@ class ArtistsActivity : ComponentActivity() {
     }
 }
 
-private enum class ArtistSortType(val displayName: String) {
-    NAME("艺术家名称"),
-    SONG_COUNT("歌曲总数"),
-    ALBUM_COUNT("专辑总数")
+private enum class ArtistSortType {
+    NAME, SONG_COUNT, ALBUM_COUNT
+}
+
+@Composable
+private fun ArtistSortType.displayName(): String = when (this) {
+    ArtistSortType.NAME -> stringResource(R.string.artists_sort_name)
+    ArtistSortType.SONG_COUNT -> stringResource(R.string.artists_sort_song_count)
+    ArtistSortType.ALBUM_COUNT -> stringResource(R.string.artists_sort_album_count)
 }
 
 internal enum class ArtistDetailTab {
@@ -627,7 +636,7 @@ internal fun EmbeddedArtistsScreen(
                             title = stringResource(R.string.artists_sort_type),
                             subItems = ArtistSortType.values().map { item ->
                                 MenuItem(
-                                    title = item.displayName,
+                                    title = item.displayName(),
                                     onClick = { persistSortType(item) }
                                 )
                             }
@@ -1084,7 +1093,7 @@ private fun ArtistsScreen(
                                 title = stringResource(R.string.artists_sort_type),
                                 subItems = ArtistSortType.values().map { item ->
                                     MenuItem(
-                                        title = item.displayName,
+                                        title = item.displayName(),
                                         onClick = { persistSortType(item) }
                                     )
                                 }
@@ -2036,7 +2045,7 @@ private fun AlbumDetailHero(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "${detail.songCount} 首歌曲",
+                text = stringResource(R.string.artists_song_count, detail.songCount),
                 fontSize = 15.sp,
                 color = contentColor.copy(alpha = 0.76f),
                 maxLines = 1,
@@ -2217,7 +2226,7 @@ private fun AlbumDetailLandscapePanel(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${detail.songCount} 首歌曲 · ${formatAlbumTotalDurationMinutes(detail.totalDurationMs)}",
+                    text = stringResource(R.string.artists_song_count_with_duration, detail.songCount, formatAlbumTotalDurationMinutes(detail.totalDurationMs)),
                     fontSize = 14.sp,
                     color = contentColor.copy(alpha = 0.76f),
                     maxLines = 1,
@@ -2303,7 +2312,7 @@ private fun AlbumDetailFooter(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = "${detail.songCount} 首歌曲 · ${formatAlbumTotalDurationMinutes(detail.totalDurationMs)}",
+            text = stringResource(R.string.artists_song_count_with_duration, detail.songCount, formatAlbumTotalDurationMinutes(detail.totalDurationMs)),
             fontSize = 12.sp,
             color = contentColor.copy(alpha = 0.72f),
             maxLines = 1,
@@ -2430,7 +2439,7 @@ private fun ArtistDetailHero(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "${detail.songCount} 首歌曲 · ${detail.albumCount} 张专辑",
+                text = stringResource(R.string.artists_song_album_count, detail.songCount, detail.albumCount),
                 fontSize = 15.sp,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.76f),
                 maxLines = 1,
@@ -2540,7 +2549,7 @@ private fun ArtistDetailLandscapePanel(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${detail.songCount} 首歌曲 · ${detail.albumCount} 张专辑",
+                    text = stringResource(R.string.artists_song_album_count, detail.songCount, detail.albumCount),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.76f),
                     maxLines = 1,
@@ -2912,8 +2921,8 @@ private fun ArtistDetailTabRow(
                     ) {
                         Text(
                             text = when (tab) {
-                                ArtistDetailTab.SONGS -> "歌曲"
-                                ArtistDetailTab.ALBUMS -> "专辑"
+                                ArtistDetailTab.SONGS -> stringResource(R.string.artists_tab_songs)
+                                ArtistDetailTab.ALBUMS -> stringResource(R.string.artists_tab_albums)
                             },
                             fontSize = 15.sp,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -3037,7 +3046,7 @@ private fun ArtistDetailAlbumItem(
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = "${album.songs.size} 首歌曲",
+                text = stringResource(R.string.artists_song_count, album.songs.size),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1
@@ -3202,7 +3211,7 @@ private fun ArtistListItem(
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = "${artist.songCount} 首歌曲 · ${artist.albumCount} 张专辑",
+                text = stringResource(R.string.artists_song_album_count, artist.songCount, artist.albumCount),
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

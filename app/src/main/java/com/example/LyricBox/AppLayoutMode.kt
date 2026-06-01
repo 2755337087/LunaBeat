@@ -8,17 +8,17 @@ import kotlin.math.min
 private const val APP_LAYOUT_PREFS_NAME = "AppSettings"
 private const val PREF_KEY_LAYOUT_MODE = "layoutMode"
 
-enum class AppLayoutModePreference(val value: String, val displayName: String) {
-    AUTO("auto", "自动"),
-    WATCH("watch", "手表"),
-    PHONE("phone", "手机"),
-    TABLET("tablet", "平板")
+enum class AppLayoutModePreference(val value: String) {
+    AUTO("auto"),
+    WATCH("watch"),
+    PHONE("phone"),
+    TABLET("tablet")
 }
 
-enum class AppLayoutProfile(val displayName: String) {
-    WATCH("手表"),
-    PHONE("手机"),
-    TABLET("平板")
+enum class AppLayoutProfile {
+    WATCH,
+    PHONE,
+    TABLET
 }
 
 fun getSavedAppLayoutModePreference(context: Context): AppLayoutModePreference {
@@ -78,8 +78,25 @@ fun resolveAppLayoutProfile(
 
 fun getAppLayoutModeSummary(context: Context, modePreference: AppLayoutModePreference): String {
     return if (modePreference == AppLayoutModePreference.AUTO) {
-        "自动（当前：${detectAutoAppLayoutProfile(context).displayName}）"
+        context.getString(
+            R.string.settings_layout_mode_current_profile,
+            modePreference.getDisplayName(context),
+            detectAutoAppLayoutProfile(context).getDisplayName(context)
+        )
     } else {
-        modePreference.displayName
+        modePreference.getDisplayName(context)
     }
+}
+
+fun AppLayoutModePreference.getDisplayName(context: Context): String = when (this) {
+    AppLayoutModePreference.AUTO -> context.getString(R.string.settings_layout_mode_auto)
+    AppLayoutModePreference.WATCH -> context.getString(R.string.settings_layout_mode_watch)
+    AppLayoutModePreference.PHONE -> context.getString(R.string.settings_layout_mode_phone)
+    AppLayoutModePreference.TABLET -> context.getString(R.string.settings_layout_mode_tablet)
+}
+
+fun AppLayoutProfile.getDisplayName(context: Context): String = when (this) {
+    AppLayoutProfile.WATCH -> context.getString(R.string.settings_layout_mode_watch)
+    AppLayoutProfile.PHONE -> context.getString(R.string.settings_layout_mode_phone)
+    AppLayoutProfile.TABLET -> context.getString(R.string.settings_layout_mode_tablet)
 }

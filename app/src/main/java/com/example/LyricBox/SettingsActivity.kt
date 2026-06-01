@@ -88,29 +88,17 @@ private const val PREF_KEY_AM_URL_NAME_CONTRIBUTOR = "amUrlNameContributor"
 private const val PREF_KEY_NOTICE_CONTRIBUTOR = "noticeContributor"
 private const val PREF_SONG_CLICK_ACTION_CONFIRMED = "songClickActionConfirmed"
 private const val DEFAULT_AM_TOKEN_SOURCE = "cloudflare"
-private const val DEFAULT_AM_URL_NAME = "软件内置"
-private const val DEFAULT_AM_URL_NAME_CONTRIBUTOR = "贡献配置"
-
 data class AMTokenConfig(
     val tokenSource: String = DEFAULT_AM_TOKEN_SOURCE,
     val userToken: String = "",
     val cloudflareUrl: String = "",
     val country: String = "",
-    val defaultUrlName: String = DEFAULT_AM_URL_NAME,
-    val contributorUrlName: String = DEFAULT_AM_URL_NAME_CONTRIBUTOR,
+    val defaultUrlName: String = "",
+    val contributorUrlName: String = "",
     val noticeContributor: String = ""
 )
 
-private val AM_REGION_OPTIONS = listOf(
-    "HK_SC" to "HK - 香港（转简体）",
-    "HK" to "HK - 香港",
-    "TW_SC" to "TW - 台湾（转简体）",
-    "TW" to "TW - 台湾",
-    "CN" to "CN - 中国",
-    "JP" to "JP - 日本",
-    "KR" to "KR - 韩国",
-    "US" to "US - 美国"
-)
+private val AM_REGION_OPTIONS = listOf("HK_SC", "HK", "TW_SC", "TW", "CN", "JP", "KR", "US")
 
 private val LocalSettingsLayoutProfile = compositionLocalOf { AppLayoutProfile.PHONE }
 
@@ -134,8 +122,8 @@ fun getSavedAMTokenConfig(context: Context): AMTokenConfig {
         userToken = prefs.getString(PREF_KEY_AM_USER_TOKEN, "") ?: "",
         cloudflareUrl = prefs.getString(PREF_KEY_AM_CLOUDFLARE_URL, fallbackCloudflareUrl) ?: fallbackCloudflareUrl,
         country = prefs.getString(PREF_KEY_AM_COUNTRY, "") ?: "",
-        defaultUrlName = prefs.getString(PREF_KEY_AM_URL_NAME, DEFAULT_AM_URL_NAME) ?: DEFAULT_AM_URL_NAME,
-        contributorUrlName = prefs.getString(PREF_KEY_AM_URL_NAME_CONTRIBUTOR, DEFAULT_AM_URL_NAME_CONTRIBUTOR) ?: DEFAULT_AM_URL_NAME_CONTRIBUTOR,
+        defaultUrlName = prefs.getString(PREF_KEY_AM_URL_NAME, context.getString(R.string.settings_am_source_builtin)) ?: context.getString(R.string.settings_am_source_builtin),
+        contributorUrlName = prefs.getString(PREF_KEY_AM_URL_NAME_CONTRIBUTOR, context.getString(R.string.settings_am_source_contributor)) ?: context.getString(R.string.settings_am_source_contributor),
         noticeContributor = prefs.getString(PREF_KEY_NOTICE_CONTRIBUTOR, "") ?: ""
     )
 }
@@ -153,18 +141,14 @@ fun updateAMTokenConfig(context: Context, config: AMTokenConfig) {
 fun getAMTokenSourceDisplayName(
     tokenSource: String,
     defaultUrlName: String,
-    contributorUrlName: String
+    contributorUrlName: String,
+    customFillInName: String
 ): String {
     return when (tokenSource) {
         "cloudflare" -> defaultUrlName
         "contributor" -> contributorUrlName
-        else -> "自行填写"
+        else -> customFillInName
     }
-}
-
-fun getAMRegionDisplayName(region: String): String {
-    return AM_REGION_OPTIONS.firstOrNull { it.first == region }?.second
-        ?: AM_REGION_OPTIONS.first().second
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -619,7 +603,7 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = stringResource(R.string.settings_dark_mode),
-                    summary = currentDarkModeType.value.displayName,
+                    summary = currentDarkModeType.value.displayName(),
                     onClick = {
                         tempDarkModeType = currentDarkModeType.value
                         showDarkModeDialog = true
@@ -712,7 +696,7 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = stringResource(R.string.settings_playback_bar_bg),
-                    summary = getMiniPlayerBackgroundModeLabel(currentMiniPlayerBackgroundMode.value),
+                    summary = getMiniPlayerBackgroundModeLabel(context, currentMiniPlayerBackgroundMode.value),
                     onClick = {
                         tempMiniPlayerBackgroundMode = currentMiniPlayerBackgroundMode.value
                         showMiniPlayerBackgroundDialog = true
@@ -742,7 +726,7 @@ fun SettingsScreen(
             item {
                 SettingsItem(
                     title = stringResource(R.string.settings_landscape_playbar_position),
-                    summary = getMiniPlayerLandscapeAlignmentLabel(currentMiniPlayerLandscapeAlignment.value),
+                    summary = getMiniPlayerLandscapeAlignmentLabel(context, currentMiniPlayerLandscapeAlignment.value),
                     onClick = {
                         tempMiniPlayerLandscapeAlignment = currentMiniPlayerLandscapeAlignment.value
                         showMiniPlayerLandscapeAlignmentDialog = true
@@ -981,11 +965,12 @@ fun SettingsScreen(
             
             item {
                 SettingsItem(
-                    title = "APPLE_MUSIC_MEDIA_USER_TOKEN",
+                    title = stringResource(R.string.settings_am_token_title),
                     summary = getAMTokenSourceDisplayName(
                         tokenSource = currentAMTokenSource.value,
                         defaultUrlName = savedAMUrlName,
-                        contributorUrlName = savedAMUrlNameContributor
+                        contributorUrlName = savedAMUrlNameContributor,
+                        customFillInName = stringResource(R.string.settings_custom_fill_in)
                     ),
                     onClick = {
                         tempAMTokenSource = currentAMTokenSource.value
@@ -1474,6 +1459,21 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun getAMRegionDisplayName(region: String): String {
+    return when (region) {
+        "HK_SC" -> stringResource(R.string.settings_am_region_hk_sc)
+        "HK" -> stringResource(R.string.settings_am_region_hk)
+        "TW_SC" -> stringResource(R.string.settings_am_region_tw_sc)
+        "TW" -> stringResource(R.string.settings_am_region_tw)
+        "CN" -> stringResource(R.string.settings_am_region_cn)
+        "JP" -> stringResource(R.string.settings_am_region_jp)
+        "KR" -> stringResource(R.string.settings_am_region_kr)
+        "US" -> stringResource(R.string.settings_am_region_us)
+        else -> stringResource(R.string.settings_am_region_hk_sc)
+    }
+}
+
+@Composable
 fun SettingsSectionTitle(title: String) {
     val profile = LocalSettingsLayoutProfile.current
     val titleSize = when (profile) {
@@ -1628,7 +1628,7 @@ fun DarkModeDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = type.displayName,
+                            text = type.displayName(),
                             fontSize = 16.sp
                         )
                     }
@@ -1646,6 +1646,13 @@ fun DarkModeDialog(
             }
         }
     )
+}
+
+@Composable
+private fun DarkModeType.displayName(): String = when (this) {
+    DarkModeType.FOLLOW_SYSTEM -> stringResource(R.string.settings_dark_mode_follow_system)
+    DarkModeType.LIGHT -> stringResource(R.string.settings_dark_mode_light)
+    DarkModeType.DARK -> stringResource(R.string.settings_dark_mode_dark)
 }
 
 @Composable
@@ -1691,9 +1698,9 @@ fun LayoutModeDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (option == AppLayoutModePreference.AUTO) {
-                                stringResource(R.string.settings_layout_mode_current_profile, option.displayName, autoProfile.displayName)
+                                stringResource(R.string.settings_layout_mode_current_profile, option.getDisplayName(context), autoProfile.getDisplayName(context))
                             } else {
-                                option.displayName
+                                option.getDisplayName(context)
                             },
                             fontSize = 16.sp
                         )
@@ -2302,7 +2309,7 @@ fun AMRegionDialog(
         title = { Text(stringResource(R.string.settings_am_default_region)) },
         text = {
             Column {
-                regions.forEach { (key, displayName) ->
+                regions.forEach { key ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2316,8 +2323,9 @@ fun AMRegionDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = displayName,
-                            fontSize = 16.sp
+                            text = getAMRegionDisplayName(key),
+                            fontSize = 16.sp,
+                            modifier = Modifier.weight(1f)
                         )
                         if (key == "HK_SC") {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -2363,7 +2371,7 @@ fun AMTokenDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("APPLE_MUSIC_MEDIA_USER_TOKEN") },
+        title = { Text(stringResource(R.string.settings_am_token_title)) },
         text = {
             Column {
                 val tokenSources = listOf(

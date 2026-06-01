@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -348,6 +349,9 @@ private val stringStateMapSaver: Saver<SnapshotStateMap<String, String>, Any> = 
 )
 
 class SongMetadataEditActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
     
     companion object {
         const val EXTRA_AUDIO_PATH = "audio_path"
@@ -478,13 +482,13 @@ class SongMetadataEditActivity : ComponentActivity() {
                     if (showExitConfirmDialog) {
                         AlertDialog(
                             onDismissRequest = { showExitConfirmDialog = false },
-                            title = { Text("提示") },
-                            text = { Text("存在未保存的数据，是否放弃修改？") },
+                            title = { Text(stringResource(R.string.common_hint)) },
+                            text = { Text(stringResource(R.string.metadata_edit_unsaved_discard_confirm)) },
                             confirmButton = {
                                 Button(onClick = { 
                                     showExitConfirmDialog = false
                                 }) {
-                                    Text("继续编辑")
+                                    Text(stringResource(R.string.common_continue_editing))
                                 }
                             },
                             dismissButton = {
@@ -492,7 +496,7 @@ class SongMetadataEditActivity : ComponentActivity() {
                                     showExitConfirmDialog = false
                                     finish()
                                 }) {
-                                    Text("放弃修改")
+                                    Text(stringResource(R.string.common_discard_changes))
                                 }
                             }
                         )
@@ -543,7 +547,7 @@ class SongMetadataEditActivity : ComponentActivity() {
         val destinationUri = Uri.fromFile(File(cacheDir, destinationFileName))
 
         val options = createAppImageCropOptions(
-            title = "裁剪封面",
+            title = getString(R.string.metadata_edit_crop_cover_title),
             compressionFormat = Bitmap.CompressFormat.JPEG,
             themeColors = cropThemeColors
         )
@@ -1125,10 +1129,10 @@ fun SongMetadataEditScreen(
             val lyricsContent = lyrics.takeIf { it.isNotBlank() && it != KEEP }
             val detectedFormat = detectLyricsFormat(lyricsContent ?: "")
             val formatLabel = when (detectedFormat) {
-                3 -> "TTML歌词"
-                2 -> "增强LRC/ELRC歌词"
-                1 -> "LRC逐行/逐字歌词"
-                else -> "纯文本歌词"
+                3 -> context.getString(R.string.metadata_edit_lyrics_format_ttml)
+                2 -> context.getString(R.string.metadata_edit_lyrics_format_enhanced_lrc)
+                1 -> context.getString(R.string.metadata_edit_lyrics_format_lrc)
+                else -> context.getString(R.string.metadata_edit_lyrics_format_plain_text)
             }
             onOpenLyricTiming(lyricsContent, formatLabel)
         } else {
@@ -1138,13 +1142,13 @@ fun SongMetadataEditScreen(
 
     fun parseLyricsForTools(): Pair<Int, List<LyricLine>>? {
         if (lyrics.isBlank()) {
-            errorMessage = "歌词为空，无法执行此操作"
+            errorMessage = context.getString(R.string.metadata_edit_lyrics_empty_error)
             showErrorDialog = true
             return null
         }
         val detectedFormat = detectLyricsFormat(lyrics)
         if (detectedFormat == 0) {
-            errorMessage = "当前为纯文本歌词，无法执行此时间轴相关操作"
+            errorMessage = context.getString(R.string.metadata_edit_plain_text_timing_error)
             showErrorDialog = true
             return null
         }
@@ -1156,7 +1160,7 @@ fun SongMetadataEditScreen(
                 else -> emptyList()
             }
             if (parsedLines.isEmpty()) {
-                errorMessage = "歌词解析失败，无法执行此操作"
+                errorMessage = context.getString(R.string.metadata_edit_lyrics_parse_failed)
                 showErrorDialog = true
                 null
             } else {
@@ -1164,7 +1168,10 @@ fun SongMetadataEditScreen(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse lyrics for tools", e)
-            errorMessage = "歌词解析失败：${e.message ?: "未知错误"}"
+            errorMessage = context.getString(
+                R.string.metadata_edit_lyrics_parse_failed_with_reason,
+                e.message ?: context.getString(R.string.common_unknown_error)
+            )
             showErrorDialog = true
             null
         }
@@ -2165,12 +2172,12 @@ fun SongMetadataEditScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { treeUri ->
         if (treeUri == null) {
-            accompanimentDirectoryAuthResultMessage = "授权失败：未授予 /Music/ 目录权限。"
+            accompanimentDirectoryAuthResultMessage = context.getString(R.string.metadata_edit_auth_failed_not_granted)
             showAccompanimentDirectoryAuthResultDialog = true
             return@rememberLauncherForActivityResult
         }
         if (!isMusicDirectoryTreeUri(context, treeUri)) {
-            accompanimentDirectoryAuthResultMessage = "授权失败：请选择 /Music/ 目录。"
+            accompanimentDirectoryAuthResultMessage = context.getString(R.string.metadata_edit_auth_failed_select_music)
             showAccompanimentDirectoryAuthResultDialog = true
             return@rememberLauncherForActivityResult
         }
@@ -2179,12 +2186,12 @@ fun SongMetadataEditScreen(
             context.contentResolver.takePersistableUriPermission(treeUri, flags)
         }.isSuccess
         if (!persisted) {
-            accompanimentDirectoryAuthResultMessage = "授权失败：保存 /Music/ 目录权限失败。"
+            accompanimentDirectoryAuthResultMessage = context.getString(R.string.metadata_edit_auth_failed_save_permission)
             showAccompanimentDirectoryAuthResultDialog = true
             return@rememberLauncherForActivityResult
         }
         saveAccompanimentTreeUri(context, treeUri)
-        accompanimentDirectoryAuthResultMessage = "授权成功，请重新点击“添加伴奏”。"
+        accompanimentDirectoryAuthResultMessage = context.getString(R.string.metadata_edit_auth_success_retry_add)
         showAccompanimentDirectoryAuthResultDialog = true
     }
 
@@ -2204,7 +2211,7 @@ fun SongMetadataEditScreen(
             .fillMaxSize()
     ) {
         CommonHeadBar(
-            title = if (isBatchEdit) "批量编辑（已选择${selectedPaths?.size ?: 0}）" else "编辑歌曲元数据",
+            title = if (isBatchEdit) stringResource(R.string.metadata_edit_title_batch, selectedPaths?.size ?: 0) else stringResource(R.string.metadata_edit_title_single),
             showBack = true,
             showMenu = true,
             onBackClick = {
@@ -2218,7 +2225,7 @@ fun SongMetadataEditScreen(
                     items = if (isBatchEdit) {
                         listOf(
                             com.example.LyricBox.ui.components.MenuItem(
-                                title = "重置        ",
+                                title = stringResource(R.string.common_reset),
                                 onClick = {
                                     title = KEEP
                                     artist = KEEP
@@ -2243,20 +2250,20 @@ fun SongMetadataEditScreen(
                                 }
                             ),
                             com.example.LyricBox.ui.components.MenuItem(
-                                title = "保存",
+                                title = stringResource(R.string.common_save),
                                 onClick = { saveAllData() }
                             )
                         )
                     } else {
                         listOf(
                             com.example.LyricBox.ui.components.MenuItem(
-                                title = "搜索元数据",
+                                title = stringResource(R.string.metadata_edit_search_metadata),
                                 onClick = { 
                                     onSearchMetadata(buildMetadataSearchKeyword(), false)
                                 }
                             ),
                             com.example.LyricBox.ui.components.MenuItem(
-                                title = "保存",
+                                title = stringResource(R.string.common_save),
                                 onClick = { saveAllData() }
                             )
                         )
@@ -2274,7 +2281,7 @@ fun SongMetadataEditScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     LoadingIndicator(modifier = Modifier.size(56.dp))
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("正在加载...", fontSize = 14.sp)
+                    Text(stringResource(R.string.common_loading), fontSize = 14.sp)
                 }
             }
         } else {
@@ -2322,7 +2329,7 @@ fun SongMetadataEditScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (modifiedField.cover) "封面（已修改）" else "封面",
+                                    text = if (modifiedField.cover) stringResource(R.string.metadata_edit_cover_modified) else stringResource(R.string.metadata_edit_field_cover),
                                     fontSize = 14.sp,
                                     color = if (modifiedField.cover) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.Medium
@@ -2338,7 +2345,7 @@ fun SongMetadataEditScreen(
                                         ) {
                                             androidx.compose.foundation.Image(
                                                 painter = painterResource(id = R.drawable.redo),
-                                                contentDescription = "重做",
+                                                contentDescription = stringResource(R.string.common_redo),
                                                 colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.tertiary),
                                                 modifier = Modifier
                                                     .size(16.dp)
@@ -2353,7 +2360,7 @@ fun SongMetadataEditScreen(
                                         ) {
                                             androidx.compose.foundation.Image(
                                                 painter = painterResource(id = R.drawable.undo),
-                                                contentDescription = "撤销",
+                                                contentDescription = stringResource(R.string.common_undo),
                                                 colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.tertiary),
                                                 modifier = Modifier
                                                     .size(16.dp)
@@ -2405,14 +2412,14 @@ fun SongMetadataEditScreen(
                                 } else if (coverBitmap != null) {
                                     Image(
                                         bitmap = coverBitmap!!.asImageBitmap(),
-                                        contentDescription = "封面",
+                                        contentDescription = stringResource(R.string.metadata_edit_cd_cover),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
                                     Icon(
                                         painter = painterResource(id = R.drawable.img),
-                                        contentDescription = "添加封面",
+                                        contentDescription = stringResource(R.string.metadata_edit_cd_add_cover),
                                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                         modifier = Modifier.size(60.dp)
                                     )
@@ -2439,7 +2446,7 @@ fun SongMetadataEditScreen(
                                         ) {
                                             Icon(
                                                 painter = painterResource(id = android.R.drawable.ic_media_play),
-                                                contentDescription = "有视频封面",
+                                                contentDescription = stringResource(R.string.metadata_edit_cd_has_video_cover),
                                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                                 modifier = Modifier.size(18.dp)
                                             )
@@ -2460,7 +2467,7 @@ fun SongMetadataEditScreen(
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.searchbold),
-                                            contentDescription = "搜索封面",
+                                            contentDescription = stringResource(R.string.metadata_edit_cd_search_cover),
                                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -2489,7 +2496,7 @@ fun SongMetadataEditScreen(
                                     .fillMaxWidth()
                                     .widthIn(min = 200.dp)
                             ) {
-                                Text("选择图片封面", maxLines = 1)
+                                Text(stringResource(R.string.metadata_edit_select_image_cover), maxLines = 1)
                             }
                             
                             if (!isBatchEdit) {
@@ -2499,7 +2506,7 @@ fun SongMetadataEditScreen(
                                         .fillMaxWidth()
                                         .widthIn(min = 200.dp)
                                 ) {
-                                    Text("选择视频封面", maxLines = 1)
+                                    Text(stringResource(R.string.metadata_edit_select_video_cover), maxLines = 1)
                                 }
                             }
                             
@@ -2513,7 +2520,7 @@ fun SongMetadataEditScreen(
                                         contentColor = MaterialTheme.colorScheme.error
                                     )
                                 ) {
-                                    Text("移除图片封面", maxLines = 1)
+                                    Text(stringResource(R.string.metadata_edit_remove_image_cover), maxLines = 1)
                                 }
                             }
                             
@@ -2527,7 +2534,7 @@ fun SongMetadataEditScreen(
                                         contentColor = MaterialTheme.colorScheme.error
                                     )
                                 ) {
-                                    Text("移除视频封面", maxLines = 1)
+                                    Text(stringResource(R.string.metadata_edit_remove_video_cover), maxLines = 1)
                                 }
                             }
                         }
@@ -2546,7 +2553,7 @@ fun SongMetadataEditScreen(
                 ) { index, fieldKey ->
                     when (fieldKey) {
                         "title" -> ModifiableMetadataField(
-                            label = "标题",
+                            label = stringResource(R.string.metadata_edit_field_title),
                             value = title,
                             onValueChange = {
                                 title = it
@@ -2575,7 +2582,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "artist" -> ModifiableMetadataField(
-                            label = "艺术家",
+                            label = stringResource(R.string.metadata_edit_field_artist),
                             value = artist,
                             onValueChange = {
                                 artist = it
@@ -2604,7 +2611,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "album" -> ModifiableMetadataField(
-                            label = "专辑",
+                            label = stringResource(R.string.metadata_edit_field_album),
                             value = album,
                             onValueChange = {
                                 album = it
@@ -2633,7 +2640,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "year" -> ModifiableMetadataField(
-                            label = "年份",
+                            label = stringResource(R.string.metadata_edit_field_year),
                             value = year,
                             onValueChange = {
                                 year = it
@@ -2664,7 +2671,7 @@ fun SongMetadataEditScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             ModifiableMetadataField(
-                                label = "音轨号",
+                                label = stringResource(R.string.metadata_edit_field_track),
                                 value = trackNumber,
                                 onValueChange = {
                                     trackNumber = it
@@ -2691,7 +2698,7 @@ fun SongMetadataEditScreen(
                                 }
                             )
                             ModifiableMetadataField(
-                                label = "碟号",
+                                label = stringResource(R.string.metadata_edit_field_disc),
                                 value = discNumber,
                                 onValueChange = {
                                     discNumber = it
@@ -2720,7 +2727,7 @@ fun SongMetadataEditScreen(
                         }
 
                         "genre" -> ModifiableMetadataField(
-                            label = "风格",
+                            label = stringResource(R.string.metadata_edit_field_genre),
                             value = genre,
                             onValueChange = {
                                 genre = it
@@ -2749,7 +2756,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "albumArtist" -> ModifiableMetadataField(
-                            label = "专辑艺术家",
+                            label = stringResource(R.string.metadata_edit_field_album_artist),
                             value = albumArtist,
                             onValueChange = {
                                 albumArtist = it
@@ -2778,7 +2785,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "composer" -> ModifiableMetadataField(
-                            label = "作曲",
+                            label = stringResource(R.string.metadata_edit_field_composer),
                             value = composer,
                             onValueChange = {
                                 composer = it
@@ -2807,7 +2814,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "lyricist" -> ModifiableMetadataField(
-                            label = "作词",
+                            label = stringResource(R.string.metadata_edit_field_lyricist),
                             value = lyricist,
                             onValueChange = {
                                 lyricist = it
@@ -2836,7 +2843,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "comment" -> ModifiableMetadataField(
-                            label = "注释",
+                            label = stringResource(R.string.metadata_edit_field_comment),
                             value = comment,
                             onValueChange = {
                                 comment = it
@@ -2865,7 +2872,7 @@ fun SongMetadataEditScreen(
                         )
 
                         "copyrightInfo" -> ModifiableMetadataField(
-                            label = "版权信息",
+                            label = stringResource(R.string.metadata_edit_field_copyright),
                             value = copyright,
                             onValueChange = {
                                 copyright = it
@@ -2901,7 +2908,7 @@ fun SongMetadataEditScreen(
 
                         "lyrics" -> Column {
                             ModifiableMetadataField(
-                                label = "歌词",
+                                label = stringResource(R.string.metadata_edit_field_lyrics),
                                 value = lyrics,
                                 onValueChange = {
                                     updateLyricsWithModifiedState(it)
@@ -2933,7 +2940,7 @@ fun SongMetadataEditScreen(
                                     onDismissRequest = { showLyricsMoreMenu = false },
                                     items = listOf(
                                         MenuItem(
-                                            title = "去打轴界面编辑",
+                                            title = stringResource(R.string.metadata_edit_menu_open_timing),
                                             onClick = {
                                                 if (hasUnsavedChanges()) {
                                                     showLyricsEditConfirmDialog = true
@@ -2943,30 +2950,30 @@ fun SongMetadataEditScreen(
                                             }
                                         ),
                                         MenuItem(
-                                            title = "获取歌词",
+                                            title = stringResource(R.string.metadata_edit_menu_fetch_lyrics),
                                             onClick = { onOpenVerbatimLyricsSearch(buildLyricsSearchKeyword()) }
                                         ),
                                         MenuItem(
-                                            title = "平移时间戳",
+                                            title = stringResource(R.string.metadata_edit_menu_shift_timestamp),
                                             onClick = { showShiftTimestampDialog = true }
                                         ),
                                         MenuItem(
-                                            title = "转换为简体",
+                                            title = stringResource(R.string.metadata_edit_menu_convert_simplified),
                                             onClick = { convertLyricsToSimplified() }
                                         ),
                                         MenuItem(
-                                            title = "删除空行",
+                                            title = stringResource(R.string.metadata_edit_menu_remove_empty_lines),
                                             onClick = { deleteLyricsEmptyLines() }
                                         ),
                                         MenuItem(
-                                            title = "格式化时间戳",
+                                            title = stringResource(R.string.metadata_edit_menu_format_timestamp),
                                             onClick = { formatLyricsTimeline() }
                                         ),
                                         MenuItem(
-                                            title = "转换歌词格式",
+                                            title = stringResource(R.string.metadata_edit_menu_convert_lyrics_format),
                                             subItems = listOf(
-                                                MenuItem(title = "LRC逐字", onClick = { convertLyricsFormat(LyricExportFormat.LRC_WORD) }),
-                                                MenuItem(title = "LRC逐行", onClick = { convertLyricsFormat(LyricExportFormat.LRC_LINE) }),
+                                                MenuItem(title = stringResource(R.string.ml_music_library_lrc_word), onClick = { convertLyricsFormat(LyricExportFormat.LRC_WORD) }),
+                                                MenuItem(title = stringResource(R.string.ml_music_library_lrc_line), onClick = { convertLyricsFormat(LyricExportFormat.LRC_LINE) }),
                                                 MenuItem(title = "ELRC", onClick = { convertLyricsFormat(LyricExportFormat.ENHANCED_LRC) }),
                                                 MenuItem(title = "TTML", onClick = { convertLyricsFormat(LyricExportFormat.TTML) })
                                             )
@@ -3079,7 +3086,7 @@ fun SongMetadataEditScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.searchbold),
-                            contentDescription = "搜索元数据",
+                            contentDescription = stringResource(R.string.metadata_edit_search_metadata),
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(22.dp)
                         )
@@ -3107,7 +3114,7 @@ fun SongMetadataEditScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.save),
-                            contentDescription = "保存",
+                            contentDescription = stringResource(R.string.common_save),
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(24.dp)
                         )
@@ -3144,11 +3151,11 @@ fun SongMetadataEditScreen(
     if (showSuccessDialog) {
         AlertDialog(
             onDismissRequest = { showSuccessDialog = false },
-            title = { Text("提示") },
-            text = { Text("操作成功") },
+            title = { Text(stringResource(R.string.common_hint)) },
+            text = { Text(stringResource(R.string.common_operation_success)) },
             confirmButton = {
                 Button(onClick = { showSuccessDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
@@ -3156,7 +3163,7 @@ fun SongMetadataEditScreen(
                     showSuccessDialog = false
                     onExit()
                 }) {
-                    Text("退出")
+                    Text(stringResource(R.string.common_exit))
                 }
             }
         )
@@ -3165,14 +3172,13 @@ fun SongMetadataEditScreen(
     if (showAccompanimentCopiedDialog) {
         AlertDialog(
             onDismissRequest = { showAccompanimentCopiedDialog = false },
-            title = { Text("伴奏添加成功") },
+            title = { Text(stringResource(R.string.metadata_edit_accompaniment_added_title)) },
             text = {
                 Text(
-                    buildString {
-                        append("伴奏已经复制到：")
-                        append(copiedAccompanimentPath ?: ACCOMPANIMENT_DIR_PATH)
-                        append("\n是否删除原文件？")
-                    }
+                    stringResource(
+                        R.string.metadata_edit_accompaniment_copied_message,
+                        copiedAccompanimentPath ?: ACCOMPANIMENT_DIR_PATH
+                    )
                 )
             },
             confirmButton = {
@@ -3182,7 +3188,7 @@ fun SongMetadataEditScreen(
                         accompanimentSourceUri = null
                     }
                 ) {
-                    Text("保留")
+                    Text(stringResource(R.string.metadata_edit_keep_file))
                 }
             },
             dismissButton = {
@@ -3199,7 +3205,7 @@ fun SongMetadataEditScreen(
                                     showPermissionDialog = true
                                 }
                                 else -> {
-                                    errorMessage = result.errorMessage ?: "删除原文件失败"
+                                    errorMessage = result.errorMessage ?: context.getString(R.string.metadata_edit_delete_source_failed)
                                     showErrorDialog = true
                                 }
                             }
@@ -3209,7 +3215,7 @@ fun SongMetadataEditScreen(
                         contentColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("删除")
+                    Text(stringResource(R.string.common_delete))
                 }
             }
         )
@@ -3218,8 +3224,8 @@ fun SongMetadataEditScreen(
     if (showLyricsEditConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showLyricsEditConfirmDialog = false },
-            title = { Text("提示") },
-            text = { Text("当前页面存在未保存数据，继续前往会丢失未保存数据，是否继续？") },
+            title = { Text(stringResource(R.string.common_hint)) },
+            text = { Text(stringResource(R.string.metadata_edit_leave_with_unsaved_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -3227,12 +3233,12 @@ fun SongMetadataEditScreen(
                         openLyricTimingByPreference()
                     }
                 ) {
-                    Text("继续前往")
+                    Text(stringResource(R.string.metadata_edit_continue_navigate))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showLyricsEditConfirmDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -3242,11 +3248,11 @@ fun SongMetadataEditScreen(
         val shiftInputFocusRequester = remember { FocusRequester() }
         AlertDialog(
             onDismissRequest = { showShiftTimestampDialog = false },
-            title = { Text("平移时间戳") },
+            title = { Text(stringResource(R.string.metadata_edit_menu_shift_timestamp)) },
             text = {
                 Column {
                     Text(
-                        text = "请输入平移毫秒数，正数后移，负数前移。",
+                        text = stringResource(R.string.metadata_edit_shift_timestamp_hint),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
@@ -3292,7 +3298,7 @@ fun SongMetadataEditScreen(
                                     ) {
                                         if (shiftTimestampInput.isBlank()) {
                                             Text(
-                                                text = "请输入毫秒数",
+                                                text = stringResource(R.string.metadata_edit_shift_timestamp_placeholder),
                                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                                 fontSize = 16.sp,
                                                 textAlign = TextAlign.Center
@@ -3318,7 +3324,7 @@ fun SongMetadataEditScreen(
                     onClick = {
                         val shiftMs = shiftTimestampInput.trim().toLongOrNull()
                         if (shiftMs == null) {
-                            errorMessage = "请输入有效的毫秒数"
+                            errorMessage = context.getString(R.string.metadata_edit_shift_timestamp_invalid)
                             showErrorDialog = true
                         } else {
                             shiftLyricsTimestamps(shiftMs)
@@ -3326,12 +3332,12 @@ fun SongMetadataEditScreen(
                         }
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showShiftTimestampDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -3340,8 +3346,8 @@ fun SongMetadataEditScreen(
     if (showRemoveImageConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveImageConfirm = false },
-            title = { Text("确认移除") },
-            text = { Text("确定要移除图片封面吗？") },
+            title = { Text(stringResource(R.string.common_confirm_remove)) },
+            text = { Text(stringResource(R.string.metadata_edit_remove_image_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -3349,12 +3355,12 @@ fun SongMetadataEditScreen(
                         removeImageCover()
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveImageConfirm = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -3363,8 +3369,8 @@ fun SongMetadataEditScreen(
     if (showRemoveVideoConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveVideoConfirm = false },
-            title = { Text("确认移除") },
-            text = { Text("确定要移除视频封面吗？") },
+            title = { Text(stringResource(R.string.common_confirm_remove)) },
+            text = { Text(stringResource(R.string.metadata_edit_remove_video_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -3372,12 +3378,12 @@ fun SongMetadataEditScreen(
                         removeVideoCover()
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveVideoConfirm = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -3386,8 +3392,8 @@ fun SongMetadataEditScreen(
     if (showRemoveAccompanimentConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveAccompanimentConfirm = false },
-            title = { Text("确认移除") },
-            text = { Text("确定要移除伴奏文件吗？") },
+            title = { Text(stringResource(R.string.common_confirm_remove)) },
+            text = { Text(stringResource(R.string.metadata_edit_remove_accompaniment_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -3395,12 +3401,12 @@ fun SongMetadataEditScreen(
                         removeAccompaniment()
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveAccompanimentConfirm = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -3409,8 +3415,8 @@ fun SongMetadataEditScreen(
     if (showAccompanimentDirectoryAuthDialog) {
         AlertDialog(
             onDismissRequest = { showAccompanimentDirectoryAuthDialog = false },
-            title = { Text("授权提示") },
-            text = { Text("请授权 /Music/ 目录访问权限。授权完成后请重新点击“添加伴奏”。") },
+            title = { Text(stringResource(R.string.metadata_edit_auth_prompt_title)) },
+            text = { Text(stringResource(R.string.metadata_edit_auth_prompt_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -3418,12 +3424,12 @@ fun SongMetadataEditScreen(
                         accompanimentDirectoryPickerLauncher.launch(null)
                     }
                 ) {
-                    Text("去授权")
+                    Text(stringResource(R.string.metadata_edit_go_authorize))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAccompanimentDirectoryAuthDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -3432,11 +3438,11 @@ fun SongMetadataEditScreen(
     if (showAccompanimentDirectoryAuthResultDialog) {
         AlertDialog(
             onDismissRequest = { showAccompanimentDirectoryAuthResultDialog = false },
-            title = { Text("授权结果") },
+            title = { Text(stringResource(R.string.metadata_edit_auth_result_title)) },
             text = { Text(accompanimentDirectoryAuthResultMessage) },
             confirmButton = {
                 Button(onClick = { showAccompanimentDirectoryAuthResultDialog = false }) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_confirm))
                 }
             }
         )
@@ -3460,7 +3466,7 @@ fun SongMetadataEditScreen(
                 ) {
                     LoadingIndicator(modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(14.dp))
-                    Text("复制中")
+                    Text(stringResource(R.string.metadata_edit_copying))
                 }
             }
         }
@@ -3469,8 +3475,8 @@ fun SongMetadataEditScreen(
     if (showPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
-            title = { Text("需要权限") },
-            text = { Text("需要\"所有文件访问\"权限才能保存文件。请点击\"设置权限\"按钮授权。") },
+            title = { Text(stringResource(R.string.common_permission_required)) },
+            text = { Text(stringResource(R.string.metadata_edit_all_files_permission_required)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -3488,7 +3494,7 @@ fun SongMetadataEditScreen(
                         }
                     }
                 ) {
-                    Text("设置权限")
+                    Text(stringResource(R.string.common_grant_permission))
                 }
             },
             dismissButton = {
@@ -3502,7 +3508,7 @@ fun SongMetadataEditScreen(
     if (showErrorDialog) {
         AlertDialog(
             onDismissRequest = { showErrorDialog = false },
-            title = { Text("错误") },
+            title = { Text(stringResource(R.string.common_error)) },
             text = { Text(errorMessage) },
             confirmButton = {
                 TextButton(onClick = { showErrorDialog = false }) {
@@ -3559,7 +3565,7 @@ fun SongMetadataEditScreen(
                             containerColor = MaterialTheme.colorScheme.error
                         )
                     ) {
-                        Text("取消操作")
+                        Text(stringResource(R.string.common_cancel_operation))
                     }
                 }
             }
@@ -3569,8 +3575,8 @@ fun SongMetadataEditScreen(
     if (showBatchCompleteDialog) {
         AlertDialog(
             onDismissRequest = { },
-            title = { Text("提示") },
-            text = { Text("批量修改成功") },
+            title = { Text(stringResource(R.string.common_hint)) },
+            text = { Text(stringResource(R.string.metadata_edit_batch_update_success)) },
             confirmButton = {
                 Button(onClick = { showBatchCompleteDialog = false }) {
                     Text("确定")
@@ -3581,7 +3587,7 @@ fun SongMetadataEditScreen(
                     showBatchCompleteDialog = false
                     onExit()
                 }) {
-                    Text("退出")
+                    Text(stringResource(R.string.common_exit))
                 }
             }
         )
@@ -3785,7 +3791,7 @@ fun AccompanimentMetadataField(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "伴奏",
+                text = stringResource(R.string.metadata_edit_accompaniment),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Medium
@@ -3824,7 +3830,7 @@ fun AccompanimentMetadataField(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = "添加伴奏",
+                            text = stringResource(R.string.metadata_edit_add_accompaniment),
                             color = fieldTextColor
                         )
                     }
@@ -3836,7 +3842,7 @@ fun AccompanimentMetadataField(
                             contentColor = MaterialTheme.colorScheme.error
                         )
                     ) {
-                        Text("移除伴奏")
+                        Text(stringResource(R.string.metadata_edit_remove_accompaniment))
                     }
                 }
             }
@@ -3914,7 +3920,7 @@ fun ModifiableMetadataField(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.down),
-                            contentDescription = "选择",
+                            contentDescription = stringResource(R.string.common_select),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .size(16.dp)
@@ -3931,7 +3937,7 @@ fun ModifiableMetadataField(
                         ) {
                             androidx.compose.foundation.Image(
                                 painter = painterResource(id = R.drawable.redo),
-                                contentDescription = "重做",
+                                contentDescription = stringResource(R.string.common_redo),
                                 colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.tertiary),
                                 modifier = Modifier
                                     .size(16.dp)
@@ -3946,7 +3952,7 @@ fun ModifiableMetadataField(
                         ) {
                             androidx.compose.foundation.Image(
                                 painter = painterResource(id = R.drawable.undo),
-                                contentDescription = "撤销",
+                                contentDescription = stringResource(R.string.common_undo),
                                 colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.tertiary),
                                 modifier = Modifier
                                     .size(16.dp)
@@ -3964,7 +3970,7 @@ fun ModifiableMetadataField(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.baseline_more_vert_24),
-                                contentDescription = "更多",
+                                contentDescription = stringResource(R.string.common_more),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
                                     .size(18.dp)
@@ -4041,7 +4047,7 @@ fun ModifiableMetadataField(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.close),
-                            contentDescription = "清空",
+                            contentDescription = stringResource(R.string.common_clear),
                             tint = fieldTextColor,
                             modifier = Modifier.size(20.dp)
                         )
@@ -4577,12 +4583,12 @@ suspend fun copyAccompanimentToDefaultPath(
             return@withContext AccompanimentOperationResult(success = false, needPermission = true)
         }
         if (audioPath.isNullOrBlank()) {
-            return@withContext AccompanimentOperationResult(success = false, errorMessage = "未找到当前歌曲路径")
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_current_song_path_not_found))
         }
 
         val sourceAudio = File(audioPath)
         if (!sourceAudio.exists()) {
-            return@withContext AccompanimentOperationResult(success = false, errorMessage = "当前歌曲文件不存在")
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_current_song_file_not_found))
         }
 
         val baseName = sourceAudio.nameWithoutExtension
@@ -4614,7 +4620,7 @@ suspend fun copyAccompanimentToDefaultPath(
         if (Build.VERSION.SDK_INT != Build.VERSION_CODES.Q) {
             return@withContext AccompanimentOperationResult(
                 success = false,
-                errorMessage = "无法创建或写入伴奏文件"
+                errorMessage = context.getString(R.string.metadata_edit_accompaniment_create_or_write_failed)
             )
         }
 
@@ -4623,7 +4629,7 @@ suspend fun copyAccompanimentToDefaultPath(
             return@withContext AccompanimentOperationResult(
                 success = false,
                 needPermissionForTree = true,
-                errorMessage = "无法创建伴奏目录，请授权 Music 目录访问权限"
+                errorMessage = context.getString(R.string.metadata_edit_accompaniment_dir_create_failed_need_auth)
             )
         }
 
@@ -4631,19 +4637,19 @@ suspend fun copyAccompanimentToDefaultPath(
             ?: return@withContext AccompanimentOperationResult(
                 success = false,
                 needPermissionForTree = true,
-                errorMessage = "伴奏目录权限已失效，请重新授权"
+                errorMessage = context.getString(R.string.metadata_edit_accompaniment_dir_auth_expired)
             )
         val musicDir = resolveMusicDirectoryFromTreeRoot(treeRoot)
             ?: return@withContext AccompanimentOperationResult(
                 success = false,
                 needPermissionForTree = true,
-                errorMessage = "无法访问 Music 目录，请重新授权"
+                errorMessage = context.getString(R.string.metadata_edit_music_dir_access_failed)
             )
         val singDir = findOrCreateChildDirectory(musicDir, ".sing")
             ?: return@withContext AccompanimentOperationResult(
                 success = false,
                 needPermissionForTree = true,
-                errorMessage = "无法访问 .sing 目录，请重新授权"
+                errorMessage = context.getString(R.string.metadata_edit_sing_dir_access_failed)
             )
 
         singDir.listFiles()
@@ -4661,7 +4667,7 @@ suspend fun copyAccompanimentToDefaultPath(
         val targetDoc = singDir.createFile(mimeType, baseName)
             ?: return@withContext AccompanimentOperationResult(
                 success = false,
-                errorMessage = "在授权目录创建伴奏文件失败"
+                errorMessage = context.getString(R.string.metadata_edit_accompaniment_create_in_tree_failed)
             )
 
         val wrote = runCatching {
@@ -4676,7 +4682,7 @@ suspend fun copyAccompanimentToDefaultPath(
         if (!wrote) {
             return@withContext AccompanimentOperationResult(
                 success = false,
-                errorMessage = "写入伴奏文件失败"
+                errorMessage = context.getString(R.string.metadata_edit_accompaniment_write_failed)
             )
         }
 
@@ -4693,19 +4699,19 @@ suspend fun copyAccompanimentToDefaultPath(
             AccompanimentOperationResult(
                 success = false,
                 needPermissionForTree = true,
-                errorMessage = "没有目录访问权限，请重新授权"
+                errorMessage = context.getString(R.string.metadata_edit_no_directory_permission_reauth)
             )
         } else {
             AccompanimentOperationResult(
                 success = false,
-                errorMessage = "没有目录访问权限"
+                errorMessage = context.getString(R.string.metadata_edit_no_directory_permission)
             )
         }
     } catch (e: Exception) {
         Log.e(TAG, "Error copying accompaniment file", e)
         AccompanimentOperationResult(
             success = false,
-            errorMessage = e.message ?: "添加伴奏失败"
+            errorMessage = e.message ?: context.getString(R.string.metadata_edit_add_accompaniment_failed)
         )
     }
 }
@@ -4720,21 +4726,21 @@ suspend fun removeAccompanimentFile(
             return@withContext AccompanimentOperationResult(success = false, needPermission = true)
         }
         if (accompanimentPath.isNullOrBlank()) {
-            return@withContext AccompanimentOperationResult(success = false, errorMessage = "当前没有可移除的伴奏文件")
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_no_accompaniment_to_remove))
         }
         if (!deleteByFilePathOrMediaStore(context, accompanimentPath)) {
-            return@withContext AccompanimentOperationResult(success = false, errorMessage = "删除伴奏文件失败")
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_delete_accompaniment_failed))
         }
         AccompanimentOperationResult(success = true)
     } catch (e: RecoverableSecurityException) {
         Log.e(TAG, "Need user confirmation to remove accompaniment file", e)
-        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "需要确认后才能删除伴奏文件")
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = context.getString(R.string.metadata_edit_delete_accompaniment_need_confirm))
     } catch (e: SecurityException) {
         Log.e(TAG, "No permission to remove accompaniment file", e)
-        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "没有权限删除伴奏文件")
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = context.getString(R.string.metadata_edit_delete_accompaniment_no_permission))
     } catch (e: Exception) {
         Log.e(TAG, "Error removing accompaniment file", e)
-        AccompanimentOperationResult(success = false, errorMessage = e.message ?: "移除伴奏失败")
+        AccompanimentOperationResult(success = false, errorMessage = e.message ?: context.getString(R.string.metadata_edit_remove_accompaniment_failed))
     }
 }
 
@@ -4775,31 +4781,31 @@ suspend fun deleteOriginalAccompanimentSource(
                 return@withContext AccompanimentOperationResult(success = true)
             }
 
-            return@withContext AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
+            return@withContext AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_delete_source_failed))
         }
 
         if (sourceUri.scheme.equals("file", ignoreCase = true) || sourceUri.scheme.isNullOrBlank()) {
             val filePath = sourceUri.path
             if (filePath.isNullOrBlank()) {
-                return@withContext AccompanimentOperationResult(success = false, errorMessage = "原文件路径无效")
+                return@withContext AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_source_path_invalid))
             }
             return@withContext if (deleteByFilePathOrMediaStore(context, filePath)) {
                 AccompanimentOperationResult(success = true)
             } else {
-                AccompanimentOperationResult(success = false, errorMessage = "删除原文件失败")
+                AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_delete_source_failed))
             }
         }
 
-        AccompanimentOperationResult(success = false, errorMessage = "不支持删除该来源的文件")
+        AccompanimentOperationResult(success = false, errorMessage = context.getString(R.string.metadata_edit_delete_source_unsupported))
     } catch (e: RecoverableSecurityException) {
         Log.e(TAG, "Need user confirmation to delete original accompaniment source", e)
-        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "需要确认后才能删除原文件")
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = context.getString(R.string.metadata_edit_delete_source_need_confirm))
     } catch (e: SecurityException) {
         Log.e(TAG, "No permission to delete original accompaniment source", e)
-        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = "没有权限删除原文件")
+        AccompanimentOperationResult(success = false, needPermission = true, errorMessage = context.getString(R.string.metadata_edit_delete_source_no_permission))
     } catch (e: Exception) {
         Log.e(TAG, "Error deleting original accompaniment source", e)
-        AccompanimentOperationResult(success = false, errorMessage = e.message ?: "删除原文件失败")
+        AccompanimentOperationResult(success = false, errorMessage = e.message ?: context.getString(R.string.metadata_edit_delete_source_failed))
     }
 }
 
@@ -4939,7 +4945,7 @@ fun CoverSelectionSheet(
                 .padding(top = 16.dp, bottom = 32.dp)
         ) {
             Text(
-                text = "选择封面来源",
+                text = stringResource(R.string.metadata_edit_cover_source_title),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 24.dp)
@@ -4950,7 +4956,7 @@ fun CoverSelectionSheet(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("从系统文件中选择", fontSize = 16.sp)
+                Text(stringResource(R.string.metadata_edit_cover_source_system), fontSize = 16.sp)
             }
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -4960,7 +4966,7 @@ fun CoverSelectionSheet(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("从歌曲封面中选择", fontSize = 16.sp)
+                Text(stringResource(R.string.metadata_edit_cover_source_library), fontSize = 16.sp)
             }
         }
     }
@@ -5037,14 +5043,14 @@ fun MusicLibraryCoverSelectionSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "选择歌曲封面",
+                    text = stringResource(R.string.metadata_edit_select_song_cover),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 IconButton(onClick = { dismissWithAnimation() }) {
                     Icon(
                         painter = painterResource(id = android.R.drawable.ic_menu_close_clear_cancel),
-                        contentDescription = "关闭",
+                        contentDescription = stringResource(R.string.common_close),
                         tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -5077,7 +5083,7 @@ fun MusicLibraryCoverSelectionSheet(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.search),
-                                contentDescription = "搜索",
+                                contentDescription = stringResource(R.string.common_search),
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
@@ -5085,7 +5091,7 @@ fun MusicLibraryCoverSelectionSheet(
                             Box(modifier = Modifier.weight(1f)) {
                                 if (searchQuery.isEmpty()) {
                                     Text(
-                                        text = "搜索歌曲、艺术家或专辑...",
+                                        text = stringResource(R.string.metadata_edit_cover_search_placeholder),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
                                         fontSize = 16.sp
                                     )
@@ -5099,7 +5105,7 @@ fun MusicLibraryCoverSelectionSheet(
                                 ) {
                                     Icon(
                                         painter = painterResource(id = android.R.drawable.ic_menu_close_clear_cancel),
-                                        contentDescription = "清除",
+                                        contentDescription = stringResource(R.string.common_clear),
                                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -5139,7 +5145,7 @@ fun MusicLibraryCoverSelectionSheet(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = if (searchQuery.isNotEmpty()) "未找到匹配的歌曲" else "音乐库中没有歌曲",
+                            text = if (searchQuery.isNotEmpty()) stringResource(R.string.metadata_edit_no_matched_songs) else stringResource(R.string.metadata_edit_no_songs_in_library),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -5556,7 +5562,7 @@ fun HalfScreenPreviewDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (previewType == "image") "图片封面" else "视频封面",
+                    text = if (previewType == "image") stringResource(R.string.metadata_edit_image_cover) else stringResource(R.string.metadata_edit_video_cover),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -5568,7 +5574,7 @@ fun HalfScreenPreviewDialog(
                         IconButton(onClick = onCropClick) {
                             Icon(
                                 painter = painterResource(id = R.drawable.cutpic),
-                                contentDescription = "裁剪图片",
+                                contentDescription = stringResource(R.string.metadata_edit_crop_image),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -5576,7 +5582,7 @@ fun HalfScreenPreviewDialog(
                         IconButton(onClick = onSaveImage) {
                             Icon(
                                 painter = painterResource(id = R.drawable.save),
-                                contentDescription = "保存到相册",
+                                contentDescription = stringResource(R.string.metadata_edit_save_to_album),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -5594,13 +5600,13 @@ fun HalfScreenPreviewDialog(
                         selected = previewType == "image",
                         onClick = { if (hasImageCover) onSwitchType("image") }
                     ) {
-                        Text("图片封面", modifier = Modifier.padding(vertical = 12.dp))
+                        Text(stringResource(R.string.metadata_edit_image_cover), modifier = Modifier.padding(vertical = 12.dp))
                     }
                     Tab(
                         selected = previewType == "video",
                         onClick = { if (hasVideoCover) onSwitchType("video") }
                     ) {
-                        Text("视频封面", modifier = Modifier.padding(vertical = 12.dp))
+                        Text(stringResource(R.string.metadata_edit_video_cover), modifier = Modifier.padding(vertical = 12.dp))
                     }
                 }
             }
@@ -5614,7 +5620,7 @@ fun HalfScreenPreviewDialog(
                 if (previewType == "image" && coverBitmap != null) {
                     Image(
                         bitmap = coverBitmap.asImageBitmap(),
-                        contentDescription = "封面预览",
+                        contentDescription = stringResource(R.string.metadata_edit_cover_preview),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -5645,7 +5651,7 @@ fun HalfScreenPreviewDialog(
                         ) {
                             Icon(
                                 painter = painterResource(id = android.R.drawable.ic_menu_gallery),
-                                contentDescription = "视频文件不存在",
+                                contentDescription = stringResource(R.string.metadata_edit_video_file_not_found),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(60.dp)
                             )
@@ -5688,10 +5694,10 @@ fun LyricsSelectionSheet(
     val hasLyrics by remember { derivedStateOf { hasEmbedded || hasExternal } }
     
     val formats = listOf(
-        "纯文本歌词",
-        "LRC逐行/逐字歌词",
-        "增强LRC/ELRC歌词",
-        "TTML歌词"
+        stringResource(R.string.metadata_edit_lyrics_format_plain_text),
+        stringResource(R.string.metadata_edit_lyrics_format_lrc),
+        stringResource(R.string.metadata_edit_lyrics_format_enhanced_lrc),
+        stringResource(R.string.metadata_edit_lyrics_format_ttml)
     )
     
     fun detectLyricsFormat(lyrics: String): Int {
@@ -5805,7 +5811,7 @@ fun LyricsSelectionSheet(
                         LoadingIndicator(modifier = Modifier.size(48.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "正在检测歌词...",
+                            text = stringResource(R.string.metadata_edit_detecting_lyrics),
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -5814,7 +5820,7 @@ fun LyricsSelectionSheet(
             } else {
                 if (hasLyrics) {
                     Text(
-                        text = "检测到歌词，请选择来源：",
+                        text = stringResource(R.string.metadata_edit_detected_lyrics_select_source),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -5823,8 +5829,8 @@ fun LyricsSelectionSheet(
                     
                     if (hasEmbedded) {
                         LyricsSourceCardEdit(
-                            title = "嵌入歌词",
-                            subtitle = "点击查看歌词内容",
+                            title = stringResource(R.string.metadata_edit_embedded_lyrics),
+                            subtitle = stringResource(R.string.metadata_edit_click_to_preview_lyrics),
                             selected = selectedSource == "embedded",
                             onClick = { 
                                 selectedSource = "embedded"
@@ -5832,7 +5838,7 @@ fun LyricsSelectionSheet(
                             },
                             onPreview = {
                                 previewLyricsContent = embeddedLyrics ?: ""
-                                previewLyricsTitle = "嵌入歌词预览"
+                                previewLyricsTitle = context.getString(R.string.metadata_edit_embedded_lyrics_preview)
                                 showLyricsPreview = true
                             }
                         )
@@ -5841,13 +5847,13 @@ fun LyricsSelectionSheet(
                     if (hasExternal) {
                         if (hasEmbedded) Spacer(modifier = Modifier.height(8.dp))
                         LyricsSourceCardEdit(
-                            title = "外部TTML文件",
+                            title = stringResource(R.string.metadata_edit_external_ttml_file),
                             subtitle = externalLyricsPath ?: "",
                             selected = selectedSource == "external",
                             onClick = { selectedSource = "external" },
                             onPreview = {
                                 previewLyricsContent = externalLyrics ?: ""
-                                previewLyricsTitle = "外部TTML预览"
+                                previewLyricsTitle = context.getString(R.string.metadata_edit_external_ttml_preview)
                                 showLyricsPreview = true
                             }
                         )
@@ -5867,7 +5873,7 @@ fun LyricsSelectionSheet(
                         Column {
                             Spacer(modifier = Modifier.height(20.dp))
                             Text(
-                                text = "请选择歌词格式：",
+                                text = stringResource(R.string.metadata_edit_select_lyrics_format),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -5876,7 +5882,7 @@ fun LyricsSelectionSheet(
                             
                             formats.forEachIndexed { index, format ->
                                 val isRecommended = index == recommendedFormatIndex
-                                val displayText = if (isRecommended) "$format（推荐）" else format
+                                val displayText = if (isRecommended) stringResource(R.string.metadata_edit_format_recommended, format) else format
                                 
                                 if (index > 0) Spacer(modifier = Modifier.height(8.dp))
                                 
@@ -5934,7 +5940,7 @@ fun LyricsSelectionSheet(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "未检测到歌词",
+                                text = stringResource(R.string.metadata_edit_no_lyrics_detected),
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -5944,17 +5950,18 @@ fun LyricsSelectionSheet(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
+                val ttmlFormatLabel = stringResource(R.string.metadata_edit_lyrics_format_ttml)
                 Button(
                     onClick = {
                         when {
                             selectedSource == "external" && externalLyrics != null -> {
-                                onStartEdit(externalLyrics, "TTML歌词")
+                                onStartEdit(externalLyrics, ttmlFormatLabel)
                             }
                             selectedSource == "embedded" && embeddedLyrics != null -> {
                                 onStartEdit(embeddedLyrics, formats[selectedFormat])
                             }
                             hasExternal && !hasEmbedded -> {
-                                onStartEdit(externalLyrics, "TTML歌词")
+                                onStartEdit(externalLyrics, ttmlFormatLabel)
                             }
                             !hasLyrics -> {
                                 onStartEdit(null, "")
@@ -5964,7 +5971,7 @@ fun LyricsSelectionSheet(
                     enabled = isStartButtonEnabled,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("开始编辑歌词")
+                    Text(stringResource(R.string.metadata_edit_start_edit_lyrics))
                 }
             }
         }
@@ -5998,7 +6005,7 @@ fun LyricsSelectionSheet(
                         IconButton(onClick = { showLyricsPreview = false }) {
                             Icon(
                                 painter = painterResource(id = android.R.drawable.ic_menu_close_clear_cancel),
-                                contentDescription = "关闭"
+                                contentDescription = stringResource(R.string.common_close)
                             )
                         }
                     }
@@ -6029,7 +6036,7 @@ fun LyricsSelectionSheet(
                         onClick = { showLyricsPreview = false },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("关闭")
+                        Text(stringResource(R.string.common_close))
                     }
                 }
             }
@@ -6082,7 +6089,7 @@ fun LyricsSourceCardEdit(
                 )
             }
             TextButton(onClick = onPreview) {
-                Text("查看")
+                Text(stringResource(R.string.common_view))
             }
         }
     }

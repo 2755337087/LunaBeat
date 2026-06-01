@@ -421,11 +421,11 @@ private fun parseTrackNumberValue(trackRaw: String): Int {
         ?: Int.MAX_VALUE
 }
 
-private val LYRIC_FORMAT_OPTIONS = listOf(
-    "纯文本歌词",
-    "LRC逐行/逐字歌词",
-    "增强LRC/ELRC歌词",
-    "TTML歌词"
+private val LYRIC_FORMAT_OPTION_RES_IDS = listOf(
+    R.string.metadata_edit_lyrics_format_plain_text,
+    R.string.metadata_edit_lyrics_format_lrc,
+    R.string.metadata_edit_lyrics_format_enhanced_lrc,
+    R.string.metadata_edit_lyrics_format_ttml
 )
 
 private data class AudioLyricsLoadResult(
@@ -442,9 +442,9 @@ private data class AudioLyricsLoadResult(
         get() = hasEmbedded && !hasExternal
 }
 
-private fun Int.toLyricFormatLabel(): String {
-    val safeIndex = coerceIn(0, LYRIC_FORMAT_OPTIONS.lastIndex)
-    return LYRIC_FORMAT_OPTIONS[safeIndex]
+private fun Int.toLyricFormatLabel(context: Context): String {
+    val safeIndex = coerceIn(0, LYRIC_FORMAT_OPTION_RES_IDS.lastIndex)
+    return context.getString(LYRIC_FORMAT_OPTION_RES_IDS[safeIndex])
 }
 
 internal fun handleMusicLibraryItemLyricsAction(
@@ -474,7 +474,7 @@ internal fun handleMusicLibraryItemLyricsAction(
             onStartLyricTimingEditor(
                 audio,
                 lyricsLoadResult.embeddedLyrics,
-                lyricsLoadResult.detectedEmbeddedFormat.toLyricFormatLabel()
+                lyricsLoadResult.detectedEmbeddedFormat.toLyricFormatLabel(context)
             )
         } else {
             onShowOptions(audio)
@@ -3060,9 +3060,12 @@ fun MusicLibraryScreen(
                                     currentPage = AppPageDestination.MUSIC_LIBRARY,
                                     includeCurrentPage = false
                                 )
+                                val settingsTitle = context.getString(AppPageDestination.SETTINGS.titleRes)
+                                val aboutTitle = context.getString(AppPageDestination.ABOUT.titleRes)
+                                val lyricTimingTitle = context.getString(AppPageDestination.LYRIC_TIMING.titleRes)
                                 pageSwitchItems.forEach { item ->
                                     val internalItem = when (item.title) {
-                                        AppPageDestination.SETTINGS.title -> item.copy(
+                                        settingsTitle -> item.copy(
                                             onClick = {
                                                 pageMenuExpanded = false
                                                 exitMultiSelectMode()
@@ -3070,7 +3073,7 @@ fun MusicLibraryScreen(
                                                 internalPage = MusicLibraryInternalPage.SETTINGS
                                             }
                                         )
-                                        AppPageDestination.ABOUT.title -> item.copy(
+                                        aboutTitle -> item.copy(
                                             onClick = {
                                                 pageMenuExpanded = false
                                                 exitMultiSelectMode()
@@ -3081,11 +3084,11 @@ fun MusicLibraryScreen(
                                         else -> item
                                     }
                                     add(internalItem)
-                                    if (item.title == AppPageDestination.LYRIC_TIMING.title) {
+                                    if (item.title == lyricTimingTitle) {
                                         add(artistMenuItem)
                                     }
                                 }
-                                if (pageSwitchItems.none { it.title == AppPageDestination.LYRIC_TIMING.title }) {
+                                if (pageSwitchItems.none { it.title == lyricTimingTitle }) {
                                     add(0, artistMenuItem)
                                 }
                             },
@@ -5458,7 +5461,7 @@ fun AudioOptionsDialog(
                 detectedEmbeddedFormat
             } else {
                 selectedFormat
-            }.coerceIn(0, LYRIC_FORMAT_OPTIONS.lastIndex)
+            }.coerceIn(0, LYRIC_FORMAT_OPTION_RES_IDS.lastIndex)
         }
     }
     
@@ -5657,7 +5660,7 @@ fun AudioOptionsDialog(
                         Column {
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = stringResource(R.string.ml_music_library_auto_detected_lyrics_format, detectedEmbeddedFormat.toLyricFormatLabel()),
+                                text = stringResource(R.string.ml_music_library_auto_detected_lyrics_format, detectedEmbeddedFormat.toLyricFormatLabel(context)),
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -5685,7 +5688,8 @@ fun AudioOptionsDialog(
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            LYRIC_FORMAT_OPTIONS.forEachIndexed { index, format ->
+                            LYRIC_FORMAT_OPTION_RES_IDS.forEachIndexed { index, formatResId ->
+                                val format = stringResource(formatResId)
                                 val isRecommended = index == detectedEmbeddedFormat
                                 val displayText = if (isRecommended) stringResource(R.string.ml_music_library_format_recommended, format) else format
                                 
@@ -5768,7 +5772,7 @@ fun AudioOptionsDialog(
                             onEditLyrics(externalLyrics, context.getString(R.string.ml_music_library_ttml_lyrics))
                         }
                         selectedSource == "embedded" && embeddedLyrics != null -> {
-                            onEditLyrics(embeddedLyrics, resolvedEmbeddedFormatIndex.toLyricFormatLabel())
+                            onEditLyrics(embeddedLyrics, resolvedEmbeddedFormatIndex.toLyricFormatLabel(context))
                         }
                         hasExternal && !hasEmbedded -> {
                             onEditLyrics(externalLyrics, context.getString(R.string.ml_music_library_ttml_lyrics))

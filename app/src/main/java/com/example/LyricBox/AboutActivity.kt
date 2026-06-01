@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -163,7 +164,7 @@ fun AboutScreen(
     
     Column(modifier = modifier.fillMaxSize()) {
         CommonHeadBar(
-            title = "关于",
+            title = stringResource(R.string.about_title),
             showBack = true,
             showMenu = false,
             onBackClick = onBack

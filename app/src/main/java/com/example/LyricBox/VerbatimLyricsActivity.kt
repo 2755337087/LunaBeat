@@ -53,6 +53,9 @@ import com.example.LyricBox.utils.PiracyCheckResult
 import kotlinx.coroutines.launch
 
 class VerbatimLyricsActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.wrapContext(newBase))
+    }
     
     private var piracyCheckResult by mutableStateOf<PiracyCheckResult?>(null)
     private var showPiracyWarning by mutableStateOf(false)
@@ -1079,6 +1082,7 @@ fun SongResultItem(
     onClick: () -> Unit
 ) {
     val song = result.songInfo
+    val unknownSong = stringResource(R.string.verbatim_unknown_song)
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1096,7 +1100,7 @@ fun SongResultItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = song.title ?: "未知歌曲",
+                    text = song.title ?: unknownSong,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -1181,6 +1185,19 @@ fun LyricsBottomSheet(
     val hasTtmlTranslation = rawTtml?.let { 
         it.contains("<translation") || it.contains("<itunes:translation")
     } == true
+    val unknownSong = stringResource(R.string.verbatim_unknown_song)
+    val loadingLyrics = stringResource(R.string.verbatim_loading_lyrics)
+    val loadFailed = stringResource(R.string.verbatim_load_failed)
+    val noLyrics = stringResource(R.string.verbatim_dialog_no_lyrics)
+    val keepTranslationText = stringResource(R.string.verbatim_keep_translation)
+    val convertSimplifiedText = stringResource(R.string.verbatim_convert_simplified)
+    val keepLyricsOnlyText = stringResource(R.string.verbatim_keep_lyrics_only)
+    val showTranslationText = stringResource(R.string.verbatim_show_translation)
+    val showRomaText = stringResource(R.string.verbatim_show_roma)
+    val lineByLineText = stringResource(R.string.verbatim_line_by_line)
+    val showLineEndText = stringResource(R.string.verbatim_show_line_end_timestamp)
+    val copyText = stringResource(R.string.verbatim_copy)
+    val importText = stringResource(R.string.verbatim_import)
     
     // 根据选项处理歌词文本
     val processedLyricsText = remember(showTranslation, showRoma, filterMetadata, keepTranslation, convertToSimplified, showLineByLine, showLineEndTimestamp) {
@@ -1226,7 +1243,7 @@ fun LyricsBottomSheet(
                 .padding(horizontal = 16.dp)
         ) {
             Text(
-                text = songResult.songInfo.title ?: "未知歌曲",
+                text = songResult.songInfo.title ?: unknownSong,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -1258,7 +1275,7 @@ fun LyricsBottomSheet(
                             LoadingIndicator(modifier = Modifier.size(32.dp))
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "正在获取歌词",
+                                text = loadingLyrics,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -1287,9 +1304,9 @@ fun LyricsBottomSheet(
                         val errorText = if (isAppleMusic && lyricsResult?.error != null) {
                             lyricsResult.error
                         } else if (isAppleMusic) {
-                            "加载失败"
+                            loadFailed
                         } else {
-                            "暂无歌词"
+                            noLyrics
                         }
                         Text(
                             text = errorText,
@@ -1324,7 +1341,7 @@ fun LyricsBottomSheet(
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 Text(
-                                    text = "保留翻译",
+                                    text = keepTranslationText,
                                     fontSize = 14.sp,
                                     fontWeight = if (keepTranslation) FontWeight.Bold else FontWeight.Medium,
                                     color = if (keepTranslation)
@@ -1348,7 +1365,7 @@ fun LyricsBottomSheet(
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
                             Text(
-                                text = "繁转简",
+                                text = convertSimplifiedText,
                                 fontSize = 14.sp,
                                 fontWeight = if (convertToSimplified) FontWeight.Bold else FontWeight.Medium,
                                 color = if (convertToSimplified)
@@ -1378,7 +1395,7 @@ fun LyricsBottomSheet(
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
                             Text(
-                                text = "仅保留歌词",
+                                text = keepLyricsOnlyText,
                                 fontSize = 14.sp,
                                 fontWeight = if (filterMetadata) FontWeight.Bold else FontWeight.Medium,
                                 color = if (filterMetadata)
@@ -1402,7 +1419,7 @@ fun LyricsBottomSheet(
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 Text(
-                                    text = "显示翻译",
+                                    text = showTranslationText,
                                     fontSize = 14.sp,
                                     fontWeight = if (showTranslation) FontWeight.Bold else FontWeight.Medium,
                                     color = if (showTranslation)
@@ -1427,7 +1444,7 @@ fun LyricsBottomSheet(
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 Text(
-                                    text = "显示罗马音",
+                                    text = showRomaText,
                                     fontSize = 14.sp,
                                     fontWeight = if (showRoma) FontWeight.Bold else FontWeight.Medium,
                                     color = if (showRoma)
@@ -1451,7 +1468,7 @@ fun LyricsBottomSheet(
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
                             Text(
-                                text = "逐行歌词",
+                                text = lineByLineText,
                                 fontSize = 14.sp,
                                 fontWeight = if (showLineByLine) FontWeight.Bold else FontWeight.Medium,
                                 color = if (showLineByLine)
@@ -1475,7 +1492,7 @@ fun LyricsBottomSheet(
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 Text(
-                                    text = "显示行结束时间戳",
+                                    text = showLineEndText,
                                     fontSize = 14.sp,
                                     fontWeight = if (showLineEndTimestamp) FontWeight.Bold else FontWeight.Medium,
                                     color = if (showLineEndTimestamp)
@@ -1502,14 +1519,14 @@ fun LyricsBottomSheet(
                             onClick = onCopy,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("复制")
+                            Text(copyText)
                         }
 
                         Button(
                             onClick = onImport,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("导入")
+                            Text(importText)
                         }
                     }
                 } else {
@@ -1521,14 +1538,14 @@ fun LyricsBottomSheet(
                             onClick = onCopy,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("复制")
+                            Text(copyText)
                         }
 
                         Button(
                             onClick = onImport,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("导入")
+                            Text(importText)
                         }
                     }
                 }
