@@ -1,12 +1,7 @@
 # LunaBeat
 
-[简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md)
+[简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 - LunaBeat 希望像夜晚中的音乐一样，在旋律与歌词之间，带来更纯净、更沉浸的本地音乐体验。
----
-- 自 2.0.0 版本起，LyricBox 正式更名为 LunaBeat。
-- 这不仅是一次名称更新，也代表软件从“本地歌词编辑器”迈向“歌词与音乐播放融合体验”的全新阶段。
-- 感谢大家一直以来的支持，未来 LunaBeat 将继续专注于本地音乐、动态歌词与沉浸式播放器体验的打磨。
-- LyricBox 的故事仍会继续，只是以新的名字陪伴大家。
 ---
 - LunaBeat 是一款专注于本地音乐与歌词体验的移动端播放器，融合音乐播放、歌词编辑与逐字打轴功能于一体。
 - 支持本地音频播放、逐字歌词制作（含对唱与背景声）、歌词预览与编辑，可导出 .lrc / .elrc / .ttml，并支持音频元数据与歌词批量处理。
@@ -14,6 +9,7 @@
 
 ## 为什么用 LunaBeat
 
+- 不只是歌词编辑器，也可作为本地音乐播放器长期使用
 - 移动端即可完成专业级逐字打轴
 - 支持多格式导入导出，适配常见歌词工作流
 - 集成音乐库与元数据工具，减少来回切软件的成本
@@ -66,17 +62,32 @@
 - 歌词操作：编辑、新增、拆分、合并、设置时间、删除
 - 行操作：新增、合并、拆分、移动、添加/修改翻译、删除
 
-### 6. 音乐库
+### 6. 播放器
+- 本地音乐播放，支持播放 / 暂停、上一首 / 下一首、进度拖动
+- 顺序播放、随机播放、单曲循环
+- 当前播放队列管理，支持跳转、移除与拖动排序
+- 音乐库迷你播放器与完整播放器联动
+- 后台播放、系统媒体通知与媒体按键控制
+- 定时播放，支持倒计时停止或播放完当前歌曲后停止
+- 与歌词预览联动，播放时可查看逐字歌词效果
+- 支持常见本地音频格式，并针对 ALAC 做播放兼容处理
+
+### 7. 音乐库
 - 扫描本地音频并筛选
+- 我的歌单、收藏歌曲、五星歌曲
+- 歌单导入 / 导出
+- 添加到播放队列 / 下一首播放
 - 批量匹配标签（封面、标题、艺术家等）
 - 批量匹配歌词（逐字 / 逐行 / 翻译）
 - 批量重命名
 - 批量编辑标签
 
-### 7. 设置
+### 8. 设置
 - 自定义深色模式
 - 自定义打轴快进/快退时长
 - 音乐库设置
+- 播放控制条样式与背景
+- 歌词显示、桌面歌词、状态栏歌词与车载蓝牙歌词
 - 音频元数据封面尺寸设置
 - AM 元数据地区设置
 
@@ -86,30 +97,35 @@
 1. 先导入音频文件。
 2. 再按歌词来源选择导入方式（纯文本 / LRC / ELRC / TTML / 搜索）。
 
-### 第 2 步：预处理歌词
+### 第 2 步：播放本地音乐
+1. 进入音乐库并扫描本地音频。
+2. 点击歌曲开始播放，底部迷你播放器会显示当前播放状态。
+3. 进入完整播放器，可切换播放模式、管理队列、打开歌词预览或设置定时播放。
+
+### 第 3 步：预处理歌词
 1. 使用一键分词，得到逐字单元。
 2. 视情况使用一键删除空行、合并歌词、繁转简。
 3. 如果已有时间轴但整体偏移，先做时间戳平移再进入精修。
 
-### 第 3 步：开始打轴（核心三键）
+### 第 4 步：开始打轴（核心三键）
 - 起始：设置当前单元开始时间，不跳转。
 - 连续：设置当前单元结束时间并自动到下一单元，同时写入下一单元开始时间。
 - 结束：设置当前单元结束时间并跳到下一单元，但不写下一单元开始时间。
 
 推荐节奏：`起始 -> 连续 -> 连续 -> ... -> 结束`，按句循环。
 
-### 第 4 步：精修时间与文本
+### 第 5 步：精修时间与文本
 1. 打开跟随模式，播放时自动定位当前单元。
 2. 双击歌词快速跳到该处开始时间回听。
 3. 用撤销/重做快速对比修改前后效果。
 4. 长按歌词或行，做拆分/合并/移动/翻译等结构修正。
 
-### 第 5 步：设置对唱与翻译（可选）
+### 第 6 步：设置对唱与翻译（可选）
 - 对唱类型：左对唱（主唱）、右对唱（副唱）、背景（和声）。
 - 翻译：支持导入或手动编辑。
 - 注意：对唱类型仅在 TTML 工作流中生效。
 
-### 第 6 步：预览并导出
+### 第 7 步：预览并导出
 1. 在歌词预览页检查逐字播放效果。
 2. 根据用途导出：
    - 通用播放器优先 `LRC`
@@ -125,16 +141,11 @@
 ## 音乐库工作流建议
 
 1. 扫描本地音频，先清点与过滤目标歌曲。
-2. 批量匹配标签，补全封面/标题/艺术家等元数据。
-3. 批量匹配歌词，统一补齐逐字/逐行与翻译。
-4. 批量重命名与批量编辑，完成最终整理。
-
-## 数据源缩写说明
-
-- QM：QQ 音乐
-- NE：网易云音乐
-- AM：Apple Music
-- KG：酷狗音乐
+2. 按专辑、歌单、收藏或五星歌曲整理常听内容。
+3. 播放歌曲并管理当前队列，必要时设置下一首播放或定时播放。
+4. 批量匹配标签，补全封面/标题/艺术家等元数据。
+5. 批量匹配歌词，统一补齐逐字/逐行与翻译。
+6. 批量重命名与批量编辑，完成最终整理。
 
 ## 常见问题（FAQ）
 
@@ -173,7 +184,8 @@
 - [lottie-android](https://github.com/airbnb/lottie-android)
 - [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
 - [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+
 ## 交流与反馈
 
-- [点击加入 LunaBeat 交流 QQ 群](https://qm.qq.com/q/N0fBvuWKOY)  群号：964680520
 - [点击加入 LunaBeat Telegram 群组](https://t.me/+qXs6mjKqwhw3Zjll)
+- [点击加入 LunaBeat 交流 QQ 群](https://qm.qq.com/q/N0fBvuWKOY)  群号：964680520
