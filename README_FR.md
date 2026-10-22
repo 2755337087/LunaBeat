@@ -1,174 +1,135 @@
+<div align="center">
+
 # LunaBeat
+
+**À chaque écoute, la mélodie rencontre les paroles.**
+
+Lecteur de musique locale pour Android · Édition des paroles mot à mot · Gestion de la bibliothèque et des tags
+
+[Télécharger la dernière version](https://github.com/2755337087/LunaBeat/releases/latest) · [Guide d’utilisation](#quick-start) · [Signaler un problème](https://github.com/2755337087/LunaBeat/issues) · [Communauté](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- LunaBeat souhaite offrir une expérience de musique locale plus pure et plus immersive, comme une musique nocturne, entre mélodie et paroles.
 ---
-- LunaBeat est un lecteur mobile axé sur la musique locale et l'expérience des paroles, combinant lecture musicale, édition des paroles et synchronisation mot par mot.
-- Il prend en charge la lecture audio locale, la création de paroles mot par mot avec duos et voix de fond, l'aperçu et l'édition des paroles, l'export en `.lrc` / `.elrc` / `.ttml`, ainsi que le traitement par lots des métadonnées audio et des paroles.
-- De l'importation à l'édition, puis de la lecture à l'export, LunaBeat vise une expérience locale de musique et de paroles plus complète et immersive.
 
-## Pourquoi LunaBeat
+LunaBeat réunit la lecture de musique locale, la création de paroles synchronisées mot à mot et l’organisation de votre bibliothèque dans une seule application. Écoutez tranquillement et suivez les paroles au fil de la mélodie, ou découpez les paroles d’une chanson, définissez leur synchronisation, ajoutez des traductions et des informations de duo, puis exportez le résultat pour votre propre processus de création.
 
-- Ce n'est pas seulement un éditeur de paroles : il peut aussi servir de lecteur de musique locale au quotidien.
-- Créez des paroles synchronisées mot par mot de niveau professionnel directement sur mobile.
-- Importez et exportez plusieurs formats adaptés aux flux de travail courants autour des paroles.
-- La bibliothèque musicale et les outils de métadonnées intégrés réduisent les allers-retours entre applications.
-- Le traitement par lots intégré convient à l'organisation de grandes collections de chansons.
+## Aperçu de l’interface
 
-## Aperçu de l'Interface
-
-### Téléphone
+### Interface téléphone
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Téléphone" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Interface téléphone" width="960" />
 </p>
 
-### Tablette
+### Interface tablette
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Tablette" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Interface tablette" width="960" />
 </p>
 
-## Vue d'Ensemble des Fonctions
+## Fonctionnalités principales
 
-### 1. Synchronisation et Édition des Paroles
-- Synchronisation en trois boutons : Début / Continuer / Fin
-- Retour / avance rapide, lecture / pause, vitesse de 0.25x à 3x, saut vers un temps précis
-- Annuler / rétablir pour les temps, les paroles et les opérations sur les lignes
-- Touchez le temps de lecture pour entrer en mode suivi et localiser les paroles sélectionnées
-- Touchez une unité de paroles pour la sélectionner, double-touchez pour revenir à son début et lancer la lecture
+| Usage | Ce que vous pouvez faire |
+| --- | --- |
+| Écouter de la musique locale | Analyser les fichiers audio locaux et parcourir la musique par artiste, album ou playlist ; profiter de la lecture en arrière-plan, des commandes multimédias du système, de la file d’attente et d’une minuterie d’arrêt. |
+| Profiter des paroles | Prévisualiser les paroles mot à mot avec des thèmes clairs et sombres et des réglages de barre de lecture et d’arrière-plan ; afficher les paroles sur l’écran d’accueil, dans la barre d’état ou via le Bluetooth de la voiture. |
+| Synchroniser mot à mot | Utiliser les trois boutons Début / Continuer / Fin, puis affiner les temps grâce à la vitesse de lecture, aux sauts temporels, au mode de suivi, à l’annulation et au rétablissement. |
+| Modifier les paroles | Découper les mots, scinder et fusionner les paroles, déplacer les lignes, décaler les horodatages, convertir entre chinois simplifié et traditionnel, supprimer les lignes vides et configurer traductions, duos et chœurs. |
+| Organiser la musique | Gérer les playlists, favoris et titres notés cinq étoiles ; associer par lot pochettes, tags et paroles, modifier les métadonnées et renommer les fichiers. |
 
-### 2. Importation
-- Paroles en texte brut
-- LRC (ligne par ligne / mot par mot)
-- LRC enrichi (ELRC)
-- TTML
-- Recherche de paroles en streaming
-- Importation de fichiers audio
+### Importation et exportation
 
-### 3. Exportation
-- LRC (ligne par ligne / mot par mot)
-- TTML (prise en charge des duos et voix de fond)
+| Contenu | Importation | Exportation |
+| --- | --- | --- |
+| Paroles en texte brut | Prise en charge | — |
+| LRC (ligne par ligne / mot à mot) | Prise en charge | Prise en charge |
+| LRC enrichi (ELRC) | Prise en charge | Prise en charge |
+| TTML | Prise en charge | Prise en charge, avec conservation des informations de duo et de chœurs |
 
-### 4. Aperçu et Traitement par Lots
-- Aperçu de l'effet de lecture mot par mot
-- Segmentation des mots en un clic
-- Décalage des horodatages
-- Fusion des paroles en un clic
-- Conversion du chinois traditionnel vers le chinois simplifié
-- Suppression des lignes vides en un clic
+Vous pouvez aussi rechercher des paroles ou importer un fichier audio pour commencer. TTML est recommandé pour conserver les informations de structure comme les duos et les chœurs ; LRC convient à l’affichage classique des paroles.
 
-### 5. Opérations sur la Structure des Paroles (Appui Long)
-- Opérations sur les paroles : éditer, ajouter, diviser, fusionner, définir le temps, supprimer
-- Opérations sur les lignes : ajouter, fusionner, diviser, déplacer, ajouter/modifier une traduction, supprimer
+<a id="quick-start"></a>
 
-### 6. Lecteur
-- Lecture de musique locale avec lecture / pause, précédent / suivant et déplacement dans la progression
-- Lecture séquentielle, aléatoire et répétition d'un seul titre
-- Gestion de la file en cours, avec saut, suppression et réordonnancement par glisser-déposer
-- Intégration du mini lecteur de la bibliothèque avec le lecteur complet
-- Lecture en arrière-plan, notifications média système et commandes par touches média
-- Minuteur de sommeil, avec arrêt par compte à rebours ou après la chanson en cours
-- Intégration avec l'aperçu des paroles pour vérifier l'effet mot par mot pendant la lecture
-- Prise en charge des formats audio locaux courants et gestion de compatibilité de lecture pour ALAC
+## Prise en main
 
-### 7. Bibliothèque Musicale
-- Analyse et filtrage de l'audio local
-- Playlists, chansons favorites et chansons cinq étoiles
-- Import / export de playlists
-- Ajouter à la file / lire ensuite
-- Correspondance par lots des tags (pochette, titre, artiste, etc.)
-- Correspondance par lots des paroles (mot par mot / ligne par ligne / traduction)
-- Renommage par lots
-- Édition des tags par lots
+### Écouter et organiser la bibliothèque
 
-### 8. Paramètres
-- Mode sombre personnalisé
-- Durée personnalisée d'avance / retour rapide pour la synchronisation des paroles
-- Paramètres de la bibliothèque musicale
-- Style et arrière-plan de la barre de lecture
-- Affichage des paroles, paroles de bureau, paroles dans la barre d'état et paroles Bluetooth voiture
-- Paramètres de taille de pochette des métadonnées audio
-- Paramètres de région des métadonnées Apple Music
+1. Ouvrez la bibliothèque musicale et analysez les fichiers audio locaux de votre appareil.
+2. Parcourez les artistes, albums, playlists ou favoris, puis touchez un titre pour lancer la lecture.
+3. Ouvrez le lecteur complet pour changer le mode de lecture, gérer la file d’attente, voir les paroles ou régler une minuterie d’arrêt.
+4. Pour organiser les fichiers, associez d’abord les tags et les paroles par lot, puis modifiez les tags ou renommez les fichiers.
 
-## Démarrage Rapide en 5 Minutes (Ordre Recommandé)
+### Créer les paroles d’une chanson synchronisées mot à mot
 
-### Étape 1 : Importer l'Audio et les Paroles
-1. Importez d'abord le fichier audio.
-2. Choisissez ensuite la méthode selon la source des paroles : texte brut / LRC / ELRC / TTML / recherche.
+1. **Importer** : sélectionnez un fichier audio, puis importez les paroles en texte brut, LRC, ELRC ou TTML. Vous pouvez aussi rechercher des paroles.
+2. **Préparer** : commencez par découper les mots, puis supprimez les lignes vides, fusionnez les paroles ou convertissez entre chinois simplifié et traditionnel. Si des temps existent déjà, alignez d’abord l’ensemble en décalant toute la chronologie.
+3. **Synchroniser** : lancez l’audio et utilisez les trois boutons ci-dessous au rythme de chaque ligne de paroles.
+4. **Affiner** : touchez deux fois les paroles pour revenir les écouter. Vérifiez les temps avec le mode de suivi, l’annulation et le rétablissement ; un appui long sur une unité ou une ligne permet de scinder, fusionner, déplacer et modifier les traductions.
+5. **Prévisualiser et exporter** : vérifiez l’effet mot à mot ; choisissez LRC pour un affichage classique ou TTML pour les informations de duo et de chœurs.
 
-### Étape 2 : Lire de la Musique Locale
-1. Ouvrez la bibliothèque musicale et analysez l'audio local.
-2. Touchez une chanson pour lancer la lecture ; le mini lecteur en bas affiche l'état actuel.
-3. Dans le lecteur complet, changez de mode de lecture, gérez la file, ouvrez l'aperçu des paroles ou définissez un minuteur.
+| Bouton | Action |
+| --- | --- |
+| Début | Définit le début de l’unité actuelle et reste sur cette unité. |
+| Continuer | Définit la fin de l’unité actuelle, passe à la suivante et définit aussi le début de cette dernière. |
+| Fin | Définit la fin de l’unité actuelle et passe à la suivante, dont le début sera défini plus tard. |
 
-### Étape 3 : Prétraiter les Paroles
-1. Utilisez la segmentation en un clic pour obtenir des unités mot par mot.
-2. Si besoin, supprimez les lignes vides, fusionnez les paroles ou convertissez le chinois traditionnel en simplifié.
-3. Si la synchronisation existante est globalement décalée, appliquez d'abord un décalage d'horodatage avant l'ajustement fin.
+Enchaînement conseillé : `Début → Continuer → Continuer → … → Fin`, à répéter pour chaque ligne.
 
-### Étape 4 : Commencer la Synchronisation (Trois Boutons Clés)
-- Début : définit le début de l'unité actuelle sans sauter.
-- Continuer : définit la fin de l'unité actuelle, passe automatiquement à la suivante et écrit son début.
-- Fin : définit la fin de l'unité actuelle et passe à la suivante, sans écrire le début suivant.
+<details>
+<summary>Conseils de synchronisation</summary>
 
-Rythme recommandé : `Début -> Continuer -> Continuer -> ... -> Fin`, phrase par phrase.
+- Les colonnes de temps et de texte indiquent le début, les paroles, la fin et la traduction.
+- Touchez une unité une fois pour la sélectionner, deux fois pour revenir à son début et la réécouter.
+- Le retour / l’avance rapide, la lecture / pause, la vitesse de lecture et le saut à un temps précis sont pris en charge.
+- Touchez le temps de lecture pour activer le mode de suivi ; touchez le temps dans la zone de synchronisation pour choisir un point de destination.
+- Les duos peuvent être configurés à gauche (voix principale), à droite (seconde voix) ou en arrière-plan (chœurs), puis exportés en TTML.
 
-### Étape 5 : Affiner le Temps et le Texte
-1. Activez le mode suivi pour localiser automatiquement l'unité actuelle pendant la lecture.
-2. Double-touchez les paroles pour revenir rapidement à leur début et réécouter.
-3. Utilisez annuler / rétablir pour comparer rapidement avant et après modification.
-4. Appuyez longuement sur les paroles ou les lignes pour diviser, fusionner, déplacer, traduire ou corriger la structure.
+</details>
 
-### Étape 6 : Définir Duos et Traductions (Facultatif)
-- Types de duo : duo gauche (voix principale), duo droit (voix secondaire), fond (voix de fond).
-- Les traductions peuvent être importées ou modifiées manuellement.
-- Remarque : les types de duo ne s'appliquent que dans le flux TTML.
+## Questions fréquentes
 
-### Étape 7 : Prévisualiser et Exporter
-1. Vérifiez l'effet mot par mot dans la page d'aperçu des paroles.
-2. Exportez selon l'usage :
-   - Pour les lecteurs généraux, privilégiez `LRC`
-   - Si des informations de duo / voix de fond sont nécessaires, privilégiez `TTML`
+<details>
+<summary>Faut-il choisir LRC ou TTML ?</summary>
 
-## Interface de Synchronisation
+Choisissez LRC pour l’affichage classique, ou TTML pour conserver les informations de structure comme les duos et les chœurs. Vérifiez l’effet mot à mot dans l’aperçu avant d’exporter.
 
-- Colonnes : début / paroles / fin / traduction
-- Localisation : permet d'aller aux paroles sélectionnées
-- Saut temporel : touchez le temps dans la zone de synchronisation pour aller à un point personnalisé
-- Titre : touchez le titre pour obtenir le chemin audio
+</details>
 
-## Flux Conseillé pour la Bibliothèque Musicale
+<details>
+<summary>À quoi faut-il faire attention lors de l’exportation et de la lecture des duos ?</summary>
 
-1. Analysez l'audio local, puis vérifiez et filtrez les chansons cibles.
-2. Organisez les contenus souvent écoutés par album, playlist, favoris ou cinq étoiles.
-3. Lisez les chansons et gérez la file actuelle ; si besoin, définissez lire ensuite ou un minuteur.
-4. Faites correspondre les tags par lots pour compléter pochette / titre / artiste et autres métadonnées.
-5. Faites correspondre les paroles par lots pour compléter versions mot par mot / ligne par ligne et traductions.
-6. Finalisez avec le renommage et l'édition par lots.
+Privilégiez TTML pour exporter les informations de duo et de chœurs, et utilisez un lecteur compatible avec ces effets. Le rendu dépend de la prise en charge du format de paroles et des informations associées par le lecteur.
 
-## FAQ
+</details>
 
-### 1. Quand exporter en LRC, et quand en TTML ?
-- Si vous avez seulement besoin d'un affichage classique des paroles : choisissez LRC.
-- Si vous avez besoin de duos, de voix de fond ou d'une structure plus complète : choisissez TTML.
+<details>
+<summary>Comment corriger des paroles qui sont toutes en avance ou en retard ?</summary>
 
-### 2. Pourquoi l'effet de duo ne s'affiche-t-il pas après configuration ?
-Les types de duo ne sont pris en charge qu'en TTML. Vérifiez que vous utilisez le flux TTML et que vous exportez en TTML.
+Décalez d’abord les horodatages pour aligner l’ensemble, puis revenez à l’écran de synchronisation pour affiner certains passages.
 
-### 3. Les paroles sont globalement trop en avance ou en retard. Comment corriger vite ?
-Utilisez d'abord le décalage des horodatages pour l'alignement global, puis revenez à la page de synchronisation pour les ajustements locaux.
+</details>
 
-### 4. Quelle est l'erreur la plus courante chez les débutants ?
-Souvent, synchroniser avant de segmenter les mots. Il est recommandé de terminer la segmentation et le nettoyage du texte avant de commencer la synchronisation.
+<details>
+<summary>Par où commencer pour une première synchronisation ?</summary>
 
-## Communauté et Retours
+Terminez le découpage des mots et le nettoyage du texte avant de synchroniser. Choisissez une chanson familière, utilisez « Début → Continuer → … → Fin » pour chaque ligne, puis réécoutez et ajustez.
 
-- [Rejoindre le groupe Telegram LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
-- [Rejoindre le groupe QQ LunaBeat](https://qm.qq.com/q/N0fBvuWKOY)  ID du groupe : 964680520
+</details>
 
-## Special Thanks
+<a id="community-and-feedback"></a>
+
+## Communauté et retours
+
+- [GitHub Issues · Signalement de bugs et suggestions de fonctionnalités](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · Groupe communautaire LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · Groupe communautaire LunaBeat](https://qm.qq.com/q/N0fBvuWKOY) · Numéro du groupe: **964680520**
+
+Pour signaler un problème, indiquez si possible la version de l’application, l’appareil et la version d’Android, les étapes pour reproduire le problème ainsi que des captures d’écran ou les formats de fichiers concernés, afin de faciliter le diagnostic.
+
+## Remerciements
 
 ### Soutien technique
 

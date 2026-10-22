@@ -1,174 +1,135 @@
+<div align="center">
+
 # LunaBeat
+
+**Melodia e letra se encontram a cada reprodução.**
+
+Reprodutor de música local para Android · Edição de letras palavra por palavra · Gerenciamento de biblioteca e tags
+
+[Baixar a versão mais recente](https://github.com/2755337087/LunaBeat/releases/latest) · [Guia de uso](#quick-start) · [Relatar um problema](https://github.com/2755337087/LunaBeat/issues) · [Comunidade](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- O LunaBeat quer oferecer uma experiência de música local mais limpa e imersiva, como música à noite, entre melodia e letras.
 ---
-- LunaBeat é um player móvel focado em música local e experiência de letras, combinando reprodução musical, edição de letras e sincronização palavra por palavra.
-- Suporta reprodução de áudio local, criação de letras palavra por palavra com duetos e vocais de fundo, prévia e edição de letras, exportação para `.lrc` / `.elrc` / `.ttml`, além de processamento em lote de metadados de áudio e letras.
-- Da importação, edição e reprodução à exportação, LunaBeat busca oferecer uma experiência local de música e letras mais completa e imersiva.
 
-## Por Que Usar LunaBeat
+O LunaBeat reúne a reprodução de música local, a criação de letras sincronizadas palavra por palavra e a organização da biblioteca em um único aplicativo. Ouça com tranquilidade e acompanhe as letras ao ritmo da melodia, ou segmente a letra de uma música, ajuste os tempos, adicione traduções e informações de dueto e exporte o resultado para seu próprio fluxo de trabalho.
 
-- Não é apenas um editor de letras; também pode ser usado como player de música local no dia a dia.
-- Crie letras sincronizadas palavra por palavra em nível profissional diretamente no celular.
-- Suporta importação e exportação em vários formatos para fluxos de trabalho comuns de letras.
-- Integra biblioteca musical e ferramentas de metadados, reduzindo a troca entre apps.
-- Inclui processamento em lote, ideal para organizar grandes coleções de músicas.
+## Prévia da interface
 
-## Prévia da Interface
-
-### Celular
+### Interface para celular
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Celular" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Interface para celular" width="960" />
 </p>
 
-### Tablet
+### Interface para tablet
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Interface para tablet" width="960" />
 </p>
 
-## Visão Geral dos Recursos
+## Principais recursos
 
-### 1. Sincronização e Edição de Letras
-- Fluxo de sincronização com três botões: Início / Continuar / Fim
-- Retroceder / avançar, reproduzir / pausar, velocidade de 0.25x ~ 3x e salto para um tempo específico
-- Desfazer / refazer para tempo, letras e operações de linha
-- Toque no tempo de reprodução para entrar no modo de acompanhamento e localizar a letra selecionada
-- Toque em uma unidade de letra para selecionar; toque duas vezes para ir ao início da letra atual e reproduzir
+| Uso | O que você pode fazer |
+| --- | --- |
+| Ouvir música local | Buscar arquivos de áudio locais e navegar por artista, álbum ou playlist; usar reprodução em segundo plano, controles de mídia do sistema, fila de reprodução e temporizador de desligamento. |
+| Acompanhar as letras | Pré-visualizar letras palavra por palavra com temas claros e escuros e ajustes da barra de reprodução e do plano de fundo; exibir letras na tela inicial, na barra de status e pelo Bluetooth do carro. |
+| Sincronizar palavra por palavra | Usar os três botões Início / Continuar / Fim e refinar os tempos com ajustes de velocidade, saltos no tempo, modo de acompanhamento, desfazer e refazer. |
+| Editar letras | Segmentar palavras, dividir e unir letras, mover linhas, deslocar marcações de tempo, converter entre chinês simplificado e tradicional, remover linhas vazias e configurar traduções, duetos e vocais de apoio. |
+| Organizar músicas | Gerenciar playlists, favoritos e músicas com cinco estrelas; encontrar capas, tags e letras em lote, editar metadados e renomear arquivos. |
 
-### 2. Importação
-- Letras em texto simples
-- LRC (por linha / por palavra)
-- Enhanced LRC (ELRC)
-- TTML
-- Busca de letras em streaming
-- Importação de arquivo de áudio
+### Importação e exportação
 
-### 3. Exportação
-- LRC (por linha / por palavra)
-- TTML (suporte a duetos e vocais de fundo)
+| Conteúdo | Importação | Exportação |
+| --- | --- | --- |
+| Letras em texto simples | Compatível | — |
+| LRC (linha por linha / palavra por palavra) | Compatível | Compatível |
+| LRC aprimorado (ELRC) | Compatível | Compatível |
+| TTML | Compatível | Compatível, preservando informações de dueto e vocais de apoio |
 
-### 4. Prévia e Processamento em Lote
-- Prévia do efeito de reprodução palavra por palavra
-- Segmentação de palavras com um clique
-- Deslocamento de timestamp
-- Mesclagem de letras com um clique
-- Conversão de chinês tradicional para simplificado
-- Remoção de linhas vazias com um clique
+Você também pode pesquisar letras ou importar áudio para começar a criar. Recomenda-se TTML para preservar informações estruturais, como duetos e vocais de apoio; LRC serve para a exibição comum de letras.
 
-### 5. Operações de Estrutura de Letras (Pressão Longa)
-- Operações de letra: editar, adicionar, dividir, mesclar, definir tempo, excluir
-- Operações de linha: adicionar, mesclar, dividir, mover, adicionar/editar tradução, excluir
+<a id="quick-start"></a>
 
-### 6. Player
-- Reprodução de música local com reproduzir / pausar, anterior / próxima e arraste de progresso
-- Reprodução sequencial, aleatória e repetição de uma música
-- Gerenciamento da fila atual, com salto, remoção e reordenação por arraste
-- Integração entre mini player da biblioteca musical e player completo
-- Reprodução em segundo plano, notificações de mídia do sistema e controles por teclas de mídia
-- Timer de sono, com parada por contagem regressiva ou ao terminar a música atual
-- Integração com prévia de letras para verificar o efeito palavra por palavra durante a reprodução
-- Suporta formatos de áudio locais comuns e tratamento de compatibilidade de reprodução para ALAC
+## Primeiros passos
 
-### 7. Biblioteca Musical
-- Escaneamento e filtragem de áudio local
-- Playlists, músicas favoritas e músicas cinco estrelas
-- Importação / exportação de playlists
-- Adicionar à fila / tocar a seguir
-- Correspondência em lote de tags (capa, título, artista etc.)
-- Correspondência em lote de letras (por palavra / por linha / tradução)
-- Renomeação em lote
-- Edição de tags em lote
+### Ouvir e organizar a biblioteca
 
-### 8. Configurações
-- Modo escuro personalizado
-- Duração personalizada de avançar / retroceder para sincronização de letras
-- Configurações da biblioteca musical
-- Estilo e fundo da barra de reprodução
-- Exibição de letras, letras na área de trabalho, letras na barra de status e letras por Bluetooth do carro
-- Configurações de tamanho da capa nos metadados de áudio
-- Configurações de região dos metadados do Apple Music
+1. Abra a biblioteca musical e busque os arquivos de áudio locais do dispositivo.
+2. Navegue por artista, álbum, playlist ou favoritos e toque em uma música para reproduzi-la.
+3. Abra o reprodutor completo para mudar o modo de reprodução, gerenciar a fila, ver letras ou configurar o temporizador de desligamento.
+4. Para organizar arquivos, encontre primeiro tags e letras em lote; depois edite as tags ou renomeie os arquivos.
 
-## Início Rápido em 5 Minutos (Ordem Recomendada)
+### Criar a letra de uma música sincronizada palavra por palavra
 
-### Etapa 1: Importar Áudio e Letras
-1. Importe primeiro o arquivo de áudio.
-2. Depois escolha o método de importação conforme a fonte da letra: texto simples / LRC / ELRC / TTML / busca.
+1. **Importar**: selecione o áudio e importe letras em texto simples, LRC, ELRC ou TTML. Você também pode pesquisar letras.
+2. **Preparar**: segmente primeiro as palavras; depois remova linhas vazias, una letras ou converta entre chinês simplificado e tradicional. Se já houver tempos definidos, desloque toda a linha do tempo para alinhá-la primeiro.
+3. **Sincronizar**: reproduza o áudio e use os três botões abaixo no ritmo de cada linha da letra.
+4. **Refinar**: toque duas vezes na letra para voltar e ouvir novamente. Confira os tempos com o modo de acompanhamento, desfazer e refazer; pressione uma unidade ou linha por alguns instantes para dividir, unir, mover ou editar traduções.
+5. **Pré-visualizar e exportar**: confira o efeito palavra por palavra; escolha LRC para a exibição comum ou TTML para informações de dueto e vocais de apoio.
 
-### Etapa 2: Reproduzir Música Local
-1. Entre na biblioteca musical e escaneie o áudio local.
-2. Toque em uma música para reproduzir; o mini player inferior mostra o estado atual.
-3. No player completo, alterne modos de reprodução, gerencie a fila, abra a prévia de letras ou configure o timer.
+| Botão | Ação |
+| --- | --- |
+| Início | Define o início da unidade atual e permanece nela. |
+| Continuar | Define o fim da unidade atual, avança para a próxima e também define o início dela. |
+| Fim | Define o fim da unidade atual e avança para a próxima, cujo início será definido depois. |
 
-### Etapa 3: Pré-processar Letras
-1. Use a segmentação de palavras com um clique para obter unidades palavra por palavra.
-2. Se necessário, remova linhas vazias, mescle letras ou converta chinês tradicional para simplificado.
-3. Se a linha do tempo existente estiver deslocada como um todo, use o deslocamento de timestamp antes do ajuste fino.
+Sequência recomendada: `Início → Continuar → Continuar → … → Fim`, repetida em cada linha.
 
-### Etapa 4: Começar a Sincronização (Três Botões Principais)
-- Início: define o início da unidade atual sem saltar.
-- Continuar: define o fim da unidade atual, passa automaticamente para a próxima e grava o início da próxima.
-- Fim: define o fim da unidade atual e passa para a próxima, mas não grava o início da próxima.
+<details>
+<summary>Dicas de sincronização</summary>
 
-Ritmo recomendado: `Início -> Continuar -> Continuar -> ... -> Fim`, repetindo por frase.
+- As colunas de tempo e texto mostram início, letra, fim e tradução.
+- Toque uma vez em uma unidade para selecioná-la e duas vezes para ir ao início dela e ouvir novamente.
+- Há suporte para retroceder / avançar, reproduzir / pausar, alterar a velocidade e ir para um tempo específico.
+- Toque no tempo de reprodução para entrar no modo de acompanhamento; toque no tempo na área de sincronização para escolher um destino.
+- Os duetos podem ser configurados à esquerda (voz principal), à direita (segunda voz) ou no fundo (vocais de apoio) e exportados em TTML.
 
-### Etapa 5: Ajustar Tempo e Texto
-1. Ative o modo de acompanhamento para localizar automaticamente a unidade atual durante a reprodução.
-2. Toque duas vezes na letra para voltar rapidamente ao início e revisar.
-3. Use desfazer / refazer para comparar rapidamente antes e depois.
-4. Pressione letras ou linhas para dividir, mesclar, mover, traduzir ou corrigir a estrutura.
+</details>
 
-### Etapa 6: Configurar Duetos e Traduções (Opcional)
-- Tipos de dueto: dueto esquerdo (vocal principal), dueto direito (vocal secundário), fundo (vocais de fundo).
-- Traduções podem ser importadas ou editadas manualmente.
-- Observação: tipos de dueto só funcionam no fluxo TTML.
+## Perguntas frequentes
 
-### Etapa 7: Prévia e Exportação
-1. Confira o efeito palavra por palavra na página de prévia de letras.
-2. Exporte conforme o uso:
-   - Para players comuns, priorize `LRC`
-   - Se precisar de dueto / vocais de fundo, priorize `TTML`
+<details>
+<summary>Devo escolher LRC ou TTML?</summary>
 
-## Interface de Sincronização
+Escolha LRC para a exibição comum de letras ou TTML para preservar informações estruturais, como duetos e vocais de apoio. Confira o efeito palavra por palavra na prévia antes de exportar.
 
-- Colunas: início / letra / fim / tradução
-- Localizar: permite ir até a letra selecionada
-- Salto de tempo: toque no tempo da área de sincronização para ir a um ponto personalizado
-- Toque no título: permite obter o caminho do áudio
+</details>
 
-## Fluxo Recomendado da Biblioteca Musical
+<details>
+<summary>O que devo considerar ao exportar e reproduzir letras com duetos?</summary>
 
-1. Escaneie o áudio local, confira e filtre as músicas alvo.
-2. Organize o que você ouve com frequência por álbum, playlist, favoritos ou cinco estrelas.
-3. Reproduza músicas e gerencie a fila atual; se necessário, configure tocar a seguir ou timer.
-4. Faça correspondência em lote de tags para completar capa / título / artista e outros metadados.
-5. Faça correspondência em lote de letras para completar versões por palavra / por linha e traduções.
-6. Finalize com renomeação e edição em lote.
+Prefira TTML para exportar informações de dueto e vocais de apoio e veja o resultado em um reprodutor compatível com esses efeitos. A exibição depende do suporte do reprodutor ao formato da letra e às informações associadas.
 
-## FAQ
+</details>
 
-### 1. Quando exportar LRC e quando exportar TTML?
-- Se você só precisa de exibição comum de letras: escolha LRC.
-- Se precisa de duetos, vocais de fundo ou estrutura mais completa: escolha TTML.
+<details>
+<summary>Como ajusto letras que estão todas adiantadas ou atrasadas?</summary>
 
-### 2. Por que não vejo o efeito de dueto depois de configurar?
-Tipos de dueto só são compatíveis com TTML. Confirme que o fluxo atual é TTML e exporte como TTML.
+Desloque primeiro as marcações de tempo para alinhar o conjunto e depois volte à tela de sincronização para refinar trechos específicos.
 
-### 3. As letras estão adiantadas ou atrasadas no geral. Como corrigir rápido?
-Use primeiro o deslocamento de timestamp para calibrar tudo, depois volte à página de sincronização para ajustes locais.
+</details>
 
-### 4. Qual é o erro mais comum de iniciantes?
-Normalmente é sincronizar antes de segmentar as palavras. Recomenda-se concluir a segmentação e limpeza do texto antes de começar.
+<details>
+<summary>Por onde começar se nunca sincronizei letras?</summary>
 
-## Comunidade e Feedback
+Conclua a segmentação das palavras e a limpeza do texto antes de sincronizar. Escolha uma música conhecida, use “Início → Continuar → … → Fim” em cada linha e depois ouça novamente e faça pequenos ajustes.
 
-- [Entrar no grupo Telegram do LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
-- [Entrar no grupo QQ do LunaBeat](https://qm.qq.com/q/N0fBvuWKOY)  ID do grupo: 964680520
+</details>
 
-## Special Thanks
+<a id="community-and-feedback"></a>
+
+## Comunidade e feedback
+
+- [GitHub Issues · Relatos de erros e sugestões de recursos](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · Grupo da comunidade LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · Grupo da comunidade LunaBeat](https://qm.qq.com/q/N0fBvuWKOY) · Número do grupo: **964680520**
+
+Ao relatar um problema, inclua, se possível, a versão do aplicativo, o dispositivo e a versão do Android, os passos para reproduzir o problema e capturas de tela ou formatos de arquivo relacionados, para facilitar o diagnóstico.
+
+## Agradecimentos
 
 ### Apoio técnico
 

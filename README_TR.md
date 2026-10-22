@@ -1,174 +1,135 @@
+<div align="center">
+
 # LunaBeat
+
+**Her çalmada melodi ve şarkı sözleri buluşsun.**
+
+Android yerel müzik çalar · Kelime kelime şarkı sözü düzenleme · Müzik kitaplığı ve etiket yönetimi
+
+[Son sürümü indir](https://github.com/2755337087/LunaBeat/releases/latest) · [Kullanım kılavuzu](#quick-start) · [Sorun bildir](https://github.com/2755337087/LunaBeat/issues) · [Topluluk](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- LunaBeat, gece müziği gibi melodi ile sözler arasında daha temiz ve daha sürükleyici bir yerel müzik deneyimi sunmayı amaçlar.
 ---
-- LunaBeat, yerel müzik ve şarkı sözü deneyimine odaklanan bir mobil oynatıcıdır; müzik çalma, söz düzenleme ve kelime düzeyinde zamanlama özelliklerini bir araya getirir.
-- Yerel ses çalmayı, düet ve arka vokal dahil kelime düzeyinde söz oluşturmayı, söz önizleme ve düzenlemeyi destekler; `.lrc` / `.elrc` / `.ttml` dışa aktarabilir ve ses meta verileri ile sözler için toplu işlem sunar.
-- İçe aktarmadan düzenlemeye, çalmadan dışa aktarmaya kadar LunaBeat daha eksiksiz ve sürükleyici bir yerel müzik ve söz deneyimi sağlamayı hedefler.
 
-## Neden LunaBeat
+LunaBeat, yerel müzik çalmayı, kelime kelime zamanlanmış şarkı sözü hazırlamayı ve müzik kitaplığını düzenlemeyi tek uygulamada birleştirir. Müziği sakin sakin dinleyip melodiyle birlikte akan sözleri izleyebilir veya bir şarkının sözlerini parçalara ayırabilir, zamanlayabilir, çeviri ve düet bilgileri ekleyip kendi şarkı sözü iş akışınız için dışa aktarabilirsiniz.
 
-- Yalnızca bir söz düzenleyici değil, uzun süre kullanılabilecek bir yerel müzik oynatıcıdır.
-- Mobil cihazda profesyonel düzeyde kelime zamanlamalı sözler oluşturabilirsiniz.
-- Yaygın söz iş akışlarına uyum sağlayan çoklu biçim içe ve dışa aktarma desteği sunar.
-- Müzik kitaplığı ve meta veri araçlarını birleştirerek uygulamalar arasında geçiş ihtiyacını azaltır.
-- Büyük müzik koleksiyonlarını düzenlemek için uygun yerleşik toplu işlem özellikleri içerir.
+## Arayüz önizlemesi
 
-## Ekran Görüntüleri
-
-### Telefon
+### Telefon arayüzü
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Telefon" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Telefon arayüzü" width="960" />
 </p>
 
-### Tablet
+### Tablet arayüzü
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet arayüzü" width="960" />
 </p>
 
-## Özellik Özeti
+## Temel özellikler
 
-### 1. Söz Zamanlama ve Düzenleme
-- Başlat / Devam / Bitir şeklinde üç tuşlu zamanlama iş akışı
-- Geri sarma / ileri sarma, oynat / duraklat, 0.25x ~ 3x oynatma hızı ve belirli zamana atlama
-- Zamanlama, söz ve satır işlemleri için geri al / yinele
-- Takip moduna girmek ve seçili söze gitmek için oynatma zamanına dokunma
-- Söz birimine dokunarak seçme, çift dokunarak mevcut sözün başlangıcına gidip oynatma
+| Kullanım | Yapabilecekleriniz |
+| --- | --- |
+| Yerel müzik dinleme | Yerel ses dosyalarını tarayıp sanatçı, albüm veya çalma listesine göre gezinme; arka planda çalma, sistem medya denetimleri, çalma kuyruğu ve uyku zamanlayıcısı. |
+| Şarkı sözlerine odaklanma | Açık ve koyu temalar, çalma çubuğu ve arka plan ayarlarıyla kelime kelime söz önizlemesi; ana ekranda, durum çubuğunda ve araç Bluetooth bağlantısı üzerinden söz gösterimi. |
+| Kelime kelime zamanlama | Başlat / Devam / Bitir düğmeleriyle zamanlama; çalma hızı, belirli zamana atlama, takip modu, geri alma ve yinelemeyle ince ayar. |
+| Şarkı sözü düzenleme | Kelimeleri bölümlere ayırma, sözleri bölme ve birleştirme, satır taşıma, zaman damgalarını kaydırma, Basitleştirilmiş ve Geleneksel Çince arasında dönüştürme, boş satırları kaldırma, çeviri, düet ve geri vokal ayarları. |
+| Müzik düzenleme | Çalma listelerini, favorileri ve beş yıldızlı şarkıları yönetme; kapak, etiket ve sözleri toplu eşleştirme, meta verileri düzenleme ve dosyaları yeniden adlandırma. |
 
-### 2. İçe Aktarma
-- Düz metin sözler
-- LRC (satır düzeyi / kelime düzeyi)
-- Gelişmiş LRC (ELRC)
-- TTML
-- Akış servislerinden söz arama
-- Ses dosyası içe aktarma
+### İçe ve dışa aktarma
 
-### 3. Dışa Aktarma
-- LRC (satır düzeyi / kelime düzeyi)
-- TTML (düet ve arka vokal desteği)
+| İçerik | İçe aktarma | Dışa aktarma |
+| --- | --- | --- |
+| Düz metin şarkı sözleri | Desteklenir | — |
+| LRC (satır satır / kelime kelime) | Desteklenir | Desteklenir |
+| Gelişmiş LRC (ELRC) | Desteklenir | Desteklenir |
+| TTML | Desteklenir | Desteklenir; düet ve geri vokal bilgileri korunur |
 
-### 4. Önizleme ve Toplu İşlem
-- Kelime düzeyinde söz oynatma önizlemesi
-- Tek tıkla kelime bölme
-- Zaman damgası kaydırma
-- Tek tıkla söz birleştirme
-- Geleneksel Çinceyi Basitleştirilmiş Çinceye dönüştürme
-- Tek tıkla boş satır silme
+Şarkı sözü arayabilir veya ses dosyası içe aktararak hazırlamaya başlayabilirsiniz. Düet ve geri vokal gibi yapısal bilgileri korumak için TTML, standart söz gösterimi için LRC önerilir.
 
-### 5. Söz Yapısı İşlemleri (Uzun Basma)
-- Söz işlemleri: düzenle, ekle, böl, birleştir, zamanı ayarla, sil
-- Satır işlemleri: ekle, birleştir, böl, taşı, çeviri ekle/düzenle, sil
+<a id="quick-start"></a>
 
-### 6. Oynatıcı
-- Oynat / duraklat, önceki / sonraki ve ilerleme çubuğunda gezinme ile yerel müzik çalma
-- Sıralı çalma, karışık çalma ve tek şarkı tekrarı
-- Şu an çalan kuyruğu yönetimi: atlama, kaldırma ve sürükleyerek sıralama
-- Müzik kitaplığı mini oynatıcısı ile tam oynatıcı entegrasyonu
-- Arka planda çalma, sistem medya bildirimi ve medya tuşu kontrolleri
-- Geri sayımla durdurma veya mevcut şarkı bitince durdurma seçenekli uyku zamanlayıcısı
-- Çalma sırasında kelime düzeyinde söz efektlerini görmek için söz önizleme entegrasyonu
-- Yaygın yerel ses biçimlerini destekler ve ALAC için oynatma uyumluluğu sağlar
+## Hızlı başlangıç
 
-### 7. Müzik Kitaplığı
-- Yerel sesleri tarama ve filtreleme
-- Çalma listeleri, favori şarkılar ve beş yıldızlı şarkılar
-- Çalma listesi içe / dışa aktarma
-- Oynatma kuyruğuna ekleme / sonraki çal
-- Kapak, başlık, sanatçı vb. için toplu etiket eşleştirme
-- Kelime düzeyi / satır düzeyi / çeviri dahil toplu söz eşleştirme
-- Toplu yeniden adlandırma
-- Toplu etiket düzenleme
+### Müzik dinleme ve kitaplığı düzenleme
 
-### 8. Ayarlar
-- Özel karanlık mod
-- Söz zamanlama için özel geri / ileri sarma süresi
-- Müzik kitaplığı ayarları
-- Oynatma çubuğu stili ve arka planı
-- Söz görünümü, masaüstü sözleri, durum çubuğu sözleri ve araç Bluetooth sözleri
-- Ses meta verisi kapak boyutu ayarları
-- Apple Music meta verisi bölge ayarları
+1. Müzik kitaplığını açıp cihazdaki yerel ses dosyalarını tarayın.
+2. Sanatçı, albüm, çalma listesi veya favorilere göre gezinin ve çalmak için bir şarkıya dokunun.
+3. Çalma modunu değiştirmek, kuyruğu yönetmek, sözleri görmek veya uyku zamanlayıcısını ayarlamak için tam oynatıcıyı açın.
+4. Dosyaları düzenlerken önce etiketleri ve sözleri toplu eşleştirin, ardından etiketleri düzenleyin veya dosyaları yeniden adlandırın.
 
-## 5 Dakikalık Hızlı Başlangıç (Önerilen Sıra)
+### Bir şarkı için kelime kelime zamanlanmış sözler hazırlama
 
-### 1. Adım: Ses ve Sözleri İçe Aktarın
-1. Önce ses dosyasını içe aktarın.
-2. Ardından söz kaynağına göre içe aktarma yöntemini seçin: düz metin / LRC / ELRC / TTML / arama.
+1. **İçe aktarın**: Sesi seçip düz metin, LRC, ELRC veya TTML sözleri içe aktarın. Şarkı sözü de arayabilirsiniz.
+2. **Hazırlayın**: Önce kelimeleri bölümlere ayırın; ardından boş satırları kaldırın, sözleri birleştirin veya Basitleştirilmiş ve Geleneksel Çince arasında dönüştürün. Zamanlama zaten varsa önce tüm zaman çizelgesini kaydırarak hizalayın.
+3. **Zamanlayın**: Sesi çalın ve her söz satırının ritmine göre aşağıdaki üç düğmeyi kullanın.
+4. **İnce ayar yapın**: Geri dönüp dinlemek için sözlere iki kez dokunun. Takip modu, geri alma ve yinelemeyle zamanları kontrol edin; bölmek, birleştirmek, taşımak veya çeviriyi düzenlemek için bir söz birimine ya da satıra uzun basın.
+5. **Önizleyip dışa aktarın**: Kelime kelime gösterimi kontrol edin; standart gösterim için LRC, düet ve geri vokal bilgileri için TTML seçin.
 
-### 2. Adım: Yerel Müziği Çalın
-1. Müzik kitaplığına girin ve yerel sesleri tarayın.
-2. Bir şarkıya dokunarak çalmayı başlatın; alttaki mini oynatıcı mevcut durumu gösterir.
-3. Tam oynatıcıda çalma modunu değiştirebilir, kuyruğu yönetebilir, söz önizlemesini açabilir veya uyku zamanlayıcısı ayarlayabilirsiniz.
+| Düğme | İşlev |
+| --- | --- |
+| Başlat | Geçerli birimin başlangıç zamanını ayarlar ve o birimde kalır. |
+| Devam | Geçerli birimin bitiş zamanını ayarlayıp sonraki birime geçer ve sonraki birimin başlangıç zamanını da ayarlar. |
+| Bitir | Geçerli birimin bitiş zamanını ayarlayıp sonraki birime geçer; sonraki birimin başlangıç zamanı daha sonra ayarlanır. |
 
-### 3. Adım: Sözleri Ön İşleyin
-1. Kelime düzeyi birimler elde etmek için tek tıkla kelime bölmeyi kullanın.
-2. Gerekirse boş satır silme, söz birleştirme veya Gelenekselden Basitleştirilmiş Çinceye dönüştürme araçlarını kullanın.
-3. Mevcut zaman çizelgesi genel olarak kaymışsa, ince ayardan önce zaman damgası kaydırma uygulayın.
+Önerilen sıra: `Başlat → Devam → Devam → … → Bitir`; her satır için tekrarlayın.
 
-### 4. Adım: Zamanlamaya Başlayın (Temel Üç Tuş)
-- Başlat: Geçerli birimin başlangıç zamanını ayarlar, atlama yapmaz.
-- Devam: Geçerli birimin bitiş zamanını ayarlar, otomatik olarak sonraki birime geçer ve sonraki birimin başlangıç zamanını yazar.
-- Bitir: Geçerli birimin bitiş zamanını ayarlar ve sonraki birime geçer, ancak sonraki birimin başlangıç zamanını yazmaz.
+<details>
+<summary>Zamanlama ipuçları</summary>
 
-Önerilen ritim: `Başlat -> Devam -> Devam -> ... -> Bitir`, cümle cümle tekrarlanır.
+- Zaman ve metin sütunları başlangıç zamanı, sözler, bitiş zamanı ve çeviriyi gösterir.
+- Bir söz birimini seçmek için bir kez, başlangıç zamanına gidip yeniden dinlemek için iki kez dokunun.
+- Geri / ileri sarma, çalma / duraklatma, çalma hızı ayarı ve belirli bir zamana atlama desteklenir.
+- Takip moduna geçmek için çalma zamanına; özel bir atlama noktası seçmek için zamanlama alanındaki zamana dokunun.
+- Düetler sol (ana vokal), sağ (ikinci vokal) veya arka plan (geri vokal) olarak ayarlanıp TTML biçiminde dışa aktarılabilir.
 
-### 5. Adım: Zamanı ve Metni İnce Ayarlayın
-1. Takip modunu açarak oynatma sırasında mevcut birimin otomatik bulunmasını sağlayın.
-2. Söze çift dokunarak başlangıç zamanına hızlıca dönüp dinleyin.
-3. Geri al / yinele ile değişiklik öncesi ve sonrası sonucu hızlıca karşılaştırın.
-4. Sözlere veya satırlara uzun basarak bölme, birleştirme, taşıma, çeviri gibi yapı düzeltmeleri yapın.
+</details>
 
-### 6. Adım: Düet ve Çeviri Ayarlayın (İsteğe Bağlı)
-- Düet türleri: sol düet (ana vokal), sağ düet (ikinci vokal), arka plan (arka vokal).
-- Çeviriler içe aktarılabilir veya elle düzenlenebilir.
-- Not: Düet türleri yalnızca TTML iş akışında geçerlidir.
+## Sık sorulan sorular
 
-### 7. Adım: Önizleyin ve Dışa Aktarın
-1. Söz önizleme sayfasında kelime düzeyi oynatma efektini kontrol edin.
-2. Kullanım amacına göre dışa aktarın:
-   - Genel oynatıcılar için önce `LRC`
-   - Düet / arka vokal bilgisi gerekiyorsa önce `TTML`
+<details>
+<summary>LRC mi TTML mi seçmeliyim?</summary>
 
-## Zamanlama Arayüzü
+Standart söz gösterimi için LRC, düet ve geri vokal gibi yapısal bilgileri korumak için TTML seçin. Dışa aktarmadan önce önizlemede kelime kelime gösterimi kontrol edin.
 
-- Sütunlar: başlangıç zamanı / söz / bitiş zamanı / çeviri
-- Konumlandırma: seçili söze gidebilirsiniz
-- Zamana atlama: zamanlama alanındaki zamana dokunarak özel bir zamana atlayabilirsiniz
-- Başlığa dokunma: ses yolunu alabilirsiniz
+</details>
 
-## Önerilen Müzik Kitaplığı İş Akışı
+<details>
+<summary>Düet sözlerini dışa aktarırken ve çalarken nelere dikkat etmeliyim?</summary>
 
-1. Yerel sesleri tarayın, hedef şarkıları inceleyip filtreleyin.
-2. Sık dinlediklerinizi albüm, çalma listesi, favoriler veya beş yıldızlı şarkılara göre düzenleyin.
-3. Şarkıları çalın ve mevcut kuyruğu yönetin; gerekirse sonraki çal veya uyku zamanlayıcısı ayarlayın.
-4. Kapak, başlık, sanatçı gibi meta verileri tamamlamak için etiketleri toplu eşleştirin.
-5. Kelime düzeyi, satır düzeyi ve çevirileri tamamlamak için sözleri toplu eşleştirin.
-6. Toplu yeniden adlandırma ve etiket düzenleme ile kitaplığınızı tamamlayın.
+Düet ve geri vokal bilgilerini dışa aktarmak için tercihen TTML kullanın ve bu efektleri destekleyen bir oynatıcıda görüntüleyin. Gerçek görünüm, oynatıcının söz biçimini ve ilgili bilgileri ne ölçüde desteklediğine bağlıdır.
 
-## SSS
+</details>
 
-### 1. Ne zaman LRC, ne zaman TTML dışa aktarmalıyım?
-- Yalnızca normal söz gösterimi gerekiyorsa LRC seçin.
-- Düet, arka vokal veya daha eksiksiz yapı gerekiyorsa TTML seçin.
+<details>
+<summary>Sözlerin tamamı erken veya geç görünüyorsa nasıl düzeltirim?</summary>
 
-### 2. Düet ayarladığım halde neden efekti göremiyorum?
-Düet türleri yalnızca TTML ile desteklenir. Lütfen TTML iş akışını kullandığınızdan ve TTML olarak dışa aktardığınızdan emin olun.
+Önce zaman damgalarını kaydırarak tüm zaman çizelgesini hizalayın, ardından belirli bölümleri düzeltmek için zamanlama ekranına dönün.
 
-### 3. Sözler genel olarak erken veya geç. Nasıl hızlıca düzeltebilirim?
-Önce zaman damgası kaydırma ile genel hizalama yapın, ardından yerel ince ayar için zamanlama sayfasına dönün.
+</details>
 
-### 4. Yeni başlayanların en sık yaptığı hata nedir?
-Genellikle kelime bölmeden önce zamanlama yapmaktır. Zamanlamaya başlamadan önce kelime bölmeyi ve metin temizliğini tamamlayın.
+<details>
+<summary>İlk kez söz zamanlayacaksam nereden başlamalıyım?</summary>
 
-## Topluluk ve Geri Bildirim
+Zamanlamadan önce kelimeleri bölümlere ayırmayı ve metni temizlemeyi tamamlayın. Bildiğiniz bir şarkıyı seçin, her satırda “Başlat → Devam → … → Bitir” sırasını kullanın, sonra yeniden dinleyip küçük düzeltmeler yapın.
 
-- [LunaBeat Telegram grubuna katıl](https://t.me/+qXs6mjKqwhw3Zjll)
-- [LunaBeat QQ grubuna katıl](https://qm.qq.com/q/N0fBvuWKOY)  Grup No: 964680520
+</details>
 
-## Special Thanks
+<a id="community-and-feedback"></a>
+
+## Topluluk ve geri bildirim
+
+- [GitHub Issues · Hata bildirimleri ve özellik önerileri](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · LunaBeat topluluk grubu](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · LunaBeat topluluk grubu](https://qm.qq.com/q/N0fBvuWKOY) · Grup numarası: **964680520**
+
+Sorun bildirirken mümkünse uygulama sürümünü, cihazı ve Android sürümünü, sorunu yeniden oluşturma adımlarını ve ilgili ekran görüntülerini veya dosya biçimlerini ekleyin. Böylece nedenin bulunması kolaylaşır.
+
+## Özel teşekkürler
 
 ### Teknik destek
 

@@ -1,174 +1,135 @@
+<div align="center">
+
 # LunaBeat
+
+**Mempertemukan melodi dan lirik dalam setiap pemutaran.**
+
+Pemutar musik lokal Android · Penyunting lirik per kata · Pengelolaan pustaka musik dan tag
+
+[Unduh versi terbaru](https://github.com/2755337087/LunaBeat/releases/latest) · [Panduan penggunaan](#quick-start) · [Laporkan masalah](https://github.com/2755337087/LunaBeat/issues) · [Komunitas](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- LunaBeat ingin menghadirkan pengalaman musik lokal yang lebih bersih dan imersif, seperti musik di malam hari, di antara melodi dan lirik.
 ---
-- LunaBeat adalah pemutar mobile yang berfokus pada musik lokal dan pengalaman lirik, menggabungkan pemutaran musik, pengeditan lirik, dan timing lirik per kata.
-- Mendukung pemutaran audio lokal, pembuatan lirik per kata termasuk duet dan suara latar, pratinjau dan pengeditan lirik, ekspor ke `.lrc` / `.elrc` / `.ttml`, serta pemrosesan batch untuk metadata audio dan lirik.
-- Dari impor, pengeditan, pemutaran hingga ekspor, LunaBeat bertujuan menghadirkan pengalaman musik dan lirik lokal yang lebih lengkap dan imersif.
 
-## Mengapa LunaBeat
+LunaBeat menggabungkan pemutaran musik lokal, pembuatan lirik per kata, dan penataan pustaka musik dalam satu aplikasi. Dengarkan musik dengan santai sambil melihat lirik mengalir bersama melodi, atau pisahkan kata-kata dalam lirik, atur waktunya, tambahkan terjemahan dan informasi duet, lalu ekspor hasilnya untuk alur kerja lirik Anda.
 
-- Bukan hanya editor lirik, tetapi juga dapat digunakan sebagai pemutar musik lokal jangka panjang.
-- Membuat lirik bertiming per kata tingkat profesional langsung di perangkat mobile.
-- Mendukung impor dan ekspor banyak format untuk alur kerja lirik umum.
-- Mengintegrasikan pustaka musik dan alat metadata untuk mengurangi perpindahan aplikasi.
-- Fitur batch bawaan cocok untuk merapikan koleksi lagu besar.
+## Pratinjau antarmuka
 
-## Pratinjau Antarmuka
-
-### Ponsel
+### Antarmuka ponsel
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Ponsel" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Antarmuka ponsel" width="960" />
 </p>
 
-### Tablet
+### Antarmuka tablet
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Antarmuka tablet" width="960" />
 </p>
 
-## Ringkasan Fitur
+## Fitur utama
 
-### 1. Timing dan Pengeditan Lirik
-- Alur timing tiga tombol: Mulai / Lanjut / Akhiri
-- Mundur / maju cepat, putar / jeda, kecepatan 0.25x ~ 3x, dan lompat ke waktu tertentu
-- Urungkan / ulangi untuk waktu, lirik, dan operasi baris
-- Ketuk waktu pemutaran untuk masuk mode mengikuti dan mencari lirik yang dipilih
-- Ketuk unit lirik untuk memilih, ketuk dua kali untuk lompat ke waktu mulai lirik saat ini dan memutar
+| Kebutuhan | Yang dapat dilakukan |
+| --- | --- |
+| Mendengarkan musik lokal | Memindai audio lokal dan menelusuri menurut artis, album, atau daftar putar; mendukung pemutaran di latar belakang, kontrol media sistem, antrean putar, dan pengatur waktu berhenti. |
+| Menikmati lirik | Mempratinjau lirik per kata dengan tema terang dan gelap serta pengaturan bilah pemutaran dan latar; menampilkan lirik di layar utama, bilah status, dan melalui Bluetooth mobil. |
+| Mengatur waktu per kata | Menggunakan tiga tombol Mulai / Lanjut / Akhiri, lalu menyempurnakan waktu dengan kecepatan putar, lompatan waktu, mode mengikuti, urungkan, dan ulangi. |
+| Menyunting lirik | Memisahkan kata, membagi dan menggabungkan lirik, memindahkan baris, menggeser penanda waktu, mengonversi antara bahasa Tionghoa Sederhana dan Tradisional, menghapus baris kosong, serta mengatur terjemahan, duet, dan vokal latar. |
+| Menata musik | Mengelola daftar putar, favorit, dan lagu berbintang lima; mencocokkan sampul, tag, dan lirik secara massal, menyunting metadata, dan mengganti nama berkas. |
 
-### 2. Impor
-- Lirik teks biasa
-- LRC (per baris / per kata)
-- Enhanced LRC (ELRC)
-- TTML
-- Pencarian lirik streaming
-- Impor file audio
+### Impor dan ekspor
 
-### 3. Ekspor
-- LRC (per baris / per kata)
-- TTML (mendukung duet dan suara latar)
+| Konten | Impor | Ekspor |
+| --- | --- | --- |
+| Lirik teks biasa | Didukung | — |
+| LRC (per baris / per kata) | Didukung | Didukung |
+| LRC lanjutan (ELRC) | Didukung | Didukung |
+| TTML | Didukung | Didukung, mempertahankan informasi duet dan vokal latar |
 
-### 4. Pratinjau dan Pemrosesan Batch
-- Pratinjau efek pemutaran lirik per kata
-- Segmentasi kata sekali klik
-- Pergeseran timestamp
-- Penggabungan lirik sekali klik
-- Konversi Tionghoa Tradisional ke Sederhana
-- Hapus baris kosong sekali klik
+Anda juga dapat mencari lirik atau mengimpor audio untuk mulai membuatnya. TTML disarankan untuk mempertahankan informasi struktur seperti duet dan vokal latar; LRC cocok untuk tampilan lirik biasa.
 
-### 5. Operasi Struktur Lirik (Tekan Lama)
-- Operasi lirik: edit, tambah, pisah, gabung, atur waktu, hapus
-- Operasi baris: tambah, gabung, pisah, pindah, tambah/edit terjemahan, hapus
+<a id="quick-start"></a>
 
-### 6. Pemutar
-- Pemutaran musik lokal dengan putar / jeda, sebelumnya / berikutnya, dan geser progres
-- Putar berurutan, acak, dan ulang satu lagu
-- Manajemen antrean sekarang diputar, mendukung lompat, hapus, dan urutkan dengan drag
-- Mini player pustaka musik terhubung dengan pemutar penuh
-- Pemutaran latar belakang, notifikasi media sistem, dan kontrol tombol media
-- Timer tidur, mendukung berhenti dengan hitung mundur atau setelah lagu saat ini selesai
-- Terintegrasi dengan pratinjau lirik untuk melihat efek lirik per kata saat memutar
-- Mendukung format audio lokal umum dan menangani kompatibilitas pemutaran ALAC
+## Mulai cepat
 
-### 7. Pustaka Musik
-- Memindai dan memfilter audio lokal
-- Playlist, lagu favorit, dan lagu bintang lima
-- Impor / ekspor playlist
-- Tambahkan ke antrean / putar berikutnya
-- Pencocokan tag batch (cover, judul, artis, dan lainnya)
-- Pencocokan lirik batch (per kata / per baris / terjemahan)
-- Ganti nama batch
-- Edit tag batch
+### Mendengarkan dan menata pustaka musik
 
-### 8. Pengaturan
-- Mode gelap kustom
-- Durasi maju / mundur kustom untuk timing lirik
-- Pengaturan pustaka musik
-- Gaya dan latar bilah pemutaran
-- Tampilan lirik, lirik desktop, lirik status bar, dan lirik Bluetooth mobil
-- Pengaturan ukuran cover metadata audio
-- Pengaturan wilayah metadata Apple Music
+1. Buka pustaka musik dan pindai audio lokal di perangkat.
+2. Telusuri menurut artis, album, daftar putar, atau favorit, lalu ketuk lagu untuk memutarnya.
+3. Buka pemutar lengkap untuk mengganti mode pemutaran, mengelola antrean, melihat lirik, atau mengatur waktu berhenti.
+4. Untuk menata berkas, cocokkan tag dan lirik secara massal terlebih dahulu, lalu sunting tag atau ganti nama berkas.
 
-## Mulai Cepat 5 Menit (Urutan Disarankan)
+### Membuat lirik per kata untuk sebuah lagu
 
-### Langkah 1: Impor Audio dan Lirik
-1. Impor file audio terlebih dahulu.
-2. Pilih metode impor sesuai sumber lirik: teks biasa / LRC / ELRC / TTML / pencarian.
+1. **Impor**: Pilih audio, lalu impor lirik teks biasa, LRC, ELRC, atau TTML. Anda juga dapat mencari lirik.
+2. **Persiapan**: Pisahkan kata terlebih dahulu, lalu hapus baris kosong, gabungkan lirik, atau konversi antara bahasa Tionghoa Sederhana dan Tradisional. Jika waktu sudah tersedia, geser seluruh linimasa untuk menyelaraskannya terlebih dahulu.
+3. **Atur waktu**: Putar audio dan gunakan tiga tombol di bawah mengikuti irama setiap baris lirik.
+4. **Sempurnakan**: Ketuk dua kali lirik untuk kembali dan mendengarkannya. Periksa waktu dengan mode mengikuti, urungkan, dan ulangi; tekan lama unit lirik atau baris untuk membagi, menggabungkan, memindahkan, atau menyunting terjemahan.
+5. **Pratinjau dan ekspor**: Periksa efek per kata; pilih LRC untuk tampilan biasa atau TTML untuk informasi duet dan vokal latar.
 
-### Langkah 2: Putar Musik Lokal
-1. Masuk ke pustaka musik dan pindai audio lokal.
-2. Ketuk lagu untuk mulai memutar; mini player di bawah menampilkan status pemutaran saat ini.
-3. Buka pemutar penuh untuk mengganti mode pemutaran, mengelola antrean, membuka pratinjau lirik, atau mengatur timer tidur.
+| Tombol | Tindakan |
+| --- | --- |
+| Mulai | Menetapkan waktu mulai unit saat ini dan tetap berada di unit tersebut. |
+| Lanjut | Menetapkan waktu akhir unit saat ini, beralih ke unit berikutnya, dan sekaligus menetapkan waktu mulai unit berikutnya. |
+| Akhiri | Menetapkan waktu akhir unit saat ini dan beralih ke unit berikutnya; waktu mulai unit berikutnya ditetapkan nanti. |
 
-### Langkah 3: Praproses Lirik
-1. Gunakan segmentasi kata sekali klik untuk membuat unit per kata.
-2. Jika perlu, gunakan hapus baris kosong, gabung lirik, atau konversi Tradisional ke Sederhana.
-3. Jika timestamp yang ada bergeser secara keseluruhan, gunakan pergeseran timestamp sebelum penyempurnaan.
+Urutan yang disarankan: `Mulai → Lanjut → Lanjut → … → Akhiri`, diulang untuk setiap baris.
 
-### Langkah 4: Mulai Timing (Tiga Tombol Inti)
-- Mulai: mengatur waktu mulai unit saat ini tanpa berpindah.
-- Lanjut: mengatur waktu akhir unit saat ini, otomatis ke unit berikutnya, dan menulis waktu mulai unit berikutnya.
-- Akhiri: mengatur waktu akhir unit saat ini dan berpindah ke unit berikutnya, tetapi tidak menulis waktu mulai unit berikutnya.
+<details>
+<summary>Tips pengaturan waktu lirik</summary>
 
-Ritme yang disarankan: `Mulai -> Lanjut -> Lanjut -> ... -> Akhiri`, diulang per kalimat.
+- Kolom waktu dan teks menampilkan waktu mulai, lirik, waktu akhir, dan terjemahan.
+- Ketuk unit lirik sekali untuk memilihnya, atau dua kali untuk melompat ke waktu mulainya dan mendengarkan kembali.
+- Mendukung mundur / maju cepat, putar / jeda, pengaturan kecepatan, dan lompatan ke waktu tertentu.
+- Ketuk waktu pemutaran untuk masuk ke mode mengikuti; ketuk waktu pada area pengaturan waktu untuk memilih tujuan lompatan.
+- Duet dapat diatur sebagai kiri (vokal utama), kanan (vokal kedua), atau latar (vokal latar), lalu diekspor sebagai TTML.
 
-### Langkah 5: Sempurnakan Waktu dan Teks
-1. Aktifkan mode mengikuti agar pemutaran otomatis menemukan unit saat ini.
-2. Ketuk dua kali lirik untuk cepat kembali ke waktu mulai dan mendengarkan ulang.
-3. Gunakan urungkan / ulangi untuk membandingkan perubahan sebelum dan sesudah.
-4. Tekan lama lirik atau baris untuk memisah, menggabung, memindah, menerjemahkan, atau memperbaiki struktur.
+</details>
 
-### Langkah 6: Atur Duet dan Terjemahan (Opsional)
-- Jenis duet: duet kiri (vokal utama), duet kanan (vokal kedua), latar (suara latar).
-- Terjemahan dapat diimpor atau diedit manual.
-- Catatan: jenis duet hanya berlaku dalam alur kerja TTML.
+## Pertanyaan umum
 
-### Langkah 7: Pratinjau dan Ekspor
-1. Periksa efek pemutaran per kata di halaman pratinjau lirik.
-2. Ekspor sesuai kebutuhan:
-   - Gunakan `LRC` untuk pemutar umum
-   - Gunakan `TTML` jika memerlukan informasi duet / suara latar
+<details>
+<summary>Sebaiknya memilih LRC atau TTML?</summary>
 
-## Antarmuka Timing
+Pilih LRC untuk tampilan lirik biasa, atau TTML untuk mempertahankan informasi struktur seperti duet dan vokal latar. Periksa efek per kata di pratinjau sebelum mengekspor.
 
-- Kolom: waktu mulai / lirik / waktu akhir / terjemahan
-- Lokasi: dapat menuju lirik yang dipilih
-- Lompat waktu: ketuk waktu di area timing untuk lompat ke waktu kustom
-- Ketuk judul: dapat memperoleh path audio
+</details>
 
-## Alur Kerja Pustaka Musik yang Disarankan
+<details>
+<summary>Apa yang perlu diperhatikan saat mengekspor dan memutar lirik duet?</summary>
 
-1. Pindai audio lokal, lalu cek dan filter lagu target.
-2. Rapikan lagu yang sering didengar berdasarkan album, playlist, favorit, atau bintang lima.
-3. Putar lagu dan kelola antrean saat ini; jika perlu, atur putar berikutnya atau timer tidur.
-4. Cocokkan tag secara batch untuk melengkapi cover / judul / artis dan metadata lainnya.
-5. Cocokkan lirik secara batch untuk melengkapi lirik per kata / per baris dan terjemahan.
-6. Selesaikan dengan ganti nama batch dan edit tag batch.
+Utamakan TTML untuk mengekspor informasi duet dan vokal latar, lalu lihat hasilnya di pemutar yang mendukung efek tersebut. Tampilan sebenarnya bergantung pada dukungan pemutar terhadap format lirik dan informasi terkait.
 
-## FAQ
+</details>
 
-### 1. Kapan mengekspor LRC, dan kapan TTML?
-- Pilih LRC jika hanya perlu tampilan lirik biasa.
-- Pilih TTML jika memerlukan duet, suara latar, atau struktur yang lebih lengkap.
+<details>
+<summary>Bagaimana memperbaiki lirik yang seluruhnya terlalu cepat atau terlambat?</summary>
 
-### 2. Mengapa efek duet tidak terlihat setelah saya mengatur duet?
-Jenis duet hanya didukung di TTML. Pastikan Anda memakai alur kerja TTML dan mengekspor sebagai TTML.
+Geser penanda waktu untuk menyelaraskan seluruh linimasa terlebih dahulu, lalu kembali ke layar pengaturan waktu untuk menyempurnakan bagian tertentu.
 
-### 3. Lirik seluruhnya terlalu cepat atau terlambat. Bagaimana memperbaikinya dengan cepat?
-Gunakan pergeseran timestamp untuk kalibrasi global terlebih dahulu, lalu kembali ke halaman timing untuk penyempurnaan lokal.
+</details>
 
-### 4. Kesalahan apa yang paling sering dilakukan pemula?
-Biasanya melakukan timing sebelum segmentasi kata. Sebaiknya selesaikan segmentasi kata dan pembersihan teks sebelum mulai timing.
+<details>
+<summary>Dari mana sebaiknya memulai jika baru pertama kali mengatur waktu lirik?</summary>
 
-## Komunitas dan Masukan
+Selesaikan pemisahan kata dan pembersihan teks sebelum mengatur waktu. Pilih lagu yang sudah dikenal, gunakan “Mulai → Lanjut → … → Akhiri” pada setiap baris, lalu dengarkan kembali dan lakukan penyesuaian kecil.
 
-- [Gabung grup Telegram LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
-- [Gabung grup QQ LunaBeat](https://qm.qq.com/q/N0fBvuWKOY)  ID grup: 964680520
+</details>
 
-## Special Thanks
+<a id="community-and-feedback"></a>
+
+## Komunitas dan masukan
+
+- [GitHub Issues · Laporan bug dan saran fitur](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · Grup komunitas LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · Grup komunitas LunaBeat](https://qm.qq.com/q/N0fBvuWKOY) · Nomor grup: **964680520**
+
+Saat melaporkan masalah, sertakan versi aplikasi, perangkat dan versi Android, langkah untuk mengulangi masalah, serta tangkapan layar atau format berkas terkait jika memungkinkan agar penyebabnya lebih mudah ditemukan.
+
+## Terima kasih khusus
 
 ### Dukungan teknis
 

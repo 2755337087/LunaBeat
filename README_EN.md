@@ -1,176 +1,137 @@
+<div align="center">
+
 # LunaBeat
+
+**Let melodies and lyrics meet with every play.**
+
+Android local music player · Word-by-word lyric editor · Music library and tag management
+
+[Download the latest version](https://github.com/2755337087/LunaBeat/releases/latest) · [User guide](#quick-start) · [Report an issue](https://github.com/2755337087/LunaBeat/issues) · [Community](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- LunaBeat hopes to bring a cleaner, more immersive local music experience, like music at night, between melody and lyrics.
 ---
-- LunaBeat is a mobile player focused on local music and lyrics, combining music playback, lyric editing, and word-level lyric timing in one app.
-- It supports local audio playback, word-level lyric creation including duets and background vocals, lyric preview and editing, export to `.lrc` / `.elrc` / `.ttml`, and batch processing for audio metadata and lyrics.
-- From import, editing, and playback to export, LunaBeat aims to provide a more complete and immersive local music and lyrics experience.
 
-## Why LunaBeat
+LunaBeat brings local music playback, word-by-word lyric creation, and music library organization into one app. Listen at your own pace and watch lyrics unfold with the melody, or segment a song's lyrics, time each word, add translations and duet information, and export the result for your own lyric workflow.
 
-- More than a lyric editor, LunaBeat can also be used as a long-term local music player.
-- Create professional word-level timed lyrics directly on mobile.
-- Import and export multiple formats to fit common lyric workflows.
-- Integrated music library and metadata tools reduce the need to switch between apps.
-- Built-in batch processing is suitable for organizing large music collections.
+## Interface preview
 
-## Screenshots
-
-### Phone
+### Phone interface
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Phone" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Phone interface" width="960" />
 </p>
 
-### Tablet
+### Tablet interface
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet interface" width="960" />
 </p>
 
-## Feature Overview
+## Main features
 
-### 1. Lyric Timing and Editing
-- Three-key timing workflow: Start / Continue / End
-- Rewind / fast-forward, play / pause, playback speed from 0.25x to 3x, and jump to a specific time
-- Undo / redo for timing, lyric, and line operations
-- Tap the playback time to enter follow mode and locate the selected lyric
-- Tap a lyric unit to select it, and double-tap to jump to the current lyric start time and play
+| Use case | What you can do |
+| --- | --- |
+| Local music playback | Scan local audio and browse by artist, album, or playlist; enjoy background playback, system media controls, playback queues, and a sleep timer. |
+| Immersive lyrics | Preview word-by-word lyrics with light and dark themes, playback bar and background settings; display lyrics on the home screen, in the status bar, or over your car's Bluetooth connection. |
+| Word-by-word timing | Time lyrics with the three buttons Start / Continue / End, then refine them with playback speed controls, time seeking, follow mode, undo, and redo. |
+| Lyric editing | Segment words, split and merge lyrics, move lines, shift timestamps, convert between Simplified and Traditional Chinese, remove blank lines, and set translations, duets, and backing vocals. |
+| Music organization | Manage playlists, favorites, and five-star songs; batch-match covers, tags, and lyrics, edit metadata, and rename files. |
 
-### 2. Import
-- Plain text lyrics
-- LRC, including line-level and word-level lyrics
-- Enhanced LRC (ELRC)
-- TTML
-- Streaming lyric search
-- Audio file import
+### Import and export
 
-### 3. Export
-- LRC, including line-level and word-level lyrics
-- TTML, with support for duets and background vocals
+| Content | Import | Export |
+| --- | --- | --- |
+| Plain-text lyrics | Supported | — |
+| LRC (line-by-line / word-by-word) | Supported | Supported |
+| Enhanced LRC (ELRC) | Supported | Supported |
+| TTML | Supported | Supported, preserving duet and backing-vocal information |
 
-### 4. Preview and Batch Processing
-- Preview word-level lyric playback
-- One-click word segmentation
-- Timestamp shifting
-- One-click lyric merging
-- Traditional Chinese to Simplified Chinese conversion
-- One-click empty line removal
+You can also search for lyrics or import audio to start creating. TTML is recommended when you need to preserve structural information such as duets and backing vocals; LRC is suitable for standard lyric display.
 
-### 5. Lyric Structure Operations (Long Press)
-- Lyric operations: edit, add, split, merge, set time, delete
-- Line operations: add, merge, split, move, add/edit translation, delete
+<a id="quick-start"></a>
 
-### 6. Player
-- Local music playback with play / pause, previous / next, and progress seeking
-- Sequential playback, shuffle, and single repeat
-- Now-playing queue management with jump, remove, and drag-to-reorder
-- Music library mini player and full player integration
-- Background playback, system media notifications, and media key controls
-- Sleep timer, with countdown stop or stop after the current song finishes
-- Lyric preview integration for checking word-level lyric effects during playback
-- Supports common local audio formats, with playback compatibility handling for ALAC
+## Quick start
 
-### 7. Music Library
-- Scan and filter local audio files
-- Playlists, favorite songs, and five-star songs
-- Playlist import / export
-- Add to playback queue / play next
-- Batch match tags, including cover art, title, artist, and more
-- Batch match lyrics, including word-level lyrics, line-level lyrics, and translations
-- Batch rename files
-- Batch edit tags
+### Listen and organize your music library
 
-### 8. Settings
-- Custom dark mode
-- Custom rewind / fast-forward duration for lyric timing
-- Music library settings
-- Playback bar style and background
-- Lyric display, desktop lyrics, status bar lyrics, and car Bluetooth lyrics
-- Audio metadata cover size settings
-- Apple Music metadata region settings
+1. Open the music library and scan the local audio on your device.
+2. Browse by artist, album, playlist, or favorites, then tap a song to play it.
+3. Open the full player to switch playback modes, manage the queue, view lyrics, or set a sleep timer.
+4. To organize files, batch-match tags and lyrics, then edit tags or rename files.
 
-## 5-Minute Quick Start (Recommended Order)
+### Create word-by-word lyrics for a song
 
-### Step 1: Import Audio and Lyrics
-1. Import the audio file first.
-2. Then choose the lyric import method based on the lyric source: plain text / LRC / ELRC / TTML / search.
+1. **Import**: Select audio, then import plain-text, LRC, ELRC, or TTML lyrics. You can also search for lyrics.
+2. **Prepare**: Segment words first, then remove blank lines, merge lyrics, or convert between Simplified and Traditional Chinese. If timing already exists, shift the entire timeline to align it first.
+3. **Time**: Play the audio and use the three buttons below in time with each lyric line.
+4. **Refine**: Double-tap lyrics to seek back and listen. Check the timing with follow mode, undo, and redo; long-press a lyric unit or line to split, merge, move, or edit translations.
+5. **Preview and export**: Check the word-by-word effect; choose LRC for standard display, or TTML for duet and backing-vocal information.
 
-### Step 2: Play Local Music
-1. Open the music library and scan local audio.
-2. Tap a song to start playback. The mini player at the bottom shows the current playback state.
-3. Open the full player to switch playback modes, manage the queue, open lyric preview, or set a sleep timer.
+| Button | Action |
+| --- | --- |
+| Start | Set the current unit's start time and stay on that unit. |
+| Continue | Set the current unit's end time and move to the next unit, also setting the next unit's start time. |
+| End | Set the current unit's end time and move to the next unit, leaving the next unit's start time to be set later. |
 
-### Step 3: Preprocess Lyrics
-1. Use one-click word segmentation to create word-level units.
-2. If needed, use one-click empty line removal, lyric merging, or Traditional-to-Simplified Chinese conversion.
-3. If existing timestamps are globally offset, use timestamp shifting before fine-tuning.
+Suggested rhythm: `Start → Continue → Continue → … → End`, repeated for each line.
 
-### Step 4: Start Timing Lyrics (Core Three-Key Workflow)
-- Start: Set the start time of the current unit without jumping.
-- Continue: Set the end time of the current unit, automatically move to the next unit, and write the next unit's start time.
-- End: Set the end time of the current unit and move to the next unit, without writing the next unit's start time.
+<details>
+<summary>Lyric timing tips</summary>
 
-Recommended rhythm: `Start -> Continue -> Continue -> ... -> End`, repeated by sentence.
+- The time and text columns show start time, lyrics, end time, and translation.
+- Tap a lyric unit once to select it; double-tap to seek to its start time and listen again.
+- Rewind / fast-forward, play / pause, playback speed controls, and seeking to a specific time are supported.
+- Tap the playback time to enter follow mode; tap the time in the timing area to seek to a custom position.
+- Duets can be set as left duet (lead vocal), right duet (second vocal), or background (backing vocals), then exported as TTML.
 
-### Step 5: Fine-Tune Timing and Text
-1. Enable follow mode so playback automatically locates the current unit.
-2. Double-tap a lyric to quickly jump back to its start time and review it.
-3. Use undo / redo to quickly compare before and after changes.
-4. Long-press lyrics or lines to split, merge, move, translate, or adjust structure.
+</details>
 
-### Step 6: Set Duets and Translations (Optional)
-- Duet types: left duet (main vocal), right duet (secondary vocal), background (background vocals).
-- Translations can be imported or edited manually.
-- Note: Duet types only take effect in the TTML workflow.
+## Frequently asked questions
 
-### Step 7: Preview and Export
-1. Check the word-level playback effect on the lyric preview page.
-2. Export based on your intended use:
-   - Use `LRC` first for general players.
-   - Use `TTML` first when duet / background vocal information is needed.
+<details>
+<summary>Should I choose LRC or TTML?</summary>
 
-## Lyric Timing Interface
+Choose LRC for standard lyric display, or TTML to preserve structural information such as duets and backing vocals. Check the word-by-word effect in the preview before exporting.
 
-- Columns: start time / lyrics / end time / translation
-- Locate: jump to the selected lyric
-- Time jump: tap the time in the timing area to jump to a custom time
-- Title tap: get the audio path
+</details>
 
-## Recommended Music Library Workflow
+<details>
+<summary>What should I keep in mind when exporting and playing duet lyrics?</summary>
 
-1. Scan local audio, then review and filter target songs.
-2. Organize frequent listening by album, playlist, favorites, or five-star songs.
-3. Play songs and manage the current queue; set play next or a sleep timer when needed.
-4. Batch match tags to complete metadata such as cover art, title, and artist.
-5. Batch match lyrics to complete word-level lyrics, line-level lyrics, and translations.
-6. Batch rename and batch edit tags to finish organizing your library.
+Prefer TTML for exporting duet and backing-vocal information, and view it in a player that supports these effects. The actual display depends on the player's support for the lyric format and its associated information.
 
-## FAQ
+</details>
 
-### 1. When should I export LRC, and when should I export TTML?
-- Choose LRC if you only need regular lyric display.
-- Choose TTML if you need duets, background vocals, or a more complete structure.
+<details>
+<summary>How do I fix lyrics that are all early or late?</summary>
 
-### 2. Why do I not see the duet effect after setting duet types?
-Duet types are only supported in TTML. Please confirm that you are using the TTML workflow and exporting as TTML.
+Shift timestamps to align the whole timeline first, then return to the timing screen to refine individual sections.
 
-### 3. The lyrics are globally early or late. How can I fix them quickly?
-Use timestamp shifting for global alignment first, then return to the timing page for local fine-tuning.
+</details>
 
-### 4. What is the most common mistake for beginners?
-Usually, it is timing the lyrics before word segmentation. Complete word segmentation and text cleanup before starting timing.
+<details>
+<summary>Where should I start if this is my first time timing lyrics?</summary>
 
-## Community and Feedback
+Finish word segmentation and text cleanup before timing. Choose a familiar song, use “Start → Continue → … → End” for each line, then listen back and make small adjustments.
 
-- [Join the LunaBeat Telegram group](https://t.me/+qXs6mjKqwhw3Zjll)
-- [Join the LunaBeat QQ group](https://qm.qq.com/q/N0fBvuWKOY)  Group ID: 964680520
+</details>
 
-## Special Thanks
+<a id="community-and-feedback"></a>
 
-### Technical Support
+## Community and feedback
+
+- [GitHub Issues · Bug reports and feature suggestions](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · LunaBeat community group](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · LunaBeat community group](https://qm.qq.com/q/N0fBvuWKOY) · Group ID: **964680520**
+
+When reporting an issue, please include the app version, device and Android version, steps to reproduce, and relevant screenshots or file formats to help identify the cause.
+
+## Special thanks
+
+### Technical support
 
 - [TagLib](https://github.com/taglib/taglib)
 - [Lyricon](https://github.com/tomakino/lyricon)

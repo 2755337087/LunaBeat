@@ -1,174 +1,135 @@
+<div align="center">
+
 # LunaBeat
+
+**Để giai điệu và lời ca gặp nhau trong mỗi lần phát.**
+
+Trình phát nhạc cục bộ trên Android · Chỉnh sửa lời theo từng từ · Quản lý thư viện nhạc và thẻ
+
+[Tải phiên bản mới nhất](https://github.com/2755337087/LunaBeat/releases/latest) · [Hướng dẫn sử dụng](#quick-start) · [Báo lỗi](https://github.com/2755337087/LunaBeat/issues) · [Cộng đồng](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- LunaBeat mong muốn mang đến trải nghiệm âm nhạc cục bộ trong trẻo và đắm chìm hơn, như âm nhạc trong đêm, giữa giai điệu và lời ca.
 ---
-- LunaBeat là trình phát di động tập trung vào âm nhạc cục bộ và trải nghiệm lời bài hát, kết hợp phát nhạc, chỉnh sửa lời và canh thời gian từng chữ.
-- Hỗ trợ phát âm thanh cục bộ, tạo lời từng chữ bao gồm song ca và giọng nền, xem trước và chỉnh sửa lời, xuất `.lrc` / `.elrc` / `.ttml`, đồng thời hỗ trợ xử lý hàng loạt siêu dữ liệu âm thanh và lời bài hát.
-- Từ nhập, chỉnh sửa, phát đến xuất, LunaBeat hướng tới trải nghiệm âm nhạc và lời bài hát cục bộ hoàn chỉnh, đắm chìm hơn.
 
-## Vì sao dùng LunaBeat
-
-- Không chỉ là trình chỉnh sửa lời, LunaBeat còn có thể dùng lâu dài như một trình phát nhạc cục bộ.
-- Hoàn thành canh lời từng chữ chuyên nghiệp ngay trên thiết bị di động.
-- Hỗ trợ nhập và xuất nhiều định dạng, phù hợp các quy trình làm lời phổ biến.
-- Tích hợp thư viện nhạc và công cụ siêu dữ liệu, giảm việc chuyển đổi giữa nhiều ứng dụng.
-- Tích hợp xử lý hàng loạt, phù hợp để sắp xếp nhiều bài hát.
+LunaBeat kết hợp phát nhạc cục bộ, tạo lời đồng bộ theo từng từ và sắp xếp thư viện nhạc trong một ứng dụng. Bạn có thể thư thả nghe nhạc, xem lời ca trôi theo giai điệu, hoặc tách từ, canh thời gian, thêm bản dịch và thông tin song ca cho một bài hát, rồi xuất kết quả để dùng trong quy trình làm lời của mình.
 
 ## Xem trước giao diện
 
-### Điện thoại
+### Giao diện điện thoại
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Điện thoại" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Giao diện điện thoại" width="960" />
 </p>
 
-### Máy tính bảng
+### Giao diện máy tính bảng
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Máy tính bảng" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Giao diện máy tính bảng" width="960" />
 </p>
 
-## Tổng quan tính năng
+## Tính năng chính
 
-### 1. Canh lời và chỉnh sửa
-- Canh lời bằng ba phím: Bắt đầu / Liên tục / Kết thúc
-- Tua lùi / tua tới, phát / tạm dừng, tốc độ 0.25x ~ 3x, nhảy tới thời điểm chỉ định
-- Hoàn tác / làm lại cho thời gian, lời và thao tác dòng
-- Chạm thời gian phát để vào chế độ theo dõi và định vị lời đã chọn
-- Chạm một đơn vị lời để chọn, chạm hai lần để nhảy tới thời điểm bắt đầu lời hiện tại và phát
+| Nhu cầu | Bạn có thể làm gì |
+| --- | --- |
+| Nghe nhạc cục bộ | Quét âm thanh cục bộ và duyệt theo nghệ sĩ, album hoặc danh sách phát; hỗ trợ phát nền, điều khiển phương tiện của hệ thống, hàng đợi và hẹn giờ dừng. |
+| Thưởng thức lời ca | Xem trước lời theo từng từ với giao diện sáng, tối cùng tùy chỉnh thanh điều khiển và nền; hiển thị lời trên màn hình chính, thanh trạng thái và qua Bluetooth trên ô tô. |
+| Canh thời gian từng từ | Dùng ba nút Bắt đầu / Tiếp tục / Kết thúc, rồi tinh chỉnh bằng tốc độ phát, chuyển đến mốc thời gian, chế độ bám theo, hoàn tác và làm lại. |
+| Chỉnh sửa lời | Tách từ, chia và gộp lời, di chuyển dòng, dịch mốc thời gian, chuyển đổi tiếng Trung giản thể và phồn thể, xóa dòng trống, thiết lập bản dịch, song ca và bè. |
+| Sắp xếp nhạc | Quản lý danh sách phát, mục yêu thích và bài hát năm sao; khớp ảnh bìa, thẻ và lời hàng loạt, sửa siêu dữ liệu và đổi tên tệp. |
 
-### 2. Nhập
-- Lời dạng văn bản thuần
-- LRC (theo dòng / từng chữ)
-- Enhanced LRC (ELRC)
-- TTML
-- Tìm lời từ dịch vụ phát trực tuyến
-- Nhập tệp âm thanh
+### Nhập và xuất
 
-### 3. Xuất
-- LRC (theo dòng / từng chữ)
-- TTML (hỗ trợ song ca, giọng nền)
+| Nội dung | Nhập | Xuất |
+| --- | --- | --- |
+| Lời dạng văn bản thuần | Hỗ trợ | — |
+| LRC (theo dòng / theo từ) | Hỗ trợ | Hỗ trợ |
+| LRC nâng cao (ELRC) | Hỗ trợ | Hỗ trợ |
+| TTML | Hỗ trợ | Hỗ trợ, giữ thông tin song ca và bè |
 
-### 4. Xem trước và xử lý hàng loạt
-- Xem trước hiệu ứng phát lời từng chữ
-- Tách từ một chạm
-- Dịch chuyển mốc thời gian
-- Gộp lời một chạm
-- Chuyển tiếng Trung phồn thể sang giản thể
-- Xóa dòng trống một chạm
+Bạn cũng có thể tìm lời hoặc nhập âm thanh để bắt đầu tạo. Nên chọn TTML khi cần giữ thông tin cấu trúc như song ca và bè; LRC phù hợp với việc hiển thị lời thông thường.
 
-### 5. Thao tác cấu trúc lời (nhấn giữ)
-- Thao tác lời: chỉnh sửa, thêm, tách, gộp, đặt thời gian, xóa
-- Thao tác dòng: thêm, gộp, tách, di chuyển, thêm/sửa bản dịch, xóa
+<a id="quick-start"></a>
 
-### 6. Trình phát
-- Phát nhạc cục bộ, hỗ trợ phát / tạm dừng, bài trước / bài sau, kéo tiến trình
-- Phát tuần tự, phát ngẫu nhiên, lặp một bài
-- Quản lý hàng đợi đang phát, hỗ trợ nhảy phát, xóa và kéo để sắp xếp
-- Liên kết trình phát mini trong thư viện nhạc với trình phát đầy đủ
-- Phát nền, thông báo phương tiện hệ thống và điều khiển bằng phím media
-- Hẹn giờ phát, hỗ trợ dừng theo đếm ngược hoặc dừng sau khi bài hiện tại kết thúc
-- Liên kết với xem trước lời, có thể kiểm tra hiệu ứng lời từng chữ khi phát
-- Hỗ trợ các định dạng âm thanh cục bộ phổ biến và xử lý tương thích phát ALAC
+## Bắt đầu nhanh
 
-### 7. Thư viện nhạc
-- Quét và lọc âm thanh cục bộ
-- Danh sách phát, bài hát yêu thích, bài hát năm sao
-- Nhập / xuất danh sách phát
-- Thêm vào hàng đợi / phát tiếp theo
-- Khớp thẻ hàng loạt (bìa, tiêu đề, nghệ sĩ, v.v.)
-- Khớp lời hàng loạt (từng chữ / theo dòng / bản dịch)
-- Đổi tên hàng loạt
-- Chỉnh sửa thẻ hàng loạt
+### Nghe nhạc và sắp xếp thư viện
 
-### 8. Cài đặt
-- Tùy chỉnh chế độ tối
-- Tùy chỉnh thời lượng tua tới / tua lùi khi canh lời
-- Cài đặt thư viện nhạc
-- Kiểu và nền thanh điều khiển phát
-- Hiển thị lời, lời trên màn hình, lời trên thanh trạng thái và lời Bluetooth trên xe
-- Cài đặt kích thước bìa siêu dữ liệu âm thanh
-- Cài đặt khu vực siêu dữ liệu Apple Music
+1. Mở thư viện nhạc và quét âm thanh cục bộ trên thiết bị.
+2. Duyệt theo nghệ sĩ, album, danh sách phát hoặc mục yêu thích, rồi chạm vào bài hát để phát.
+3. Mở trình phát đầy đủ để đổi chế độ phát, quản lý hàng đợi, xem lời hoặc đặt hẹn giờ dừng.
+4. Khi cần sắp xếp tệp, hãy khớp thẻ và lời hàng loạt trước, sau đó chỉnh sửa thẻ hoặc đổi tên tệp.
 
-## Bắt đầu nhanh trong 5 phút (thứ tự gợi ý)
+### Tạo lời theo từng từ cho một bài hát
 
-### Bước 1: Nhập âm thanh và lời
-1. Nhập tệp âm thanh trước.
-2. Sau đó chọn cách nhập theo nguồn lời (văn bản thuần / LRC / ELRC / TTML / tìm kiếm).
+1. **Nhập**: Chọn âm thanh rồi nhập lời dạng văn bản thuần, LRC, ELRC hoặc TTML. Bạn cũng có thể tìm lời.
+2. **Chuẩn bị**: Tách từ trước, sau đó xóa dòng trống, gộp lời hoặc chuyển đổi tiếng Trung giản thể và phồn thể. Nếu đã có thời gian, hãy dịch toàn bộ dòng thời gian để căn chỉnh trước.
+3. **Canh thời gian**: Phát âm thanh và dùng ba nút bên dưới theo nhịp của từng dòng lời.
+4. **Tinh chỉnh**: Chạm hai lần vào lời để chuyển đến và nghe lại. Kiểm tra thời gian bằng chế độ bám theo, hoàn tác và làm lại; nhấn giữ một đơn vị lời hoặc dòng để chia, gộp, di chuyển hoặc sửa bản dịch.
+5. **Xem trước và xuất**: Kiểm tra hiệu ứng từng từ; chọn LRC cho hiển thị thông thường hoặc TTML khi cần thông tin song ca và bè.
 
-### Bước 2: Phát nhạc cục bộ
-1. Vào thư viện nhạc và quét âm thanh cục bộ.
-2. Chạm vào bài hát để bắt đầu phát; trình phát mini ở dưới hiển thị trạng thái phát hiện tại.
-3. Mở trình phát đầy đủ để đổi chế độ phát, quản lý hàng đợi, mở xem trước lời hoặc đặt hẹn giờ phát.
+| Nút | Hành động |
+| --- | --- |
+| Bắt đầu | Đặt thời gian bắt đầu cho đơn vị hiện tại và giữ nguyên tại đó. |
+| Tiếp tục | Đặt thời gian kết thúc cho đơn vị hiện tại, chuyển sang đơn vị tiếp theo và đồng thời đặt thời gian bắt đầu cho đơn vị tiếp theo. |
+| Kết thúc | Đặt thời gian kết thúc cho đơn vị hiện tại và chuyển sang đơn vị tiếp theo; thời gian bắt đầu của đơn vị tiếp theo sẽ được đặt sau. |
 
-### Bước 3: Tiền xử lý lời
-1. Dùng tách từ một chạm để tạo đơn vị từng chữ.
-2. Tùy trường hợp dùng xóa dòng trống, gộp lời hoặc chuyển phồn thể sang giản thể.
-3. Nếu mốc thời gian đã có nhưng lệch toàn bộ, hãy dịch chuyển mốc thời gian trước khi tinh chỉnh.
+Trình tự gợi ý: `Bắt đầu → Tiếp tục → Tiếp tục → … → Kết thúc`, lặp lại cho từng dòng.
 
-### Bước 4: Bắt đầu canh lời (ba phím cốt lõi)
-- Bắt đầu: đặt thời gian bắt đầu của đơn vị hiện tại, không nhảy.
-- Liên tục: đặt thời gian kết thúc của đơn vị hiện tại và tự động sang đơn vị tiếp theo, đồng thời ghi thời gian bắt đầu của đơn vị tiếp theo.
-- Kết thúc: đặt thời gian kết thúc của đơn vị hiện tại và chuyển sang đơn vị tiếp theo, nhưng không ghi thời gian bắt đầu của đơn vị tiếp theo.
+<details>
+<summary>Mẹo canh thời gian</summary>
 
-Nhịp đề xuất: `Bắt đầu -> Liên tục -> Liên tục -> ... -> Kết thúc`, lặp theo từng câu.
+- Các cột thời gian và văn bản gồm thời gian bắt đầu, lời, thời gian kết thúc và bản dịch.
+- Chạm một lần vào đơn vị lời để chọn; chạm hai lần để chuyển đến thời gian bắt đầu và nghe lại.
+- Hỗ trợ tua lùi / tua tới, phát / tạm dừng, chỉnh tốc độ và chuyển đến thời gian chỉ định.
+- Chạm vào thời gian phát để bật chế độ bám theo; chạm vào thời gian trong vùng canh lời để chọn điểm chuyển đến.
+- Có thể đặt song ca bên trái (giọng chính), bên phải (giọng thứ hai) hoặc nền (bè), rồi xuất dưới dạng TTML.
 
-### Bước 5: Tinh chỉnh thời gian và văn bản
-1. Bật chế độ theo dõi để tự động định vị đơn vị hiện tại khi phát.
-2. Chạm hai lần vào lời để nhảy nhanh tới thời điểm bắt đầu và nghe lại.
-3. Dùng hoàn tác / làm lại để so sánh nhanh trước và sau chỉnh sửa.
-4. Nhấn giữ lời hoặc dòng để tách, gộp, di chuyển, dịch hoặc sửa cấu trúc.
+</details>
 
-### Bước 6: Đặt song ca và bản dịch (tùy chọn)
-- Loại song ca: song ca trái (giọng chính), song ca phải (giọng phụ), nền (giọng nền).
-- Bản dịch: hỗ trợ nhập hoặc chỉnh sửa thủ công.
-- Lưu ý: loại song ca chỉ có hiệu lực trong quy trình TTML.
+## Câu hỏi thường gặp
 
-### Bước 7: Xem trước và xuất
-1. Kiểm tra hiệu ứng phát từng chữ trong trang xem trước lời.
-2. Xuất theo nhu cầu:
-   - Trình phát phổ thông ưu tiên `LRC`
-   - Cần thông tin song ca / giọng nền ưu tiên `TTML`
+<details>
+<summary>Nên chọn LRC hay TTML?</summary>
 
-## Mô tả giao diện canh lời
+Chọn LRC để hiển thị lời thông thường, hoặc TTML để giữ thông tin cấu trúc như song ca và bè. Bạn có thể kiểm tra hiệu ứng từng từ trong phần xem trước trước khi xuất.
 
-- Cột thông tin: thời gian bắt đầu / lời / thời gian kết thúc / bản dịch
-- Định vị: có thể định vị tới lời đã chọn
-- Nhảy thời gian: chạm thời gian trong vùng canh lời để nhảy tùy chỉnh
-- Chạm tiêu đề: có thể lấy đường dẫn âm thanh
+</details>
 
-## Gợi ý quy trình thư viện nhạc
+<details>
+<summary>Cần lưu ý gì khi xuất và phát lời song ca?</summary>
 
-1. Quét âm thanh cục bộ, kiểm tra và lọc bài hát mục tiêu.
-2. Sắp xếp nội dung thường nghe theo album, danh sách phát, yêu thích hoặc năm sao.
-3. Phát bài hát và quản lý hàng đợi hiện tại; khi cần, đặt phát tiếp theo hoặc hẹn giờ phát.
-4. Khớp thẻ hàng loạt để bổ sung bìa / tiêu đề / nghệ sĩ và siêu dữ liệu khác.
-5. Khớp lời hàng loạt để bổ sung lời từng chữ / theo dòng và bản dịch.
-6. Đổi tên và chỉnh sửa hàng loạt để hoàn tất sắp xếp.
+Nên ưu tiên TTML để xuất thông tin song ca và bè, rồi xem bằng trình phát hỗ trợ các hiệu ứng tương ứng. Kết quả hiển thị thực tế phụ thuộc vào khả năng hỗ trợ định dạng lời và thông tin liên quan của trình phát.
 
-## FAQ
+</details>
 
-### 1. Khi nào xuất LRC, khi nào xuất TTML?
-- Chỉ cần hiển thị lời thông thường: chọn LRC.
-- Cần song ca, giọng nền hoặc cấu trúc đầy đủ hơn: chọn TTML.
+<details>
+<summary>Điều chỉnh thế nào khi toàn bộ lời xuất hiện sớm hoặc muộn?</summary>
 
-### 2. Vì sao đã đặt song ca nhưng không thấy hiệu ứng?
-Loại song ca chỉ hỗ trợ TTML. Hãy xác nhận đang dùng quy trình TTML và xuất dưới dạng TTML.
+Dịch các mốc thời gian để căn chỉnh toàn bộ trước, sau đó quay lại màn hình canh lời để tinh chỉnh từng đoạn.
 
-### 3. Lời bị sớm / muộn toàn bộ, sửa nhanh thế nào?
-Dùng dịch chuyển mốc thời gian để căn chỉnh toàn bộ trước, sau đó quay lại trang canh lời để tinh chỉnh cục bộ.
+</details>
 
-### 4. Người mới dễ sai bước nào nhất?
-Thường là "canh lời trước rồi mới tách từ". Nên hoàn tất tách từ và dọn văn bản trước khi bắt đầu canh lời.
+<details>
+<summary>Lần đầu canh thời gian thì nên bắt đầu từ đâu?</summary>
+
+Hoàn thành việc tách từ và làm sạch văn bản trước khi canh thời gian. Chọn bài hát quen thuộc, dùng “Bắt đầu → Tiếp tục → … → Kết thúc” cho từng dòng, rồi nghe lại và điều chỉnh nhỏ.
+
+</details>
+
+<a id="community-and-feedback"></a>
 
 ## Cộng đồng và phản hồi
 
-- [Tham gia nhóm Telegram LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
-- [Tham gia nhóm QQ LunaBeat](https://qm.qq.com/q/N0fBvuWKOY)  Mã nhóm: 964680520
+- [GitHub Issues · Báo lỗi và đề xuất tính năng](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · Nhóm cộng đồng LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · Nhóm cộng đồng LunaBeat](https://qm.qq.com/q/N0fBvuWKOY) · Mã nhóm: **964680520**
 
-## Special Thanks
+Khi báo lỗi, hãy cung cấp phiên bản ứng dụng, thiết bị và phiên bản Android, các bước tái hiện, cùng ảnh chụp màn hình hoặc định dạng tệp liên quan nếu có thể để dễ xác định nguyên nhân.
+
+## Lời cảm ơn đặc biệt
 
 ### Hỗ trợ kỹ thuật
 

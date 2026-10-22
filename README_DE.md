@@ -1,174 +1,135 @@
+<div align="center">
+
 # LunaBeat
+
+**Melodie und Liedtext begegnen sich bei jeder Wiedergabe.**
+
+Lokaler Musikplayer für Android · Wortgenaue Liedtextbearbeitung · Musikbibliothek und Tag-Verwaltung
+
+[Neueste Version herunterladen](https://github.com/2755337087/LunaBeat/releases/latest) · [Anleitung](#quick-start) · [Problem melden](https://github.com/2755337087/LunaBeat/issues) · [Community](#community-and-feedback)
+
+</div>
 
 [简体中文](https://github.com/2755337087/LunaBeat/blob/main/README.md) | [繁體中文](https://github.com/2755337087/LunaBeat/blob/main/README_ZH_TW.md) | [English](https://github.com/2755337087/LunaBeat/blob/main/README_EN.md) | [日本語](https://github.com/2755337087/LunaBeat/blob/main/README_JA.md) | [Türkçe](https://github.com/2755337087/LunaBeat/blob/main/README_TR.md) | [한국어](https://github.com/2755337087/LunaBeat/blob/main/README_KO.md) | [Русский](https://github.com/2755337087/LunaBeat/blob/main/README_RU.md) | [Bahasa Indonesia](https://github.com/2755337087/LunaBeat/blob/main/README_ID.md) | [Tiếng Việt](https://github.com/2755337087/LunaBeat/blob/main/README_VI.md) | [ไทย](https://github.com/2755337087/LunaBeat/blob/main/README_TH.md) | [Español](https://github.com/2755337087/LunaBeat/blob/main/README_ES.md) | [हिन्दी](https://github.com/2755337087/LunaBeat/blob/main/README_HI.md) | [Português](https://github.com/2755337087/LunaBeat/blob/main/README_PT.md) | [Français](https://github.com/2755337087/LunaBeat/blob/main/README_FR.md) | [Deutsch](https://github.com/2755337087/LunaBeat/blob/main/README_DE.md) | [العربية](https://github.com/2755337087/LunaBeat/blob/main/README_AR.md)
 
-- LunaBeat möchte ein klareres und immersiveres lokales Musikerlebnis bieten, wie Musik in der Nacht, zwischen Melodie und Lyrics.
 ---
-- LunaBeat ist ein mobiler Player für lokale Musik und Lyrics, der Musikwiedergabe, Lyrics-Bearbeitung und wortgenaues Timing vereint.
-- Unterstützt werden lokale Audiowiedergabe, Erstellung wortgenauer Lyrics einschließlich Duetten und Hintergrundstimmen, Vorschau und Bearbeitung von Lyrics, Export nach `.lrc` / `.elrc` / `.ttml` sowie Stapelverarbeitung von Audiometadaten und Lyrics.
-- Vom Import über Bearbeitung und Wiedergabe bis zum Export möchte LunaBeat ein vollständigeres und immersiveres Erlebnis für lokale Musik und Lyrics bieten.
 
-## Warum LunaBeat
+LunaBeat vereint die Wiedergabe lokaler Musik, die Erstellung wortgenauer Liedtexte und die Organisation der Musikbibliothek in einer App. Genieße Musik und verfolge den Text im Takt der Melodie, oder zerlege einen Liedtext in Wörter, lege deren Zeiten fest, ergänze Übersetzungen und Duettinformationen und exportiere das Ergebnis für deinen eigenen Liedtext-Workflow.
 
-- Nicht nur ein Lyrics-Editor, sondern auch ein dauerhaft nutzbarer lokaler Musikplayer.
-- Professionelles wortgenaues Lyrics-Timing direkt auf dem Mobilgerät.
-- Import und Export mehrerer Formate für gängige Lyrics-Workflows.
-- Musikbibliothek und Metadatenwerkzeuge sind integriert und reduzieren App-Wechsel.
-- Integrierte Stapelverarbeitung eignet sich zum Organisieren großer Musiksammlungen.
+## Einblick in die Oberfläche
 
-## Vorschau
-
-### Smartphone
+### Smartphone-Ansicht
 
 <p align="center">
-  <img src="Screenshots/phone.png" alt="LunaBeat · Smartphone" width="960" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Smartphone-Ansicht" width="960" />
 </p>
 
-### Tablet
+### Tablet-Ansicht
 
 <p align="center">
-  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet" width="960" />
+  <img src="Screenshots/pad.png" alt="LunaBeat · Tablet-Ansicht" width="960" />
 </p>
 
-## Funktionsübersicht
+## Hauptfunktionen
 
-### 1. Lyrics-Timing und Bearbeitung
-- Drei-Tasten-Timing: Start / Fortsetzen / Ende
-- Zurückspulen / Vorspulen, Wiedergabe / Pause, Geschwindigkeit 0.25x ~ 3x und Sprung zu einer bestimmten Zeit
-- Rückgängig / Wiederholen für Zeit-, Lyrics- und Zeilenoperationen
-- Wiedergabezeit antippen, um den Folgemodus zu aktivieren und die ausgewählten Lyrics zu finden
-- Lyrics-Einheit antippen zum Auswählen, doppelt antippen zum Springen an den Start und Wiedergeben
+| Einsatzbereich | Möglichkeiten |
+| --- | --- |
+| Lokale Musik hören | Lokale Audiodateien scannen und nach Interpret, Album oder Playlist durchsuchen; Hintergrundwiedergabe, System-Mediensteuerung, Warteschlange und Abschalttimer nutzen. |
+| Liedtexte erleben | Wortgenaue Liedtexte mit hellem oder dunklem Design sowie Einstellungen für Wiedergabeleiste und Hintergrund anzeigen; Liedtexte auf dem Startbildschirm, in der Statusleiste und über die Bluetooth-Verbindung im Auto ausgeben. |
+| Wortgenaues Timing | Mit den drei Tasten Start / Weiter / Ende Zeiten setzen und sie mit Wiedergabegeschwindigkeit, Zeitsprüngen, Folgemodus, Rückgängig und Wiederholen verfeinern. |
+| Liedtexte bearbeiten | Wörter segmentieren, Texte teilen und zusammenführen, Zeilen verschieben, Zeitstempel versetzen, zwischen vereinfachtem und traditionellem Chinesisch umwandeln, Leerzeilen entfernen sowie Übersetzungen, Duette und Begleitgesang einstellen. |
+| Musik organisieren | Playlists, Favoriten und mit fünf Sternen bewertete Titel verwalten; Cover, Tags und Liedtexte gesammelt zuordnen, Metadaten bearbeiten und Dateien umbenennen. |
 
-### 2. Import
-- Lyrics als reiner Text
-- LRC (zeilenweise / wortgenau)
-- Enhanced LRC (ELRC)
-- TTML
-- Streaming-Lyrics-Suche
-- Audio-Dateiimport
+### Import und Export
 
-### 3. Export
-- LRC (zeilenweise / wortgenau)
-- TTML (mit Unterstützung für Duette und Hintergrundstimmen)
+| Inhalt | Import | Export |
+| --- | --- | --- |
+| Liedtexte als Klartext | Unterstützt | — |
+| LRC (zeilenweise / wortweise) | Unterstützt | Unterstützt |
+| Erweitertes LRC (ELRC) | Unterstützt | Unterstützt |
+| TTML | Unterstützt | Unterstützt, einschließlich Duett- und Begleitgesangsinformationen |
 
-### 4. Vorschau und Stapelverarbeitung
-- Vorschau der wortgenauen Lyrics-Wiedergabe
-- Wortsegmentierung mit einem Klick
-- Zeitstempel verschieben
-- Lyrics mit einem Klick zusammenführen
-- Traditionelles Chinesisch in vereinfachtes Chinesisch umwandeln
-- Leere Zeilen mit einem Klick löschen
+Du kannst auch nach Liedtexten suchen oder Audiodateien importieren, um mit der Erstellung zu beginnen. TTML empfiehlt sich zum Erhalten von Strukturinformationen wie Duetten und Begleitgesang; LRC eignet sich für die normale Liedtextanzeige.
 
-### 5. Lyrics-Strukturoperationen (Langes Drücken)
-- Lyrics-Operationen: bearbeiten, hinzufügen, teilen, zusammenführen, Zeit setzen, löschen
-- Zeilenoperationen: hinzufügen, zusammenführen, teilen, verschieben, Übersetzung hinzufügen/bearbeiten, löschen
+<a id="quick-start"></a>
 
-### 6. Player
-- Lokale Musikwiedergabe mit Wiedergabe / Pause, vorheriger / nächster Titel und Positionssuche
-- Sequenzielle Wiedergabe, Zufallswiedergabe und Einzeltitel-Wiederholung
-- Verwaltung der aktuellen Warteschlange mit Sprung, Entfernen und Sortieren per Drag-and-drop
-- Verknüpfung von Mini-Player in der Musikbibliothek und Vollplayer
-- Hintergrundwiedergabe, System-Medienbenachrichtigungen und Medientastensteuerung
-- Sleeptimer mit Stopp per Countdown oder nach Ende des aktuellen Songs
-- Integration mit Lyrics-Vorschau zur Prüfung des wortgenauen Effekts während der Wiedergabe
-- Unterstützt gängige lokale Audioformate und bietet Wiedergabekompatibilität für ALAC
+## Schnellstart
 
-### 7. Musikbibliothek
-- Lokale Audiodateien scannen und filtern
-- Playlists, Lieblingssongs und Fünf-Sterne-Songs
-- Playlists importieren / exportieren
-- Zur Wiedergabewarteschlange hinzufügen / als Nächstes abspielen
-- Tags stapelweise abgleichen (Cover, Titel, Künstler usw.)
-- Lyrics stapelweise abgleichen (wortgenau / zeilenweise / Übersetzung)
-- Stapelweise umbenennen
-- Tags stapelweise bearbeiten
+### Musik hören und die Bibliothek organisieren
 
-### 8. Einstellungen
-- Benutzerdefinierter Dunkelmodus
-- Benutzerdefinierte Vor-/Zurückspuldauer für Lyrics-Timing
-- Einstellungen der Musikbibliothek
-- Stil und Hintergrund der Wiedergabeleiste
-- Lyrics-Anzeige, Desktop-Lyrics, Statusleisten-Lyrics und Auto-Bluetooth-Lyrics
-- Covergrößen-Einstellungen für Audiometadaten
-- Regionseinstellungen für Apple-Music-Metadaten
+1. Öffne die Musikbibliothek und scanne die lokalen Audiodateien auf deinem Gerät.
+2. Suche nach Interpret, Album, Playlist oder Favoriten und tippe auf einen Titel, um ihn abzuspielen.
+3. Öffne den vollständigen Player, um den Wiedergabemodus zu ändern, die Warteschlange zu verwalten, Liedtexte anzuzeigen oder einen Abschalttimer einzustellen.
+4. Ordne zur Dateiorganisation zuerst Tags und Liedtexte gesammelt zu und bearbeite dann Tags oder Dateinamen.
 
-## 5-Minuten-Schnellstart (Empfohlene Reihenfolge)
+### Wortgenaue Liedtexte für einen Titel erstellen
 
-### Schritt 1: Audio und Lyrics importieren
-1. Importiere zuerst die Audiodatei.
-2. Wähle anschließend die Importmethode je nach Lyrics-Quelle: reiner Text / LRC / ELRC / TTML / Suche.
+1. **Importieren**: Wähle eine Audiodatei und importiere anschließend Liedtexte als Klartext, LRC, ELRC oder TTML. Du kannst auch nach Liedtexten suchen.
+2. **Vorbereiten**: Segmentiere zuerst die Wörter, entferne dann Leerzeilen, führe Text zusammen oder wandle zwischen vereinfachtem und traditionellem Chinesisch um. Vorhandene Zeiten kannst du zunächst durch eine Verschiebung der gesamten Zeitachse ausrichten.
+3. **Zeiten setzen**: Spiele die Audiodatei ab und nutze die drei Tasten unten im Rhythmus einer Liedtextzeile.
+4. **Verfeinern**: Tippe doppelt auf den Text, um zurückzuspringen und erneut zuzuhören. Prüfe die Zeiten mit Folgemodus, Rückgängig und Wiederholen; halte eine Einheit oder Zeile gedrückt, um sie zu teilen, zusammenzuführen, zu verschieben oder Übersetzungen zu bearbeiten.
+5. **Vorschau und Export**: Prüfe den wortgenauen Effekt; wähle LRC für die normale Anzeige oder TTML für Duett- und Begleitgesangsinformationen.
 
-### Schritt 2: Lokale Musik abspielen
-1. Öffne die Musikbibliothek und scanne lokale Audiodateien.
-2. Tippe auf einen Song, um die Wiedergabe zu starten; der Mini-Player unten zeigt den aktuellen Status.
-3. Im Vollplayer kannst du Wiedergabemodi wechseln, die Warteschlange verwalten, die Lyrics-Vorschau öffnen oder den Sleeptimer einstellen.
+| Taste | Aktion |
+| --- | --- |
+| Start | Setzt die Startzeit der aktuellen Einheit und bleibt bei dieser Einheit. |
+| Weiter | Setzt die Endzeit der aktuellen Einheit, wechselt zur nächsten und setzt zugleich deren Startzeit. |
+| Ende | Setzt die Endzeit der aktuellen Einheit und wechselt zur nächsten; deren Startzeit wird später festgelegt. |
 
-### Schritt 3: Lyrics vorbereiten
-1. Nutze die Wortsegmentierung mit einem Klick, um wortgenaue Einheiten zu erhalten.
-2. Entferne bei Bedarf leere Zeilen, führe Lyrics zusammen oder wandle traditionelles in vereinfachtes Chinesisch um.
-3. Wenn vorhandene Zeitstempel insgesamt verschoben sind, nutze zuerst die Zeitstempelverschiebung und danach die Feinabstimmung.
+Empfohlene Abfolge: `Start → Weiter → Weiter → … → Ende`, für jede Zeile wiederholen.
 
-### Schritt 4: Timing beginnen (Die drei Kerntasten)
-- Start: setzt die Startzeit der aktuellen Einheit, ohne zu springen.
-- Fortsetzen: setzt die Endzeit der aktuellen Einheit, springt automatisch zur nächsten und schreibt deren Startzeit.
-- Ende: setzt die Endzeit der aktuellen Einheit und springt zur nächsten, schreibt aber nicht deren Startzeit.
+<details>
+<summary>Tipps zum Setzen der Zeiten</summary>
 
-Empfohlener Rhythmus: `Start -> Fortsetzen -> Fortsetzen -> ... -> Ende`, satzweise wiederholen.
+- Die Zeit- und Textspalten zeigen Startzeit, Liedtext, Endzeit und Übersetzung.
+- Tippe einmal auf eine Einheit, um sie auszuwählen, und doppelt, um zu ihrer Startzeit zu springen und erneut zuzuhören.
+- Zurückspulen / Vorspulen, Wiedergabe / Pause, Geschwindigkeitsänderungen und Sprünge zu einer bestimmten Zeit werden unterstützt.
+- Tippe auf die Wiedergabezeit, um den Folgemodus zu aktivieren; tippe auf die Zeit im Timing-Bereich, um ein eigenes Sprungziel festzulegen.
+- Duette lassen sich als links (Hauptgesang), rechts (zweite Gesangsstimme) oder Hintergrund (Begleitgesang) einstellen und als TTML exportieren.
 
-### Schritt 5: Zeit und Text feinjustieren
-1. Aktiviere den Folgemodus, damit während der Wiedergabe automatisch die aktuelle Einheit gefunden wird.
-2. Tippe Lyrics doppelt an, um schnell zu deren Start zu springen und sie erneut anzuhören.
-3. Nutze Rückgängig / Wiederholen, um Änderungen schnell zu vergleichen.
-4. Drücke Lyrics oder Zeilen lange, um zu teilen, zusammenzuführen, zu verschieben, zu übersetzen oder die Struktur zu korrigieren.
+</details>
 
-### Schritt 6: Duette und Übersetzungen einstellen (Optional)
-- Duetttypen: linkes Duett (Hauptstimme), rechtes Duett (Nebenstimme), Hintergrund (Hintergrundstimmen).
-- Übersetzungen können importiert oder manuell bearbeitet werden.
-- Hinweis: Duetttypen wirken nur im TTML-Workflow.
+## Häufige Fragen
 
-### Schritt 7: Vorschau und Export
-1. Prüfe auf der Lyrics-Vorschauseite den wortgenauen Wiedergabeeffekt.
-2. Exportiere je nach Zweck:
-   - Für allgemeine Player zuerst `LRC`
-   - Wenn Duett-/Hintergrundstimmeninformationen nötig sind, zuerst `TTML`
+<details>
+<summary>Soll ich LRC oder TTML wählen?</summary>
 
-## Timing-Oberfläche
+Wähle LRC für die normale Liedtextanzeige und TTML, wenn Strukturinformationen wie Duette und Begleitgesang erhalten bleiben sollen. Prüfe den wortgenauen Effekt vor dem Export in der Vorschau.
 
-- Spalten: Startzeit / Lyrics / Endzeit / Übersetzung
-- Positionieren: zu ausgewählten Lyrics springen
-- Zeitsprung: Zeit im Timing-Bereich antippen, um zu einer benutzerdefinierten Zeit zu springen
-- Titel antippen: Audiopfad abrufen
+</details>
 
-## Empfohlener Musikbibliothek-Workflow
+<details>
+<summary>Was ist beim Exportieren und Abspielen von Duett-Liedtexten zu beachten?</summary>
 
-1. Lokale Audiodateien scannen, Ziel-Songs prüfen und filtern.
-2. Häufig gehörte Inhalte nach Album, Playlist, Favoriten oder Fünf-Sterne-Songs organisieren.
-3. Songs abspielen und die aktuelle Warteschlange verwalten; bei Bedarf "als Nächstes abspielen" oder Sleeptimer setzen.
-4. Tags stapelweise abgleichen, um Cover / Titel / Künstler und weitere Metadaten zu ergänzen.
-5. Lyrics stapelweise abgleichen, um wortgenaue / zeilenweise Lyrics und Übersetzungen zu ergänzen.
-6. Mit stapelweiser Umbenennung und Tag-Bearbeitung abschließen.
+Exportiere Duett- und Begleitgesangsinformationen vorzugsweise als TTML und verwende einen Player, der diese Effekte unterstützt. Die tatsächliche Anzeige hängt davon ab, wie der Player das Liedtextformat und dessen Informationen unterstützt.
 
-## FAQ
+</details>
 
-### 1. Wann LRC exportieren, wann TTML?
-- Wenn nur normale Lyrics-Anzeige benötigt wird: LRC wählen.
-- Wenn Duette, Hintergrundstimmen oder eine vollständigere Struktur benötigt werden: TTML wählen.
+<details>
+<summary>Wie korrigiere ich Liedtexte, die insgesamt zu früh oder zu spät erscheinen?</summary>
 
-### 2. Warum sehe ich nach dem Einstellen von Duetten keinen Effekt?
-Duetttypen werden nur in TTML unterstützt. Bitte sicherstellen, dass der TTML-Workflow genutzt und als TTML exportiert wird.
+Verschiebe zunächst die Zeitstempel, um die gesamte Zeitachse auszurichten, und verfeinere danach einzelne Stellen im Timing-Bildschirm.
 
-### 3. Die Lyrics sind insgesamt zu früh oder zu spät. Wie korrigiere ich das schnell?
-Zuerst mit Zeitstempelverschiebung global ausrichten, dann zur Timing-Seite zurückkehren und lokal feinjustieren.
+</details>
 
-### 4. Was ist der häufigste Anfängerfehler?
-Meistens wird vor der Wortsegmentierung getimt. Es wird empfohlen, zuerst Segmentierung und Textbereinigung abzuschließen.
+<details>
+<summary>Wo beginne ich, wenn ich zum ersten Mal Zeiten für Liedtexte setze?</summary>
+
+Schließe zuerst die Wortsegmentierung und Textbereinigung ab. Wähle einen vertrauten Titel, nutze pro Zeile „Start → Weiter → … → Ende“ und höre anschließend noch einmal zu, um kleine Korrekturen vorzunehmen.
+
+</details>
+
+<a id="community-and-feedback"></a>
 
 ## Community und Feedback
 
-- [Der LunaBeat-Telegram-Gruppe beitreten](https://t.me/+qXs6mjKqwhw3Zjll)
-- [Der LunaBeat-QQ-Gruppe beitreten](https://qm.qq.com/q/N0fBvuWKOY)  Gruppen-ID: 964680520
+- [GitHub Issues · Fehlerberichte und Funktionsvorschläge](https://github.com/2755337087/LunaBeat/issues)
+- [Telegram · LunaBeat-Community-Gruppe](https://t.me/+qXs6mjKqwhw3Zjll)
+- [QQ · LunaBeat-Community-Gruppe](https://qm.qq.com/q/N0fBvuWKOY) · Gruppennummer: **964680520**
 
-## Special Thanks
+Gib bei Problemen möglichst die App-Version, das Gerät und die Android-Version, Schritte zur Reproduktion sowie passende Screenshots oder Dateiformate an. Das erleichtert die Fehlersuche.
+
+## Besonderer Dank
 
 ### Technische Unterstützung
 
