@@ -18,16 +18,16 @@
 
 ## 화면 미리보기
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/mainPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/searchPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricEditPage.jpg" width="30%" />
-</p>
+### 스마트폰
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage2.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/musicEditPage.jpg" width="30%" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · 스마트폰" width="960" />
+</p>
+
+### 태블릿
+
+<p align="center">
+  <img src="Screenshots/pad.png" alt="LunaBeat · 태블릿" width="960" />
 </p>
 
 ## 기능 개요
@@ -163,30 +163,33 @@
 ### 4. 초보자가 가장 자주 실수하는 단계는 무엇인가요?
 대개 "먼저 타이밍을 찍고 나중에 단어 분리"하는 것입니다. 먼저 단어 분리와 텍스트 정리를 마친 뒤 타이밍을 시작하는 것을 권장합니다.
 
-## Special Thanks
-
-Inspired by:
-- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
-- [Music Tag](https://www.cnblogs.com/vinlxc/p/11932130.html)
-
-Technical support:
-
-- [TagLib](https://github.com/taglib/taglib)
-- [Lyricon](https://github.com/tomakino/lyricon)
-- [SongSync](https://github.com/Lambada10/SongSync)
-- [LDDC](https://github.com/chenmozhijin/LDDC)
-- [OpenCC](https://github.com/BYVoid/OpenCC)
-- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
-- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
-- [TagLib (Kyant0)](https://github.com/Kyant0/taglib)
-- [uCrop](https://github.com/Yalantis/uCrop)
-- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
-- [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
-- [lottie-android](https://github.com/airbnb/lottie-android)
-- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
-- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
-
 ## 커뮤니티 및 피드백
 
 - [LunaBeat Telegram 그룹 참여](https://t.me/+qXs6mjKqwhw3Zjll)
 - [LunaBeat QQ 그룹 참여](https://qm.qq.com/q/N0fBvuWKOY)  그룹 번호: 964680520
+
+## Special Thanks
+
+### 기술 지원
+
+- [TagLib](https://github.com/taglib/taglib)
+- [Lyricon](https://github.com/tomakino/lyricon)
+- [OpenCC](https://github.com/BYVoid/OpenCC)
+- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
+- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
+- [TagLib(Kyant0)](https://github.com/Kyant0/taglib)
+- [uCrop](https://github.com/Yalantis/uCrop)
+- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
+- [lottie-android](https://github.com/airbnb/lottie-android)
+- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
+- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+- [AMLLTTML歌词站](https://amlldb.bikonoo.com/)
+- [LunaBeat歌词站](https://github.com/2755337087/ttml-hub/blob/main/README.md)
+
+### 영감을 준 프로젝트
+
+- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
+- [音乐标签](https://www.cnblogs.com/vinlxc/p/11932130.html)
+- [光锥音乐](https://coneplayer.trantor.ink/)
+- [Halcyon](https://github.com/Kifranei/Halcyon)
+- [Flamingo](https://github.com/Yos-X)

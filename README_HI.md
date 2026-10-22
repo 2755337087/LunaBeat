@@ -18,16 +18,16 @@
 
 ## इंटरफ़ेस पूर्वावलोकन
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/mainPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/searchPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricEditPage.jpg" width="30%" />
-</p>
+### फ़ोन
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage2.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/musicEditPage.jpg" width="30%" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · फ़ोन" width="960" />
+</p>
+
+### टैबलेट
+
+<p align="center">
+  <img src="Screenshots/pad.png" alt="LunaBeat · टैबलेट" width="960" />
 </p>
 
 ## फीचर अवलोकन
@@ -163,30 +163,33 @@
 ### 4. नए उपयोगकर्ता सबसे आम गलती क्या करते हैं?
 आमतौर पर "पहले टाइमिंग, बाद में शब्द विभाजन"। बेहतर है कि पहले शब्द विभाजन और टेक्स्ट सफाई पूरी करें, फिर टाइमिंग शुरू करें।
 
-## Special Thanks
-
-Inspired by:
-- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
-- [Music Tag](https://www.cnblogs.com/vinlxc/p/11932130.html)
-
-Technical support:
-
-- [TagLib](https://github.com/taglib/taglib)
-- [Lyricon](https://github.com/tomakino/lyricon)
-- [SongSync](https://github.com/Lambada10/SongSync)
-- [LDDC](https://github.com/chenmozhijin/LDDC)
-- [OpenCC](https://github.com/BYVoid/OpenCC)
-- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
-- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
-- [TagLib (Kyant0)](https://github.com/Kyant0/taglib)
-- [uCrop](https://github.com/Yalantis/uCrop)
-- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
-- [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
-- [lottie-android](https://github.com/airbnb/lottie-android)
-- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
-- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
-
 ## समुदाय और प्रतिक्रिया
 
 - [LunaBeat Telegram समूह में शामिल हों](https://t.me/+qXs6mjKqwhw3Zjll)
 - [LunaBeat QQ समूह में शामिल हों](https://qm.qq.com/q/N0fBvuWKOY)  समूह संख्या: 964680520
+
+## Special Thanks
+
+### तकनीकी सहयोग
+
+- [TagLib](https://github.com/taglib/taglib)
+- [Lyricon](https://github.com/tomakino/lyricon)
+- [OpenCC](https://github.com/BYVoid/OpenCC)
+- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
+- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
+- [TagLib(Kyant0)](https://github.com/Kyant0/taglib)
+- [uCrop](https://github.com/Yalantis/uCrop)
+- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
+- [lottie-android](https://github.com/airbnb/lottie-android)
+- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
+- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+- [AMLLTTML歌词站](https://amlldb.bikonoo.com/)
+- [LunaBeat歌词站](https://github.com/2755337087/ttml-hub/blob/main/README.md)
+
+### प्रेरणा
+
+- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
+- [音乐标签](https://www.cnblogs.com/vinlxc/p/11932130.html)
+- [光锥音乐](https://coneplayer.trantor.ink/)
+- [Halcyon](https://github.com/Kifranei/Halcyon)
+- [Flamingo](https://github.com/Yos-X)

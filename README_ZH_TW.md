@@ -18,16 +18,16 @@
 
 ## 介面預覽
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/mainPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/searchPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricEditPage.jpg" width="30%" />
-</p>
+### 手機介面
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage2.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/musicEditPage.jpg" width="30%" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · 手機介面" width="960" />
+</p>
+
+### 平板介面
+
+<p align="center">
+  <img src="Screenshots/pad.png" alt="LunaBeat · 平板介面" width="960" />
 </p>
 
 ## 功能總覽
@@ -163,30 +163,33 @@
 ### 4. 新手最容易出錯的步驟是什麼？
 通常是「先打軸後分詞」。建議先完成分詞與文字清理，再開始打軸。
 
-## 特別感謝
-
-靈感來源：
-- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
-- [音樂標籤](https://www.cnblogs.com/vinlxc/p/11932130.html)
-
-技術支援：
-
-- [TagLib](https://github.com/taglib/taglib)
-- [Lyricon](https://github.com/tomakino/lyricon)
-- [SongSync](https://github.com/Lambada10/SongSync)
-- [LDDC](https://github.com/chenmozhijin/LDDC)
-- [OpenCC](https://github.com/BYVoid/OpenCC)
-- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
-- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
-- [TagLib (Kyant0)](https://github.com/Kyant0/taglib)
-- [uCrop](https://github.com/Yalantis/uCrop)
-- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
-- [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
-- [lottie-android](https://github.com/airbnb/lottie-android)
-- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
-- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
-
 ## 交流與回饋
 
 - [點擊加入 LunaBeat Telegram 群組](https://t.me/+qXs6mjKqwhw3Zjll)
 - [點擊加入 LunaBeat 交流 QQ 群](https://qm.qq.com/q/N0fBvuWKOY)  群號：964680520
+
+## 特別感謝
+
+### 技術支持
+
+- [TagLib](https://github.com/taglib/taglib)
+- [Lyricon](https://github.com/tomakino/lyricon)
+- [OpenCC](https://github.com/BYVoid/OpenCC)
+- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
+- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
+- [TagLib(Kyant0)](https://github.com/Kyant0/taglib)
+- [uCrop](https://github.com/Yalantis/uCrop)
+- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
+- [lottie-android](https://github.com/airbnb/lottie-android)
+- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
+- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+- [AMLLTTML歌词站](https://amlldb.bikonoo.com/)
+- [LunaBeat歌词站](https://github.com/2755337087/ttml-hub/blob/main/README.md)
+
+### 靈感來源
+
+- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
+- [音乐标签](https://www.cnblogs.com/vinlxc/p/11932130.html)
+- [光锥音乐](https://coneplayer.trantor.ink/)
+- [Halcyon](https://github.com/Kifranei/Halcyon)
+- [Flamingo](https://github.com/Yos-X)

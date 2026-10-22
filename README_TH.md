@@ -18,16 +18,16 @@
 
 ## ตัวอย่างหน้าจอ
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/mainPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/searchPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricEditPage.jpg" width="30%" />
-</p>
+### โทรศัพท์
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage2.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/musicEditPage.jpg" width="30%" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · โทรศัพท์" width="960" />
+</p>
+
+### แท็บเล็ต
+
+<p align="center">
+  <img src="Screenshots/pad.png" alt="LunaBeat · แท็บเล็ต" width="960" />
 </p>
 
 ## ภาพรวมฟีเจอร์
@@ -163,30 +163,33 @@
 ### 4. มือใหม่มักพลาดขั้นตอนไหน?
 มักเป็นการจับเวลาก่อนแยกคำ แนะนำให้แยกคำและจัดข้อความให้เรียบร้อยก่อนเริ่มจับเวลา
 
-## Special Thanks
-
-Inspired by:
-- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
-- [Music Tag](https://www.cnblogs.com/vinlxc/p/11932130.html)
-
-Technical support:
-
-- [TagLib](https://github.com/taglib/taglib)
-- [Lyricon](https://github.com/tomakino/lyricon)
-- [SongSync](https://github.com/Lambada10/SongSync)
-- [LDDC](https://github.com/chenmozhijin/LDDC)
-- [OpenCC](https://github.com/BYVoid/OpenCC)
-- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
-- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
-- [TagLib (Kyant0)](https://github.com/Kyant0/taglib)
-- [uCrop](https://github.com/Yalantis/uCrop)
-- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
-- [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
-- [lottie-android](https://github.com/airbnb/lottie-android)
-- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
-- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
-
 ## ชุมชนและข้อเสนอแนะ
 
 - [เข้าร่วมกลุ่ม Telegram ของ LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
 - [เข้าร่วมกลุ่ม QQ ของ LunaBeat](https://qm.qq.com/q/N0fBvuWKOY)  หมายเลขกลุ่ม: 964680520
+
+## Special Thanks
+
+### การสนับสนุนทางเทคนิค
+
+- [TagLib](https://github.com/taglib/taglib)
+- [Lyricon](https://github.com/tomakino/lyricon)
+- [OpenCC](https://github.com/BYVoid/OpenCC)
+- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
+- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
+- [TagLib(Kyant0)](https://github.com/Kyant0/taglib)
+- [uCrop](https://github.com/Yalantis/uCrop)
+- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
+- [lottie-android](https://github.com/airbnb/lottie-android)
+- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
+- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+- [AMLLTTML歌词站](https://amlldb.bikonoo.com/)
+- [LunaBeat歌词站](https://github.com/2755337087/ttml-hub/blob/main/README.md)
+
+### แรงบันดาลใจ
+
+- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
+- [音乐标签](https://www.cnblogs.com/vinlxc/p/11932130.html)
+- [光锥音乐](https://coneplayer.trantor.ink/)
+- [Halcyon](https://github.com/Kifranei/Halcyon)
+- [Flamingo](https://github.com/Yos-X)

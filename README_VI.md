@@ -18,16 +18,16 @@
 
 ## Xem trước giao diện
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/mainPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/searchPage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricEditPage.jpg" width="30%" />
-</p>
+### Điện thoại
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/lyricPrePage2.jpg" width="30%" />
-  <img src="https://raw.githubusercontent.com/2755337087/LunaBeat/main/Screenshots/musicEditPage.jpg" width="30%" />
+  <img src="Screenshots/phone.png" alt="LunaBeat · Điện thoại" width="960" />
+</p>
+
+### Máy tính bảng
+
+<p align="center">
+  <img src="Screenshots/pad.png" alt="LunaBeat · Máy tính bảng" width="960" />
 </p>
 
 ## Tổng quan tính năng
@@ -163,30 +163,33 @@ Dùng dịch chuyển mốc thời gian để căn chỉnh toàn bộ trước, 
 ### 4. Người mới dễ sai bước nào nhất?
 Thường là "canh lời trước rồi mới tách từ". Nên hoàn tất tách từ và dọn văn bản trước khi bắt đầu canh lời.
 
-## Special Thanks
-
-Inspired by:
-- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
-- [Music Tag](https://www.cnblogs.com/vinlxc/p/11932130.html)
-
-Technical support:
-
-- [TagLib](https://github.com/taglib/taglib)
-- [Lyricon](https://github.com/tomakino/lyricon)
-- [SongSync](https://github.com/Lambada10/SongSync)
-- [LDDC](https://github.com/chenmozhijin/LDDC)
-- [OpenCC](https://github.com/BYVoid/OpenCC)
-- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
-- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
-- [TagLib (Kyant0)](https://github.com/Kyant0/taglib)
-- [uCrop](https://github.com/Yalantis/uCrop)
-- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
-- [EdgeTranslucent](https://github.com/qinci/EdgeTranslucent)
-- [lottie-android](https://github.com/airbnb/lottie-android)
-- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
-- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
-
 ## Cộng đồng và phản hồi
 
 - [Tham gia nhóm Telegram LunaBeat](https://t.me/+qXs6mjKqwhw3Zjll)
 - [Tham gia nhóm QQ LunaBeat](https://qm.qq.com/q/N0fBvuWKOY)  Mã nhóm: 964680520
+
+## Special Thanks
+
+### Hỗ trợ kỹ thuật
+
+- [TagLib](https://github.com/taglib/taglib)
+- [Lyricon](https://github.com/tomakino/lyricon)
+- [OpenCC](https://github.com/BYVoid/OpenCC)
+- [any-listen-extension-online-metadata](https://github.com/any-listen/any-listen-extension-online-metadata)
+- [163Music2Tag](https://gitee.com/Wangs-official/163Music2Tag)
+- [TagLib(Kyant0)](https://github.com/Kyant0/taglib)
+- [uCrop](https://github.com/Yalantis/uCrop)
+- [accompanist-lyrics-ui](https://github.com/6xingyv/accompanist-lyrics-ui)
+- [lottie-android](https://github.com/airbnb/lottie-android)
+- [ICU Transliterator](https://unicode-org.github.io/icu/userguide/transforms/general/)
+- [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+- [AMLLTTML歌词站](https://amlldb.bikonoo.com/)
+- [LunaBeat歌词站](https://github.com/2755337087/ttml-hub/blob/main/README.md)
+
+### Nguồn cảm hứng
+
+- [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool)
+- [音乐标签](https://www.cnblogs.com/vinlxc/p/11932130.html)
+- [光锥音乐](https://coneplayer.trantor.ink/)
+- [Halcyon](https://github.com/Kifranei/Halcyon)
+- [Flamingo](https://github.com/Yos-X)
